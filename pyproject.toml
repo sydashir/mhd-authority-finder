@@ -1,0 +1,81 @@
+[project]
+name = "authority-finder"
+version = "0.1.0"
+description = "Per-geo discovery of .gov / .edu / high-authority sites for MHD + AH backlink outreach."
+requires-python = ">=3.12,<3.13"
+readme = "README.md"
+authors = [{ name = "Syed Ashir" }]
+dependencies = [
+    "httpx==0.28.1",
+    "pydantic==2.13.4",
+    "pydantic-settings==2.14.1",
+    "structlog==25.5.0",
+]
+
+[dependency-groups]
+dev = [
+    "pyright==1.1.409",
+    "pytest==9.0.3",
+    "pytest-asyncio==1.3.0",
+    "ruff==0.15.13",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/authority_finder"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "UP",     # pyupgrade
+    "SIM",    # flake8-simplify
+    "RUF",    # ruff-specific
+    "ASYNC",  # flake8-async
+    "PTH",    # use pathlib over os.path
+    "TCH",    # type-checking import hygiene
+    "TID",    # tidy imports
+    "PL",     # pylint subset
+    "RET",    # flake8-return
+    "ARG",    # unused arguments
+    "C4",     # comprehensions
+    "PIE",    # misc lints
+    "N",      # pep8-naming
+]
+ignore = [
+    "PLR0913",  # too-many-arguments — pipelines naturally take wide inputs
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["PLR2004"]  # magic numbers fine in tests
+
+[tool.ruff.lint.isort]
+known-first-party = ["authority_finder"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+reportMissingTypeStubs = "warning"
+reportUnnecessaryTypeIgnoreComment = "error"
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = ["-ra", "--strict-markers", "--strict-config"]
