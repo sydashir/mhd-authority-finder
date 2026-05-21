@@ -53,6 +53,9 @@ All module files are currently stubs (docstring + responsibility, no implementat
 - Playwright MCP is available — use it for real browser verification, do not trust raw HTML alone.
 - Every non-trivial decision gets an entry in `docs/decisions.md`.
 - End every working session by updating `docs/progress.md`.
+- No AI attribution on commits or PRs. Never add `Co-Authored-By: Claude`, "Generated with Claude Code", or any similar trailer/footer. Commits are authored by the human only.
+- Commit messages: short, conventional-commit style. Subject line ≤ 60 chars, lowercase, imperative ("add x" not "added x"). Body only when truly needed. No marketing language, no emojis.
+- Commit-by-commit workflow: one logical change per commit. If you touch two unrelated things, that's two commits. Easier to review, easier to revert. Never batch unrelated work.
 
 ## Reading order for any new session
 
