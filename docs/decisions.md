@@ -89,3 +89,40 @@ Append-only. Newest entries at the bottom. Each ADR captures: decision, alternat
 - `architecture.md` updated (component table, mermaid, scope boundaries).
 - The Phase 1 next-step list in `CLAUDE.md` should describe contact extraction as direct-scrape only.
 - `Settings.hunter_api_key` exists but is unused. When we revisit, ADR-003 supersession will be added here, not edited in place.
+
+---
+
+## ADR-002 — Commit hygiene: no AI attribution, conventional commits, atomic commits
+
+**Date:** 2026-05-21
+**Status:** Accepted
+**Context:** Session 2 — tightening rules before any feature code lands.
+
+(Numbering note: ADR-002 lands after ADR-003 chronologically because both were decided in the same session; numbers reflect topic ordering in `CLAUDE.md`'s working-rules section, not commit timeline.)
+
+### Decision
+
+1. **No AI attribution on commits or PRs.** No `Co-Authored-By: Claude`, no "Generated with Claude Code" footer, no emoji robot, no model name in commit metadata. Commits are authored by the human. Globally enforced via `~/.claude/settings.json` (`attribution.commit = ""`, `attribution.pr = ""`).
+2. **Conventional-commit style, short.** Subject ≤ 60 chars, lowercase, imperative mood (`add x`, not `added x`). Type prefix from the fixed set: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `perf`, `build`. Body only when the diff itself doesn't explain *why*. No marketing language. No emojis.
+3. **Atomic / commit-by-commit.** One logical change per commit. Two unrelated edits = two commits. If a refactor surfaces a bug fix, that's still two commits. The CLAUDE.md-rules edit and the Hunter-drop edit landed as two commits this session — that's the standard.
+
+### Rationale
+
+- Clean git history is a debugging tool, not a vanity exercise. `git bisect` only works when each commit is one thing. `git revert` only works without collateral damage when each commit is one thing.
+- AI attribution in the commit trailer pollutes `git blame`, leaks tooling details into a permanent record, and conflates authorship. The human runs the IDE; the human owns the commit. (Pattern used by [Linus on subsystem maintainers](https://lwn.net/Articles/669976/), and the rationale for the [Conventional Commits spec](https://www.conventionalcommits.org/).)
+- Short subject lines render properly in `git log --oneline`, GitHub PR lists, and every code-review UI. Long subjects truncate and lose meaning.
+- Atomic commits make code review faster: reviewers can approve or reject a discrete change without untangling it from three other changes.
+
+### Alternatives considered
+
+| Choice | Considered | Why not |
+|---|---|---|
+| Keep AI attribution trailers | yes | Pollutes blame; provides no information that isn't already in the file history. |
+| Free-form commit messages | yes | Loses the affordances of conventional commits (changelog tooling, type filtering). The cost of imposing structure is one prefix; the benefit is permanent. |
+| Squash unrelated work into "WIP" commits and tidy later | yes | "Tidy later" never happens. Easier to write atomic in the first place than to rewrite history. |
+
+### Enforcement
+
+- `~/.claude/settings.json` global override removes the default trailer.
+- The three rules are appended to `CLAUDE.md`'s working-rules section so every future session reads them at start.
+- Violations are user-correctable via `git commit --amend` before push; if pushed, fix forward rather than rewriting history.
