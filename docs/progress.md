@@ -55,3 +55,55 @@ Phase 1 implementation begins next session. Order:
 7. CLI wrapper for manual end-to-end runs per geo.
 
 Phase 1 success criterion: feed a known MHD geo URL on the CLI, get at least one correct row appended to the Google Sheet with `.gov`/`.edu` site, dept page, contact info (or flagged), and population.
+
+---
+
+## 2026-05-21 — Session 2: Rules tightened, scope updates, integration targets confirmed
+
+### Done
+
+- Re-read `CLAUDE.md` and `docs/brief.md`.
+- Confirmed first commit already had no AI attribution trailer (subject-only on remote `e87ef11`). Step 2 (amend + force-push) was a no-op — flagged rather than fabricated.
+- Updated `~/.claude/settings.json` with `attribution.commit = ""` and `attribution.pr = ""`, merged into the existing `skipDangerousModePermissionPrompt: true`. Lives outside the repo so not committed.
+- Appended three new working rules to `CLAUDE.md`:
+  - No AI attribution on commits or PRs.
+  - Conventional-commit style, subject ≤ 60 chars, lowercase imperative, no emojis.
+  - Atomic commit-by-commit workflow.
+- Added **ADR-002** (commit hygiene) and **ADR-003** (drop Hunter/Apollo from MVP scope) to `docs/decisions.md`.
+- Removed Hunter / Apollo references from `docs/architecture.md` (component table, mermaid box, external-APIs table, scope-boundaries section). Contact extraction is now direct-scrape only for MVP.
+- Created `docs/sites.md` with the confirmed integration targets (MHD = `inpatientmentalhealthfinder.com`, AH = `addictionhotline.com`), Rank Math sitemap structure, and URL patterns. Source: client's WordPress team, May 21 2026.
+- Five atomic commits in the prescribed order:
+  1. `docs: tighten commit + attribution rules` — `CLAUDE.md` only.
+  2. `docs: drop hunter/apollo from mvp scope` — `decisions.md` (ADR-003) + `architecture.md`.
+  3. `docs: log commit hygiene decision` — `decisions.md` (ADR-002).
+  4. `docs: confirmed mhd + ah site details` — new `docs/sites.md`.
+  5. `docs: progress log session 2` — this entry.
+
+### Open decisions resolved this session
+
+- **Hunter.io / Apollo:** dropped from MVP. Revisit only if first-batch contact coverage on real geos comes in below ~50%. (ADR-003.)
+- **Run cadence:** manual-only for MVP. Matches feasibility doc Phase 1.
+- **Ahrefs DR threshold:** 40, provisional. Will be tuned against real outreach response data once Phase 2 ships.
+- **Integration targets:** confirmed — both client sites run WordPress + Rank Math with the same sitemap shape. Geo pages are regular Pages (not a CPT) and must be filtered out of `/page-sitemap*.xml` by URL pattern. `docs/sites.md` is now the canonical reference.
+
+### Still open
+
+- **Google Sheet target.** Sheet ID + service-account credentials. Not blocking until `output.py` is built.
+- **SerpAPI vs Google Custom Search.** Not blocking until `discovery.py` is built. SerpAPI is the leading candidate (operationally simpler).
+
+### Blocked
+
+Nothing blocked.
+
+### What's next — Session 3
+
+First real component: `geo_monitor`. With sites.md in hand we now know exactly what to fetch and parse.
+
+1. Async fetcher for `sitemap_index.xml` → enumerate child page sitemaps.
+2. Parse each `page-sitemap{N}.xml`, filter to geo URLs by per-site pattern (`/serving/{state}/{county}/{city}/` for MHD, `/{state}/{county}/{city}/` for AH).
+3. Classify each URL as state / county / city by path-segment depth.
+4. Persist last-seen-set to disk; diff on next run; emit `NewGeoPage` events.
+5. Tests against a snapshot of each sitemap_index (fixture, not live network).
+
+Open question for the user before Session 3:
+- Where do we persist the "last seen URLs" state? Local file under `data/` is simplest; a tiny SQLite db is overkill for MVP but worth flagging.
