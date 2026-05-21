@@ -14,7 +14,7 @@ The pipeline is triggered by a new geo page appearing on MHD or AH. For that geo
 | 2 | `discovery` | For each new geo, run targeted queries (`"mental health resources site:*.gov" + geo`, etc.) and collect candidate domains. Suffix-filter to `.gov` / `.edu`. | SerpAPI (or Google Custom Search) |
 | 3 | `authority_filter` | For non-`.gov`/`.edu` candidates, look up Domain Rating and keep only those above a configured threshold (default DR 40+). Phase 2. | Ahrefs API |
 | 4 | `page_detector` | Score candidate URLs by keyword match (e.g. "health", "behavioral", "resources", "probation", "students") + cheap internal-link crawl. Flag low-confidence rows for manual review. | none |
-| 5 | `contact_extractor` | Parse the chosen page for email + phone. Fall back to Hunter.io / Apollo when not found. Expected coverage 65–75%. | Hunter.io (and/or Apollo.io) |
+| 5 | `contact_extractor` | Direct scrape only for MVP. Targets contact/department pages on the discovered .gov/.edu site. Parses mailto links and handles common obfuscation patterns (e.g. `name [at] domain`). | none |
 | 6 | `link_checker` | Crawl the discovered site for outbound links to any of 16 competitor domains. Phase 2. | none |
 | 7 | `population` | Pull population for the geo. | US Census API |
 | 8 | `output` | Append row to Google Sheet. Deduplicate by `(domain, geo)`. Separate tabs for MHD vs AH. Flag manual-review rows. | Google Sheets API |
@@ -34,7 +34,7 @@ flowchart TD
     subgraph Pipeline
         D[discovery<br/>SerpAPI] --> AF[authority_filter<br/>Ahrefs DR — Phase 2]
         AF --> P[page_detector<br/>keyword scoring]
-        P --> CE[contact_extractor<br/>scrape + Hunter.io]
+        P --> CE[contact_extractor<br/>direct scrape]
         CE --> LC[link_checker<br/>16 competitor domains — Phase 2]
         LC --> POP[population<br/>US Census]
     end
@@ -54,7 +54,6 @@ Dashed boxes (`authority_filter`, `link_checker`) are Phase 2.
 |---|---|---|---|
 | SerpAPI (or Google Custom Search) | `discovery` | Per query | Rate-limit + cache per geo to control spend. |
 | Ahrefs | `authority_filter` | Subscription | Phase 2. DR threshold configurable, default 40. |
-| Hunter.io (optionally Apollo) | `contact_extractor` | Per lookup | Fallback only — try direct scrape first. |
 | US Census | `population` | Free | Requires an API key; supports city / county / state lookups. |
 | Google Sheets | `output` | Free | Service account auth; sheet ID + tab name in config. |
 
@@ -73,5 +72,5 @@ Dashed boxes (`authority_filter`, `link_checker`) are Phase 2.
 ## Scope boundaries
 
 - The tool **prospects only**. It does not send outreach emails.
-- Contact coverage is realistic, not exhaustive (65–75% expected).
+- Contact coverage is realistic, not exhaustive. Direct scrape only for MVP; if real-world coverage on the first 20–30 geos comes in below ~50%, a paid email-discovery fallback (Hunter.io / Apollo) gets reconsidered. See ADR-003.
 - Manual-review flags are first-class output, not a bug.

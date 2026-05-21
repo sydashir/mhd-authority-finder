@@ -51,3 +51,41 @@ Append-only. Newest entries at the bottom. Each ADR captures: decision, alternat
 - `pyright` strict can be noisy with third-party libs that ship partial stubs. We accept that and use targeted `# pyright: ignore[reportX]` with a written reason rather than relaxing the global config.
 - `ruff` and `pyright` versions evolve quickly. Pin them and bump deliberately, with a commit that explains the diff.
 - If `mypy` turns out to integrate better with a downstream tool we adopt, swapping is cheap because no source annotations change.
+
+---
+
+## ADR-003 — Drop Hunter.io / Apollo from MVP scope
+
+**Date:** 2026-05-21
+**Status:** Accepted
+**Context:** Session 2 — re-scoping after the user reviewed the feasibility doc's contact-extraction plan and the actual outreach targets.
+
+### Decision
+
+`contact_extractor` does **direct scraping only** for the MVP. No Hunter.io, no Apollo, no paid email-discovery API. The `HUNTER_API_KEY` field stays in `Settings`/`.env.example` as a dead placeholder for now (cheap, and avoids a future migration); it is not read by any module. If real-world coverage on the first 20–30 outreach geos comes in below ~50%, we revisit.
+
+### Rationale
+
+- The outreach universe is `.gov` and `.edu` — public institutions. These sites are required (formally or by convention) to publish department-level contact info on public-facing pages. The probation-resources page or behavioral-health page is more likely to have a useful inbox than a Hunter lookup of `firstname.lastname@county.gov`.
+- For public-institution outreach, a **department inbox** (e.g. `behavioralhealth@countygov.example`) is usually more responsive than a personal employee email. Hunter / Apollo optimise for the wrong target.
+- Removing an external API removes a paid dependency, a rate limit, a failure mode, a secret to rotate, and a per-row cost. Net win as long as direct scrape covers the realistic baseline.
+- The original feasibility doc cited 65–75% expected coverage assuming Hunter as fallback. Realistically, direct scraping of `.gov` / `.edu` contact pages should land in a similar band; we will measure rather than assume.
+
+### Alternatives considered
+
+| Choice | Considered | Why not |
+|---|---|---|
+| Keep Hunter.io as fallback from day one | yes | Adds cost and a dependency before we have real coverage numbers to justify it. Premature optimization for a problem we haven't measured yet. |
+| Apollo.io instead of Hunter | yes | Same arguments — wrong target audience (personal emails, not dept inboxes). |
+| Drop the env var too | yes | Keeping `HUNTER_API_KEY` as a noted placeholder in `.env.example` costs one line and signals the deliberate "not used yet" state. Avoids a config schema migration if we re-add it later. |
+
+### Trigger to revisit
+
+- Real-world contact-info coverage on the first 20–30 processed geos is below ~50%.
+- Or: outreach team reports a specific failure pattern (e.g. dept inboxes go to a black hole, named contacts respond) where Hunter / Apollo data would have changed the outcome.
+
+### Consequences
+
+- `architecture.md` updated (component table, mermaid, scope boundaries).
+- The Phase 1 next-step list in `CLAUDE.md` should describe contact extraction as direct-scrape only.
+- `Settings.hunter_api_key` exists but is unused. When we revisit, ADR-003 supersession will be added here, not edited in place.
