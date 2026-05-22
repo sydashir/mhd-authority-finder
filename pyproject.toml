@@ -81,4 +81,7 @@ venv = ".venv"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = ["-ra", "--strict-markers", "--strict-config"]
+addopts = ["-ra", "--strict-markers", "--strict-config", "-m", "not live"]
+markers = [
+    "live: hits real external services (MHD/AH sitemaps, real browser). Skipped by default; opt in with `pytest -m live`.",
+]
