@@ -9,6 +9,7 @@ Source of truth for scope: [`docs/brief.md`](docs/brief.md).
 ```bash
 uv sync                       # create .venv and install pinned deps
 cp .env.example .env          # fill in API keys
+uv run playwright install chromium   # one-time, needed for `pytest -m live`
 ```
 
 ## Running
