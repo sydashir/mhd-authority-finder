@@ -29,7 +29,7 @@ src/authority_finder/
   discovery.py         per-geo .gov/.edu/authority search (SerpAPI)
   authority_filter.py  Ahrefs DR threshold filter for non-.gov/.edu
   page_detector.py     finds dept / resource page (not homepage)
-  contact_extractor.py email + phone scraping, Hunter.io fallback
+  contact_extractor.py email + phone scraping (direct only, MVP)
   link_checker.py      checks site for links to 16 competitor domains
   population.py        US Census API lookup for the geo
   output.py            Google Sheets writer + dedupe
@@ -82,7 +82,7 @@ Order per feasibility doc Section 9:
 1. Geo monitor — poll MHD + AH sitemaps, detect new city/county/state pages, emit events.
 2. Discovery — SerpAPI queries per geo, filter to `.gov` / `.edu`.
 3. Page detector — keyword-scored ranking of candidate URLs to surface the dept/resource page.
-4. Contact extractor — `httpx` + parsing, Hunter.io fallback.
+4. Contact extractor — `httpx` + HTML parsing, direct scrape only (ADR-003).
 5. Population — US Census API.
 6. Output — Google Sheets append + dedupe.
 7. Manual trigger CLI to run end-to-end per geo.

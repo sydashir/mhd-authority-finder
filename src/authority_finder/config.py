@@ -35,10 +35,6 @@ class Settings(BaseSettings):
         default=SecretStr(""),
         description="Ahrefs API key for Domain Rating lookups (Phase 2).",
     )
-    hunter_api_key: SecretStr = Field(
-        default=SecretStr(""),
-        description="Hunter.io API key for email-discovery fallback.",
-    )
     census_api_key: SecretStr = Field(
         default=SecretStr(""),
         description="US Census Bureau API key for population lookups.",
