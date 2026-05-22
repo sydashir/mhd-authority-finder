@@ -126,3 +126,45 @@ Append-only. Newest entries at the bottom. Each ADR captures: decision, alternat
 - `~/.claude/settings.json` global override removes the default trailer.
 - The three rules are appended to `CLAUDE.md`'s working-rules section so every future session reads them at start.
 - Violations are user-correctable via `git commit --amend` before push; if pushed, fix forward rather than rewriting history.
+
+---
+
+## ADR-004 — AH geo URL disambiguation via hardcoded US state-slug whitelist
+
+**Date:** 2026-05-22
+**Status:** Accepted
+**Context:** Session 3 — building `geo_monitor.url_parser`. Both monitored sites publish their geo pages inside the same Rank Math `page-sitemap*.xml` files as About, Contact, Services, Blog, and other non-geo pages. MHD has a `/serving/` prefix that makes geo URLs trivially distinguishable; AH does not — its state pages live at the root (`/california/`, `/colorado/`), so the regex needed to capture geo URLs (`^/(?P<state>[a-z0-9-]+)(/...)?/?$`) also matches `/about/`, `/services/`, `/blog/`, and every other top-level marketing page.
+
+### Decision
+
+`url_parser.parse_geo_url` validates the captured ``state`` slug against a hardcoded ``frozenset`` of 50 US state slugs (lowercase, hyphenated — e.g. `"north-carolina"`, `"new-hampshire"`) defined in `geo_monitor/states.py`. The check applies to both sites: MHD's regex is strict enough that this is defense-in-depth rather than load-bearing, but the cost of running the check uniformly is zero and it keeps the parser symmetric.
+
+URLs whose `state` slug isn't in the set return `None` from the parser — they are not surfaced to downstream pipeline steps. The fetcher's regex pass already drops most non-matches; the whitelist is the final guard.
+
+### Alternatives considered
+
+| Choice | Considered | Why not |
+|---|---|---|
+| **Blacklist** of known non-geo paths (`/about`, `/contact`, `/services`, `/blog`, ...) | yes | Drifts over time. Every time AH adds a new marketing page we'd ship a code change. Failure mode is silent — a missed entry shows up as a fake "new geo page" in the outreach sheet. |
+| **Sitemap post-type filtering** (ask Rank Math for "only WordPress pages tagged 'geo'") | yes | Rank Math doesn't expose post-type / custom taxonomy filters in the sitemap, and the WP team confirmed geo pages are regular Pages with no distinguishing taxonomy. Would need a plugin change on the client side. Out of scope for MVP. |
+| **Tighter regex** that requires deeper path (`^/(?P<state>...)/(?P<county>...)/.../?$`) | yes | Loses state-only pages (`/california/`), which the client *does* want included as state-level geos. |
+| **Dynamic state list** from US Census API | briefly | Pointless network call for a list that hasn't changed since 1959 and won't unless Puerto Rico is admitted. Adds a dependency, an API key, a failure mode. |
+| **Use AH's CMS / Yoast / Rank Math taxonomy data** by scraping each page | yes | Defeats the purpose of using sitemaps for cheap discovery. We'd be paying per-page HTTP cost just to filter the sitemap list. |
+| **Include DC + territories from day one** | yes | Neither MHD nor AH currently publishes pages for DC, Puerto Rico, Guam, USVI, American Samoa, or the Northern Mariana Islands. Adding them prophylactically risks accepting nonsense matches (e.g. a `/dc/` slug used for "design changes" or "data center"). Easy to add when needed — one line in `states.py`. |
+
+### Rationale
+
+- The list is bounded (50 entries) and stable on a multi-decade timeline. Hardcoding it is honest about the data; abstracting it would be over-engineering.
+- The whitelist applies to both sites for code symmetry and so the parser has a single failure mode regardless of which site fed it.
+- The cost of a wrong-direction error matters: a false positive (accepting `/about/` as a geo) corrupts the outreach sheet with a row the team has to manually filter; a false negative (rejecting a real new state slug) is an obvious bug that surfaces immediately when the state page goes live. We optimize for fewer false positives.
+
+### Cost / consequences
+
+- File-level: one constant in `states.py`, one membership check in `url_parser.py`. Zero ongoing maintenance until a US state is added or DC/territories are added.
+- Test-level: parser tests pin both the accept cases (50 valid states) and the reject cases (`/about/`, `/blog/`, `/contact/`, `/services/`, `/treatment-programs/`). Live integration test asserts every URL the regex matches on real sitemaps lands in `US_STATE_SLUGS`.
+- **Observed in session 3 on AH live sitemap:** the regex matched 68 paths in `/page-sitemap.xml`; only 49 passed the state-slug whitelist. The 19 rejects are exactly the non-geo marketing paths this ADR exists to filter. Working as designed.
+
+### Trigger to revisit
+
+- Client adds DC, a US territory, or any other geo whose top-level slug isn't a real US state name.
+- Sitemap structure changes (e.g. client moves to a `/locations/{state}/` prefix on AH) — at that point the URL pattern in `docs/sites.md` changes too and `sites.py` gets updated; the whitelist itself stays.
