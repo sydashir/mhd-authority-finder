@@ -231,3 +231,49 @@ Open before Session 4:
 ### What's next — Session 4
 
 `discovery.py` per the Session 3 plan, grounded in the SerpAPI findings above: async httpx client for `search.json`, per-geo query construction, domain dedupe + `.gov`/`.edu` suffix filter, unit tests on query construction + fixture-based response parsing, one live test per real geo.
+
+---
+
+## 2026-06-13 — Session 4: discovery engine (SerpAPI .gov/.edu search per geo)
+
+### Done
+
+- **Housekeeping:** CLAUDE.md refreshed to post-Session-3 reality + `sydashir` gh-account note (`8d58bd5`); fetcher now logs each skipped sub-sitemap with reason, with a MockTransport unit test proving non-page sitemaps are never even fetched (`7879260`).
+- **Step-2 validation killed the prep-research plan:** `google_light_fast` retired by SerpAPI (HTTP 400, unbilled), and **no Google engine supports `num` anymore** — ~10 organic results = 1 billed search, period. Stopped per session rules; user picked **`google_light`, page 1 only** (depth stays a client knob). Real validation call captured as the unit-test fixture (`tests/discovery/fixtures/google_light_california.json`) — 10/10 results with `position/title/link/snippet`.
+- **`discovery/` package built** (stub → package, like geo_monitor in Session 3):
+  - `models.py` (`f8715b1`) — `GeoRef` (slim geo ref), `SearchResult`, `CandidateSite`, `DiscoveryError`, `DiscoveryResult` with `counts_by_class` measuring dropped classes.
+  - `serpapi_client.py` (`c1b2016`) — async httpx GET on `search.json`; tenacity retry (3 attempts, exponential, Retry-After honored on 429); disk cache `data/cache/serpapi/{sha256}.json` keyed on params-minus-api_key; `billed_search_count`/`cache_hit_count` session counters; billed searches logged with running total.
+  - `queries.py` (`5854f11`) — locked-theme templates per level (4 state / 3 county / 4 city); slug→display conversion; **county-suffix normalization** (MHD slugs are inconsistent: `orange-county` vs `los-angeles` — without stripping, templates would produce `"Orange County County"`).
+  - `classify.py` (`e339e64`) — tldextract 5.3.1 (offline PSL snapshot, pyright-strict clean); gov/edu/us_local/other; **state-portal dedupe exception** (user-confirmed): PSL has no `.gov` entries so `dhcs.ca.gov` + `mentalhealth.ca.gov` both have registrable domain `ca.gov` — portals keep one non-www label so agencies stay distinct rows.
+  - `discover.py` (`96ce2e8`) — per-query error isolation (errors are result data), `discover_many` with `Semaphore(2)` + per-geo isolation (failed geo → empty result carrying the error).
+  - CLI `discover` (`f770d4e`) — `--site/--limit/--level/--refresh/--json`; geos sourced from `data/state/*.json` re-parsed through the URL parser; per-geo table with class counts + billed/cached; exit 1 only if every geo errored; exit 2 if no API key.
+  - Tests (`058295d`) — 34 new unit tests (queries, classify, client cache/retry/errors, orchestrator vs the real fixture; zero network in units); new **`live_paid` marker** registered, excluded from default AND from `-m live`; one paid smoke test (passes, 1 billed search).
+- **ADR-005** (`0ce2934`) — engine choice, direct-httpx integration, no-TTL dev cache, classification + dedupe policy, quota guard pattern.
+- **Live validation (19 billed searches):** `/maryland/`, `/colorado/` (AH state), `/serving/florida/` (MHD state), `/serving/california/orange-county/` (county), `.../newport-beach/` (city) → 127 candidates (gov 86 / edu 41 / us_local 0 / other 0). Full results in `data/discovery_validation.json` (gitignored).
+- **Playwright spot-checks 3/3 pass** (one per level): `health.maryland.gov/bha/pages/help.aspx` (200, "Get Help"), `bos4.oc.gov/mental-health-resources` (200, exact match), `newportbeachca.gov/government/departments` (transient Cloudflare 522, 200 with correct title on retry).
+- **Quota: 21 of 40 billed searches used** (1 fixture + 1 live_paid test + 19 validation); 0 retries billed.
+
+### Live-quality assessment (evidence for Session 5)
+
+- **Bullseyes:** `bha.colorado.gov` #1 for Colorado; `health.maryland.gov/bha` + `dpscs.maryland.gov` substance-abuse program (probation theme works); `floridahealth.gov`; `bos4.oc.gov/mental-health-resources`; `newportbeachca.gov`; university counseling centers throughout (`counseling.umd.edu`, `colorado.edu/counseling`, `counseling.ufl.edu`).
+- **Bonus:** state-level queries pre-surface county health departments (5 MD counties, 6 CO counties) — future geo pages get a head start.
+- **Junk patterns (page-detector TODO list):** (1) national/federal domains everywhere — `samhsa.gov` + `findtreatment.gov` (both on the client's 16-competitor list!), `medicare.gov`, `cms.gov`, `nih.gov`, `va.gov`, `cdc.gov` — need a federal blocklist or geo-scoring; (2) same-name wrong-state geos — `orangecountync.gov`, `orangecountyva.gov` for Orange County CA, `cga.ct.gov` in Florida results, `natickma.gov`/`greenfieldca.gov` in Colorado; (3) PDFs (~8 results); (4) news/press/blog pages on .gov/.edu; (5) search-results/listing URLs. City-level is noticeably noisier than state/county.
+- **`us_local` = 0 across all 127:** modern county/city sites have moved off `.us` onto `.gov` (`oc.gov`, not `co.orange.ca.us`). Classification stays (zero cost) but `.us` is not where the value is.
+- **`other` = 0 — structurally:** `site:`-restricted queries can never surface ncala.org-type authority orgs. The drop-but-count instrumentation works; it measured that *these queries* drop nothing. Phase 2 needs unrestricted query variants + Ahrefs DR, not just a filter on current results.
+
+### Decisions this session (full rationale in ADR-005)
+
+- `google_light` page-1-only (user-confirmed after `google_light_fast` retirement).
+- State-portal dedupe exception (user-confirmed; strict registrable-domain dedupe observably lost fixture positions 1–2).
+- County-slug suffix normalization in the query builder (evidence: real MHD slugs).
+- `live_paid` marker kept disjoint from free `live` marker.
+
+### Open questions
+
+1. **National-domain handling for Session 5:** blocklist (samhsa/medicare/cms/nih/va/cdc/findtreatment...) vs geo-relevance scoring in the page detector? (findtreatment.gov + samhsa.gov are competitor domains, not outreach targets — they should arguably be excluded from candidates entirely.)
+2. **Wrong-state same-name geos** (Orange County NC/VA): page detector needs a state-validation signal (state name on page / in domain). Confirm this lands in Session 5 scope.
+3. Google Sheet ID + service-account credentials — now the next external blocker (`output.py`).
+
+### What's next — Session 5
+
+`page_detector`: score candidate URLs/pages for "is this the right department page for this geo" — keyword scoring + the junk-pattern filters above (federal blocklist, state validation, PDF/news down-ranking), low-confidence flagging for manual review.

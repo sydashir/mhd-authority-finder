@@ -34,7 +34,12 @@ src/authority_finder/
     url_parser.py        pure URL → GeoPage parser
     state.py             data/state/{site}.json persistence
     monitor.py           run_monitor orchestrator
-  discovery.py         per-geo .gov/.edu/authority search (SerpAPI)
+  discovery/           per-geo .gov/.edu candidate search (SerpAPI, package)
+    models.py            GeoRef / SearchResult / CandidateSite / DiscoveryResult
+    serpapi_client.py    async google_light client + disk cache + billed counter
+    queries.py           per-level query templates (pure)
+    classify.py          tldextract classification + state-portal dedupe (ADR-005)
+    discover.py          discover_for_geo / discover_many orchestrators
   authority_filter.py  Ahrefs DR threshold filter for non-.gov/.edu
   page_detector.py     finds dept / resource page (not homepage)
   contact_extractor.py email + phone scraping (direct only, MVP)
@@ -89,13 +94,13 @@ As of Session 4-prep (2026-06-12):
 - Sessions 1–2 (2026-05-19/21): scaffold, doc system, commit-hygiene rules (ADR-002), Hunter/Apollo dropped from MVP (ADR-003), integration targets confirmed in `docs/sites.md`.
 - Session 3 (2026-05-22): `geo_monitor` complete and live-verified — async sitemap fetcher (tenacity retry, robots.txt, per-host semaphore), pure URL parser with state-slug whitelist (ADR-004), atomic state persistence under `data/state/`, orchestrator, `monitor` CLI command. 42 unit + 5 live tests.
 - Session 4-prep (2026-06-12): session-journal rule + SessionStart hook installed (`.claude/`), full toolchain audit green, live baseline MHD 23 / AH 49 geo pages (0 new since Session 3), SerpAPI/httpx/tenacity research done for the discovery build.
-- `discovery`, `page_detector`, `contact_extractor`, `population`, `output` (Phase 1) and `authority_filter`, `link_checker` (Phase 2) are still stubs.
+- Session 4 (2026-06-13): `discovery` complete and live-validated — SerpAPI `google_light` page-1 client with disk cache + quota counters, per-level query templates, tldextract classification with state-portal dedupe exception (ADR-005), orchestrator, `discover` CLI command, 34 unit tests + 1 `live_paid` smoke test. Live run: 5 geos, 19 billed searches, 127 candidates.
+- `page_detector`, `contact_extractor`, `population`, `output` (Phase 1) and `authority_filter`, `link_checker` (Phase 2) are still stubs.
 
 ## What's next (Phase 1 — Core MVP)
 
-Order per feasibility doc Section 9 — item 1 (geo monitor) shipped in Session 3:
+Order per feasibility doc Section 9 — items 1 (geo monitor, Session 3) and 2 (discovery, Session 4) shipped:
 
-2. Discovery — SerpAPI queries per geo, filter to `.gov` / `.edu`. (Session 4)
 3. Page detector — keyword-scored ranking of candidate URLs to surface the dept/resource page.
 4. Contact extractor — `httpx` + HTML parsing, direct scrape only (ADR-003).
 5. Population — US Census API.
