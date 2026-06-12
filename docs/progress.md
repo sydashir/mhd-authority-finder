@@ -198,3 +198,36 @@ Nothing blocked. Phase 1 next step (`discovery`) can start immediately.
 Open before Session 4:
 - SerpAPI vs Google Custom Search — API key needed.
 - Query template strategy: one query per geo level, or multiple queries with different keywords combined? Decision call before code.
+
+---
+
+## 2026-06-12 — Session 4-prep: resync + health audit (no feature code)
+
+### Done
+
+- **Session journal rule installed** (`fcf135d`): mandatory self-triggered journal rule appended to `CLAUDE.md` working rules; `journal/` created and gitignored (no `.gitkeep` — it would defeat the gitignore). First journal entry written: `journal/SESSION-2026-06-12-resync-health-audit.md` + `journal/INDEX.md`.
+- **SessionStart hook wired** (`b471a77`): current Claude Code has **no PreCompact hook event** (verified against live hooks docs 2026-06-12). The committed `.claude/settings.json` registers a `SessionStart` hook (fires on startup/resume/**compact**) running `.claude/hooks/session-start-journal.sh`, which injects the latest journal filename as context. Pre-compaction journal *writes* cannot be hook-automated — they rely on the CLAUDE.md rule.
+- **ClickUp cross-check** (task `86b9re44b`, read-only): first comment matches `docs/brief.md` verbatim — no deltas. Latest client comment (2026-05-12): not urgent, **MVP target end of July 2026**.
+- **Git history audit**: all 19 pre-session commits map cleanly to Sessions 1–3 in this log. No unaccounted commits in either direction.
+- **Toolchain audit — all green, zero fixes needed**: uv 0.11.15, `uv sync` clean (37 pkgs), `ruff check` pass, `ruff format --check` pass, `pyright` strict 0 errors, 42 unit tests pass. Playwright chromium 148.0.7778.96 launches. Global attribution settings intact (`commit: ""`, `pr: ""`). (Note: pyright 1.1.410 available vs pinned 1.1.409 — bump deliberately, not now.)
+- **Live verification**: `pytest -m live` 5/5 pass (31.8s). CLI `monitor --site both`: MHD 23 total / **0 new**, AH 49 total / **0 new** — exact match with Session 3 baseline, stateful diff working (state files: counts unchanged, `last_run` bumped).
+- **Sitemap drift check**: AH index now lists 3 sub-sitemaps (was 2 in Session 3) — new `local-sitemap.xml` contains only `locations.kml` (Rank Math local SEO; MHD has the same). Benign: no geo pages outside `page-sitemap.xml`, fetcher's `page-sitemap` filter behaves correctly. No geo URL drift → Playwright sampling not triggered.
+- **Library research (context7 + web, for Session 4 discovery build)**:
+  - httpx 0.28.1 = latest stable; pin safe. Use `follow_redirects=True` explicitly, avoid `http2=True`, raise the 5s default timeout for .gov sites.
+  - tenacity 9.1.4 = latest; pin safe (includes async `sleep=` typing fix relevant to strict pyright).
+  - SerpAPI: official `serpapi` PyPI client (v1.0.2) is **sync-only** → call `GET https://serpapi.com/search.json` directly with httpx. `q` supports `site:` operators. **`num=100` is dead on `engine=google` (since Sept 2025)** — ~10 organic results/request paginated via `start`, or `engine=google_light_fast` supports `num=100` (organic results only). Response: `organic_results[]` → `position/title/link/snippet`. Handle 429 with backoff; hourly throughput caps per plan.
+
+### Observations / risks flagged
+
+- `sitemap_fetcher.py:86` sub-sitemap selection (`"page-sitemap" in u`) is load-bearing: geo pages published to a differently-named sub-sitemap would be silently missed. Consider logging skipped sub-sitemap names in Session 4.
+- `CLAUDE.md` "Current state" + module-layout sections still describe Session 1 (stubs, `geo_monitor.py` as a file). Known-stale since Session 3; out of this session's allowed-commit scope. Refresh as first commit of Session 4.
+
+### Open questions (blocking Session 4)
+
+1. SerpAPI vs Google Custom Search — decision + API key. If SerpAPI: plan tier and engine choice (`google` paginated vs `google_light_fast`).
+2. Query strategy per geo level (state vs county/city) — Session 3 Q3, still unanswered.
+3. (Non-blocking for discovery) Google Sheet ID + service-account credentials for `output.py`.
+
+### What's next — Session 4
+
+`discovery.py` per the Session 3 plan, grounded in the SerpAPI findings above: async httpx client for `search.json`, per-geo query construction, domain dedupe + `.gov`/`.edu` suffix filter, unit tests on query construction + fixture-based response parsing, one live test per real geo.
