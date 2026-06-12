@@ -14,7 +14,6 @@ import asyncio
 from datetime import datetime
 from http import HTTPStatus
 from urllib.parse import urlparse
-from urllib.robotparser import RobotFileParser
 
 import httpx
 import structlog
@@ -27,33 +26,26 @@ from tenacity import (
     wait_exponential,
 )
 
-from authority_finder import __version__
 from authority_finder.geo_monitor.models import SiteConfig, SitemapEntry
+from authority_finder.robots import USER_AGENT, RobotsChecker
 
-USER_AGENT = (
-    f"mhd-authority-finder/{__version__} (+https://github.com/sydashir/mhd-authority-finder)"
-)
 DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0)
 SITEMAP_NS = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
 
 _log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 
-class RobotsDisallowedError(RuntimeError):
-    """Raised when robots.txt forbids fetching a target URL."""
-
-
 class SitemapFetcher:
-    """Owns one :class:`httpx.AsyncClient`, one per-host semaphore, one robots cache."""
+    """Owns one :class:`httpx.AsyncClient`, one per-host semaphore, one robots checker."""
 
     def __init__(self, *, client: httpx.AsyncClient, concurrency: int = 2) -> None:
         self._client = client
         self._sem = asyncio.Semaphore(concurrency)
-        self._robots_cache: dict[str, RobotFileParser] = {}
+        self._robots = RobotsChecker(client=client, timeout=DEFAULT_TIMEOUT)
 
     async def fetch_sitemap_index(self, url: str) -> list[str]:
         """Return the list of sub-sitemap URLs from a ``<sitemapindex>`` document."""
-        await self._ensure_robots_allows(url)
+        await self._robots.ensure_allowed(url)
         content = await self._get(url)
         root = etree.fromstring(content)
         out: list[str] = []
@@ -64,7 +56,7 @@ class SitemapFetcher:
 
     async def fetch_page_sitemap(self, url: str) -> list[SitemapEntry]:
         """Return all URL entries from a ``<urlset>`` page sitemap."""
-        await self._ensure_robots_allows(url)
+        await self._robots.ensure_allowed(url)
         content = await self._get(url)
         root = etree.fromstring(content)
         entries: list[SitemapEntry] = []
@@ -115,33 +107,6 @@ class SitemapFetcher:
                     geo_entries.append(entry)
         _log.info("sitemap.geo_entries_collected", site_id=config.id, count=len(geo_entries))
         return geo_entries
-
-    async def _ensure_robots_allows(self, url: str) -> None:
-        parsed = urlparse(url)
-        host = f"{parsed.scheme}://{parsed.netloc}"
-        rp = self._robots_cache.get(host)
-        if rp is None:
-            rp = await self._fetch_robots(host)
-            self._robots_cache[host] = rp
-        if not rp.can_fetch(USER_AGENT, url):
-            raise RobotsDisallowedError(f"robots.txt disallows fetching {url}")
-
-    async def _fetch_robots(self, host: str) -> RobotFileParser:
-        rp = RobotFileParser()
-        robots_url = f"{host}/robots.txt"
-        try:
-            resp = await self._client.get(
-                robots_url, headers={"User-Agent": USER_AGENT}, timeout=DEFAULT_TIMEOUT
-            )
-        except httpx.HTTPError as exc:
-            _log.warning("robots.fetch_failed", host=host, error=str(exc))
-            rp.parse([])
-            return rp
-        if resp.status_code >= HTTPStatus.BAD_REQUEST:
-            rp.parse([])
-            return rp
-        rp.parse(resp.text.splitlines())
-        return rp
 
     async def _get(self, url: str) -> bytes:
         async for attempt in AsyncRetrying(
