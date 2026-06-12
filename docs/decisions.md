@@ -168,3 +168,41 @@ URLs whose `state` slug isn't in the set return `None` from the parser — they 
 
 - Client adds DC, a US territory, or any other geo whose top-level slug isn't a real US state name.
 - Sitemap structure changes (e.g. client moves to a `/locations/{state}/` prefix on AH) — at that point the URL pattern in `docs/sites.md` changes too and `sites.py` gets updated; the whitelist itself stays.
+
+---
+
+## ADR-005 — Discovery engine: SerpAPI `google_light` page-1, disk cache, classification & dedupe policy, quota guard
+
+**Date:** 2026-06-13
+**Status:** Accepted
+**Context:** Session 4 — building `discovery/`. Session 4-prep research recommended `engine=google_light_fast` with `num=100` (100 organic results per billed search). The mandatory pre-build validation call returned HTTP 400: *"Google Light Fast engine is no longer available. Please use the Google Light engine instead."* The current `google_light` docs list no `num` parameter at all — pagination is `start` in steps of ~10. Google killed `num=100` upstream in Sept 2025 and SerpAPI's workaround engine has since been retired. Net: **~10 organic results = 1 billed search, on every Google engine.**
+
+### Decisions
+
+1. **Engine: `google_light`, page 1 only** (user-confirmed 2026-06-13). Our queries are tightly targeted (`site:.gov` / `site:.edu` + topic + geo), so page 1 is the precision zone. Page depth is a `start` kwarg on `SerpApiClient.search` — a knob, not a rewrite, if recall proves thin. `engine=google` adds payload we'd ignore at identical billing. Verified live: response carries `organic_results[]` with `position/title/link/snippet` (fixture: `tests/discovery/fixtures/google_light_california.json`).
+2. **Direct httpx GET against `https://serpapi.com/search.json`** — the official `serpapi` PyPI client (v1.0.2) is sync-only (`requests`-based); wrapping it in executors loses our async batching for zero gain. Plain GET is a documented first-class integration.
+3. **Disk cache, no TTL:** `data/cache/serpapi/{sha256(params minus api_key)}.json`. A cache hit costs zero billed searches, which is what makes dev iteration affordable. No TTL because during dev we *want* frozen SERPs (deterministic reruns); production freshness policy is a later decision. Corrupt cache files read as misses. The api_key is excluded from both the hash input and the cached payload.
+4. **Classification policy:** suffix-based via tldextract (offline, bundled PSL snapshot — deterministic, no runtime network): `.gov` → `gov`, `.edu` → `edu`, `.us` → `us_local`, else `other`. **Keep gov + edu + us_local (us_local distinguishable by class for review); drop `other` from candidates but count it** in `DiscoveryResult.counts_by_class` — Phase 2's Ahrefs filter gets sized from measured drops, not guesses.
+5. **Dedupe key — state-portal exception** (user-confirmed 2026-06-13): the PSL has no entries under `.gov`, so `dhcs.ca.gov` and `mentalhealth.ca.gov` share registrable domain `ca.gov` — strict registrable-domain dedupe collapses every state agency into one row, observably losing real candidates (fixture positions 1–2). Dedupe therefore uses registrable domain *except* when it's a US state portal (full-name + USPS-code portals derived from `US_STATE_SLUGS`, plus irregulars like `mass.gov`): there the first non-`www` label under the portal is kept (`dhcs.ca.gov` stays distinct). A portal missing from the set degrades to coarser dedupe — never wrong rows.
+6. **Quota guard pattern:** `SerpApiClient` counts `billed_search_count` / `cache_hit_count` per session; every billed search is logged (`serpapi.billed_search`) with a running total; the CLI prints billed-vs-cached per geo and per session. Paid tests carry a dedicated `live_paid` pytest marker, excluded from default runs *and* from `-m live` (which stays free sitemap traffic only).
+
+### Alternatives considered
+
+| Choice | Considered | Why not |
+|---|---|---|
+| `engine=google` paginated | yes | Same billing per ~10 results, slower, richer JSON we ignore. |
+| 2+ pages per query | yes | Doubles cost for tail results; page-1 precision is what the templates are designed for. Revisit with recall evidence. |
+| Official `serpapi` Python client | yes | Sync-only; an async codebase gains nothing from wrapping it. |
+| Cache with TTL | yes | Premature — dev wants determinism; production staleness policy belongs with the scheduler work (Phase 2). |
+| Strict registrable-domain dedupe | yes | Spec as originally written; loses state-agency granularity the client's department-level outreach needs. |
+| FQDN-minus-www dedupe | yes | No state-agency loss, but county/city portal-vs-www host variants produce near-duplicate rows for manual merging. |
+
+### Live validation evidence (2026-06-13)
+
+5 geos (MD, CO state; FL state; Orange County CA; Newport Beach CA), 19 billed searches, 127 candidate rows. State/county precision strong (e.g. `bha.colorado.gov`, `health.maryland.gov/bha`, `bos4.oc.gov/mental-health-resources`). Observed junk classes recorded in `docs/progress.md` (national domains, same-name wrong-state geos, PDFs, news pages) — input for the Session 5 page detector.
+
+### Trigger to revisit
+
+- Page-1 recall proves thin on real outreach (add `start` pagination).
+- SerpAPI retires/renames `google_light` (the Step-2-style validation call should precede any engine assumption).
+- Client wants ncala.org-type authority orgs: `site:`-restricted queries can never surface them — Phase 2 needs unrestricted query variants + DR filtering.
