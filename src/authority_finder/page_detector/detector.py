@@ -129,6 +129,16 @@ async def process_candidate(
             failures += 1
             _log.debug("detect.fetch_failed", url=url, error=str(exc))
             return None
+        if registrable_domain(content.final_url) != domain:
+            # Redirect shell: a .gov URL 301ing to a third party (observed live:
+            # greenfieldca.gov → palmerlakerecovery.com). Never score foreign content.
+            _log.info(
+                "detect.offdomain_redirect",
+                candidate=candidate.registrable_domain,
+                url=url,
+                final_url=content.final_url,
+            )
+            return None
         contents[url] = content
         return score_page(content, geo=geo)
 
