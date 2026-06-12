@@ -64,7 +64,10 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["PLR2004"]  # magic numbers fine in tests
+"tests/**" = [
+    "PLR2004",  # magic numbers fine in tests
+    "ASYNC240", # sync pathlib on tmp_path in async tests doesn't block anything that matters
+]
 
 [tool.ruff.lint.isort]
 known-first-party = ["authority_finder"]
@@ -84,7 +87,8 @@ venv = ".venv"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = ["-ra", "--strict-markers", "--strict-config", "-m", "not live"]
+addopts = ["-ra", "--strict-markers", "--strict-config", "-m", "not live and not live_paid"]
 markers = [
-    "live: hits real external services (MHD/AH sitemaps, real browser). Skipped by default; opt in with `pytest -m live`.",
+    "live: hits real external services (MHD/AH sitemaps, real browser). Free traffic only. Skipped by default; opt in with `pytest -m live`.",
+    "live_paid: spends real SerpAPI quota (billed searches). Excluded from default runs and from `-m live`; opt in with `pytest -m live_paid`.",
 ]

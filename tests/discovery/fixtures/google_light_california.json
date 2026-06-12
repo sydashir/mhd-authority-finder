@@ -1,0 +1,100 @@
+{
+  "search_metadata": {
+    "id": "6a2c64262ddc43823b6d2908",
+    "status": "Success",
+    "json_endpoint": "https://serpapi.com/searches/m-2dA3TyDj3SvWXDO2Uk6A/6a2c64262ddc43823b6d2908.json",
+    "created_at": "2026-06-12 19:55:18 UTC",
+    "processed_at": "2026-06-12 19:55:18 UTC",
+    "google_light_url": "https://www.google.com/search?q=california+mental+health+resources+%28site%3A.gov+OR+site%3A.edu%29&oq=california+mental+health+resources+%28site%3A.gov+OR+site%3A.edu%29&hl=en&gl=us&sourceid=chrome&ie=UTF-8&gbv=1",
+    "raw_html_file": "https://serpapi.com/searches/m-2dA3TyDj3SvWXDO2Uk6A/6a2c64262ddc43823b6d2908.html",
+    "total_time_taken": 12.93
+  },
+  "search_parameters": {
+    "engine": "google_light",
+    "q": "california mental health resources (site:.gov OR site:.edu)",
+    "google_domain": "google.com",
+    "hl": "en",
+    "gl": "us",
+    "device": "desktop"
+  },
+  "search_information": {
+    "query_displayed": "california mental health resources (site:.gov OR site:.edu)",
+    "organic_results_state": "Results for exact spelling"
+  },
+  "organic_results": [
+    {
+      "position": 1,
+      "title": "Mental health for all",
+      "link": "https://www.mentalhealth.ca.gov/",
+      "displayed_link": "www.mentalhealth.ca.gov",
+      "snippet": "Are you feeling stressed, anxious, depressed, or worried? California offers free mental health support, wellness resources, emotional support, and more."
+    },
+    {
+      "position": 2,
+      "title": "Mental Health Services Division | DHCS - CA.gov",
+      "link": "https://www.dhcs.ca.gov/services/mental-health-services-division/",
+      "displayed_link": "www.dhcs.ca.gov \u203a Services",
+      "snippet": "The Mental Health Services Division (MHSD) administers a number of mental health programs for Children and Youth, Adults and Older Adults. Individuals seeking ..."
+    },
+    {
+      "position": 3,
+      "title": "Home | Behavioral Health Services | County of Santa Clara",
+      "link": "https://bhsd.santaclaracounty.gov/home",
+      "displayed_link": "bhsd.santaclaracounty.gov \u203a ...",
+      "snippet": "The Behavioral Health Services Department assists individuals in our community affected by mental illness and serious emotional disturbance to achieve their ..."
+    },
+    {
+      "position": 4,
+      "title": "Mental Health Services | Yolo County",
+      "link": "https://www.yolocounty.gov/government/general-government-departments/health-human-services/mental-health/mental-health-services",
+      "displayed_link": "www.yolocounty.gov \u203a government \u203a general-government-departments",
+      "snippet": "Crisis Helplines & Resources in Yolo County \u00b7 Dial 988 for National Suicide Prevention Lifeline \u00b7 211 Information: Dial 211 \u00b7 African American Mental Health ..."
+    },
+    {
+      "position": 5,
+      "title": "Mental Wellness Resources | District 5 | Board of Supervisors",
+      "link": "https://district5.alamedacountyca.gov/mental-wellness-resources/",
+      "displayed_link": "district5.alamedacountyca.gov \u203a mental-wellness-resources",
+      "snippet": "You can also call the 24/7 California Peer Run Warm Line \u2013 a non-emergency resource for anyone seeking mental and emotional support: 855-845-7415. GENERAL ..."
+    },
+    {
+      "position": 6,
+      "title": "Behavioral Health Services | Siskiyou County California",
+      "link": "https://www.siskiyoucounty.gov/behavioralhealth",
+      "displayed_link": "www.siskiyoucounty.gov \u203a behavioralhealth",
+      "snippet": "The Behavioral Health Division provides a broad range of mental health and substance use disorder services."
+    },
+    {
+      "position": 7,
+      "title": "Behavioral Health Services - County of San Diego",
+      "link": "https://www.sandiegocounty.gov/department/behavioral-health-services/",
+      "displayed_link": "www.sandiegocounty.gov \u203a department \u203a behavioral-health-services",
+      "snippet": "Call or text 9-8-8 or dial 1-888-724-7240 to speak to someone who can help find the right service for you or someone you care about. Both numbers are operated ..."
+    },
+    {
+      "position": 8,
+      "title": "Mental Health Program - UCLA Center for Health Policy Research",
+      "link": "https://healthpolicy.ucla.edu/our-work/mental-health-program",
+      "displayed_link": "healthpolicy.ucla.edu \u203a our-work \u203a mental-health-program",
+      "snippet": "UCLA CHPR researchers extensively study the mental health of Californians including tracking the prevalence of psychological distress; social, economic, ..."
+    },
+    {
+      "position": 9,
+      "title": "Get Help Now! - Los Angeles County Department of Mental Health",
+      "link": "https://dmh.lacounty.gov/get-help-now/",
+      "displayed_link": "dmh.lacounty.gov \u203a get-help-now",
+      "snippet": "988 Suicide & Crisis Lifeline Available 24/7 via phone, text, or online chat. \u00b7 Disaster Distress Helpline (SAMHSA) Call: (800) 985-5990 \u00b7 Trevor Project Lifeline ..."
+    },
+    {
+      "position": 10,
+      "title": "Behavioral Health | Solano County, California",
+      "link": "https://www.solanocounty.gov/government/health-social-services-hss/behavioral-health",
+      "displayed_link": "www.solanocounty.gov \u203a government \u203a health-social-services-hss \u203a behavi...",
+      "snippet": "Solano County Behavioral Health's mission is to serve our diverse community impacted by mental health and substance use challenges in holistic ways."
+    }
+  ],
+  "serpapi_pagination": {
+    "current": 1,
+    "next": "https://serpapi.com/search.json?device=desktop&engine=google_light&gl=us&google_domain=google.com&hl=en&q=california+mental+health+resources+%28site%3A.gov+OR+site%3A.edu%29&start=10&location=Austin%2C+TX%2C+Texas%2C+United+States"
+  }
+}
