@@ -83,7 +83,17 @@ class SitemapFetcher:
         """Fetch all geo entries for a site: index → page sitemaps → regex filter."""
         sub_urls = await self.fetch_sitemap_index(config.sitemap_index_url)
         _log.info("sitemap.index_fetched", site_id=config.id, sub_sitemaps=len(sub_urls))
-        page_sitemap_urls = [u for u in sub_urls if "page-sitemap" in u]
+        page_sitemap_urls: list[str] = []
+        for sub_url in sub_urls:
+            if "page-sitemap" in sub_url:
+                page_sitemap_urls.append(sub_url)
+            else:
+                _log.info(
+                    "sitemap.subsitemap_skipped",
+                    site_id=config.id,
+                    url=sub_url,
+                    reason="no 'page-sitemap' in name; geo pages live in page sitemaps only",
+                )
         results = await asyncio.gather(
             *(self.fetch_page_sitemap(u) for u in page_sitemap_urls),
             return_exceptions=True,
