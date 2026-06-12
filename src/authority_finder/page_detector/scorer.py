@@ -40,6 +40,7 @@ DATE_PATH_RE = re.compile(r"/(19|20)\d{2}(/\d{1,2})?(/|$)")
 
 W_TOPIC_TITLE = 3.0
 W_TOPIC_PATH = 2.0
+W_TOPIC_BODY = 0.5
 W_RESOURCE_MARKER = 2.0
 W_STATE_PRESENT = 2.0
 W_LOCALITY_PRESENT = 1.5
@@ -127,47 +128,72 @@ def score_page(content: PageContent, *, geo: GeoRef) -> DetectedPage | WrongStat
         if mentions >= WRONG_STATE_MIN_COUNT:
             return WrongState(dominant_state=dominant, mentions=mentions)
 
-    signals: list[PageSignal] = []
-
-    def add(name: str, weight: float, detail: str) -> None:
-        signals.append(PageSignal(name=name, weight_contribution=weight, detail=detail))
-
     topic_title = [k for k in TOPIC_KEYWORDS if k in title_h1]
-    if topic_title:
-        add("topic_in_title_h1", W_TOPIC_TITLE, ", ".join(topic_title))
-
     topic_path = [k for k in TOPIC_KEYWORDS if k.replace(" ", "-") in path or k in path]
-    if topic_path:
-        add("topic_in_url_path", W_TOPIC_PATH, ", ".join(topic_path))
-
+    topic_body = [k for k in TOPIC_KEYWORDS if k in searchable]
     resource = [m for m in RESOURCE_MARKERS if m in title_h1 or m.replace(" ", "-") in path]
-    if resource:
-        add("resource_marker", W_RESOURCE_MARKER, ", ".join(resource))
-
-    if target_count > 0:
-        add("target_state_present", W_STATE_PRESENT, f"{_STATE_NAMES[geo.state]} x{target_count}")
-
     matched_locality = [n for n in _locality_names(geo) if n and n in searchable]
-    if matched_locality:
-        add("locality_present", W_LOCALITY_PRESENT, ", ".join(matched_locality))
 
+    candidate_signals: list[tuple[bool, str, float, str]] = [
+        (bool(topic_title), "topic_in_title_h1", W_TOPIC_TITLE, ", ".join(topic_title)),
+        (bool(topic_path), "topic_in_url_path", W_TOPIC_PATH, ", ".join(topic_path)),
+        (
+            bool(topic_body) and not topic_title and not topic_path,
+            "topic_in_body",
+            W_TOPIC_BODY,
+            ", ".join(topic_body[:5]),
+        ),
+        (bool(resource), "resource_marker", W_RESOURCE_MARKER, ", ".join(resource)),
+        (
+            target_count > 0,
+            "target_state_present",
+            W_STATE_PRESENT,
+            f"{_STATE_NAMES[geo.state]} x{target_count}",
+        ),
+        (
+            bool(matched_locality),
+            "locality_present",
+            W_LOCALITY_PRESENT,
+            ", ".join(matched_locality),
+        ),
+        (
+            bool(DATE_PATH_RE.search(path)) or any(m in title_h1 for m in NEWS_TITLE_MARKERS),
+            "news_marker",
+            W_NEWS_PAGE,
+            "dated path or press/news title",
+        ),
+        (
+            path in ("", "/") and len(content.links) >= HOMEPAGE_MIN_LINKS,
+            "generic_homepage",
+            W_GENERIC_HOMEPAGE,
+            f"{len(content.links)} links on root path",
+        ),
+        (
+            len(content.text_sample) < THIN_CONTENT_CHARS,
+            "thin_content",
+            W_THIN_CONTENT,
+            f"{len(content.text_sample)} chars",
+        ),
+    ]
+    signals: list[PageSignal] = [
+        PageSignal(name=name, weight_contribution=weight, detail=detail)
+        for hit, name, weight, detail in candidate_signals
+        if hit
+    ]
     contact = _contact_signal(content)
     if contact is not None:
         signals.append(contact)
-
-    if DATE_PATH_RE.search(path) or any(m in title_h1 for m in NEWS_TITLE_MARKERS):
-        add("news_marker", W_NEWS_PAGE, "dated path or press/news title")
-
-    if path in ("", "/") and len(content.links) >= HOMEPAGE_MIN_LINKS:
-        add("generic_homepage", W_GENERIC_HOMEPAGE, f"{len(content.links)} links on root path")
-
-    if len(content.text_sample) < THIN_CONTENT_CHARS:
-        add("thin_content", W_THIN_CONTENT, f"{len(content.text_sample)} chars")
 
     score = round(sum(s.weight_contribution for s in signals), 2)
     confidence: Confidence = (
         "high" if score >= HIGH_THRESHOLD else "medium" if score >= MEDIUM_THRESHOLD else "low"
     )
+    # No topic relevance ANYWHERE — title, path, or body (live case: an
+    # "Animal Services" page cleared medium on services+locality+contact
+    # alone) → flag for review, never promote. Body-only topic (live case:
+    # health.maryland.gov/bha titled just "Get Help") escapes the cap.
+    if not topic_title and not topic_path and not topic_body:
+        confidence = "low"
     return DetectedPage(
         url=content.final_url,
         score=score,

@@ -1,5 +1,6 @@
 """Scorer signal coverage: every signal, wrong-state reject, confidence bands."""
 
+from authority_finder.discovery.models import GeoRef
 from authority_finder.page_detector.fetcher import PageContent, PageLink
 from authority_finder.page_detector.models import DetectedPage
 from authority_finder.page_detector.scorer import (
@@ -182,3 +183,41 @@ def test_state_mention_counting_handles_virginia() -> None:
 def test_state_mention_counting_kansas_not_in_arkansas() -> None:
     counts = count_state_mentions("arkansas department of health in arkansas")
     assert counts == {"arkansas": 2}
+
+
+def test_no_topic_signal_anywhere_caps_confidence_at_low() -> None:
+    content = make_content(
+        final_url="https://cityofirvine.gov/animal-services",
+        title="Animal Services | City of Irvine",
+        text="Orange County animal care services in California. " + LONG_BODY,
+        has_mailto=True,
+        has_tel=True,
+    )
+    page = score_page(content, geo=ORANGE_COUNTY_GEO)
+    assert isinstance(page, DetectedPage)
+    assert page.score >= MEDIUM_THRESHOLD
+    assert page.confidence == "low"
+
+
+def test_body_only_topic_escapes_the_cap() -> None:
+    content = make_content(
+        final_url="https://health.maryland.gov/bha/pages/help.aspx",
+        title="Pages - HELP",
+        h1s=["Get Help"],
+        text="Behavioral health crisis services and substance use treatment for Maryland "
+        "residents. " + LONG_BODY,
+        has_mailto=True,
+        has_tel=True,
+    )
+    page = score_page(
+        content,
+        geo=GeoRef(
+            site_id="ah",
+            url="https://addictionhotline.com/maryland/",
+            level="state",
+            state="maryland",
+        ),
+    )
+    assert isinstance(page, DetectedPage)
+    assert "topic_in_body" in _signal_names(page)
+    assert page.confidence == "medium"
