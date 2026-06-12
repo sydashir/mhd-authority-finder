@@ -277,3 +277,44 @@ Open before Session 4:
 ### What's next — Session 5
 
 `page_detector`: score candidate URLs/pages for "is this the right department page for this geo" — keyword scoring + the junk-pattern filters above (federal blocklist, state validation, PDF/news down-ranking), low-confidence flagging for manual review.
+
+---
+
+## 2026-06-13 — Session 5: department page detector
+
+### Done
+
+- **Shared constants** (`b4813ad`): package-level `domains.py` — `COMPETITOR_DOMAINS` (the brief's 16, reused by Phase 2's link checker) + `FEDERAL_DOMAINS` (39 curated), registrable-domain matching via tldextract.
+- **`page_detector/` package** (stub → package): models (`5d0f024`), pre-filter (`97146dc`), polite HTML fetcher (`95a6030`), explainable scorer (`84ad0fa`), bounded crawl fallback (`cc46686`), orchestrator (`8613284`), `detect` CLI with `--in/--out` chaining + `--out` on `discover` (`bbbf7d8`).
+- **Robots checker extracted** to shared `robots.py` (`c7d5bd4`) — geo_monitor and page_detector now share one politeness implementation + USER_AGENT.
+- **Three bugs found BY live validation, fixed, regression-tested:**
+  1. `fix: reject off-domain redirects in detector` (`c05cf85`) — `greenfieldca.gov` + `natickma.gov` are redirect shells 301ing to **palmerlakerecovery.com** (private rehab company); it scored 8.5/high under a .gov label before the fix. Final URL must now stay on the candidate's registrable domain.
+  2. `fix: catch prefixed news paths in junk filter` (`bf871bb`) — `westcliff.edu/wu-news/` evaded the `/news/` segment check.
+  3. `fix: cap confidence at low without topic relevance` (`efc3919`) — an "Animal Services" page cleared medium on services+locality+contact; pages with no topic keyword anywhere (title/path/body) are now capped at low; body-only topic earns +0.5 `topic_in_body` and escapes the cap (health.maryland.gov/bha is titled just "Get Help").
+- **Tests** (`6e357da` + fix commits): 41 page_detector tests — pre-filter branches, every scorer signal, wrong-state, banding, crawl budget (exact 6-fetch ceiling), content-type/size guards, robots, plus 3 real-HTML regression fixtures captured live (montgomerycountymd, coloradocollege, bos4.oc.gov). Suite: 118 unit tests, zero network.
+- **ADR-006** (`8f131aa`) — exclusion policy, explainable-rules-over-ML, crawl budget, confidence bands + the two post-validation policy additions.
+
+### Live validation (127 candidates, 5 cached geos, 0 SerpAPI calls, 172 page fetches)
+
+- **Status:** 54 detected / 38 rejected / 35 fetch_failed. **Confidence:** 23 high / 21 medium / 10 low.
+- **Rejections, named:** 23 federal (medicare, cms, nih, va, cdc, hhs, fda, justice, ojp, ed, uscourts, ussc, house, medicaid); 7 competitor — **samhsa.gov and findtreatment.gov excluded everywhere they appeared**; 3 wrong_state — **orangecountync.gov and orangecountyva.gov both rejected for the Orange County CA geo**, plus greenfieldca.gov (Greenfield CA homepage, for the Colorado geo); 2 junk_url; 3 no_viable_page.
+- **Top picks (per geo):** MD `montgomerycountymd.gov/...mental-health-resources-public-safety` + `cityoffrederickmd.gov/1753/Mental-Health-Resources`; CO `coloradocollege.edu/.../mental-health-resources.html`, `colorado.edu/counseling/`, `cuanschutz.edu/mental-health-resources`; FL `dasa.fiu.edu/.../counseling-and-psychological-services/`, `usf.edu/.../mental-health-resources.aspx`; OC `bos4.oc.gov/mental-health-resources` (11.0, the run's best), `ocsheriff.gov/.../behavioral-health`; NB top pick is an honest miss (below).
+- **Playwright spot-checks:** 5 per-geo top picks all HTTP 200 with content as scored; 4/5 are right-org outreach pages. The Newport Beach top pick (`longbeach.gov` "Environmental Health: Additional Resources") is a confirmed miss — "substance" matched on hazardous-substances content and Long Beach ≠ Newport Beach.
+- **Blind accuracy sample (seed 42, 20 of the 44 high+medium):** judged harshly — right org AND right page AND right geo. **High: 8/8 (100%). Medium: 5/12 (42%). Overall: 13/20 (65%)** vs the feasibility doc's 70–75% promise. Read: ship high as auto-accept, medium as light review, low as full review — that beats the promise where it matters. Medium misses cluster on: generic single body keywords escaping the topic cap ("treatment" on an animal-services page, "recovery" on a generic city services page), facility/location pages, press releases with `pr-` prefixes, and city-level geo mismatches (a college one town over).
+- **Fetch failures = 27% of candidates, dominant mode: 403 bot-blocking of our honest UA** (bha.colorado.gov, cdphe.colorado.gov, floridahealth.gov, baltimorecountymd.gov, counseling.umd.edu, counseling.fsu.edu...) plus one SSL-chain failure (cdph.ca.gov). These are some of the *best* orgs — state health departments behind enterprise WAFs. fmu.edu even 403s headless Chromium.
+
+### Decisions this session (rationale in ADR-006)
+
+- Competitor/federal exclusions, rule-based scoring, 6-fetch crawl budget, confidence thresholds (user-locked scope + post-validation refinements).
+- Re-running detection after fixes instead of patching data: three polite passes over ~90 hosts (~6 fetches/host total across hours).
+
+### Open questions for Session 6 (contact extractor)
+
+1. **The 403 wall.** 27% of candidates — including state health departments — block our honest UA, and the contact extractor will hit the same wall. Options: (a) accept and flag; (b) Playwright-fetch fallback tier for 403s (real browser, still robots-respecting); (c) browser-like UA string (effective but less honest). Decision needed before Session 6 — recommendation: (b).
+2. **Medium-band tuning**: the 20 judged samples are the seed of a labeled corpus; tune `W_TOPIC_BODY`/resource-marker genericity against it before promoting medium to auto-accept.
+3. Contact affordances observed while fetching: mailto/tel present on ~half the detected pages (`contact_affordance` signal fired on most high scorers) — direct-scrape coverage for Session 6 looks promising on .gov; .edu counseling pages lean on contact-form links.
+4. Google Sheet ID + service-account creds — still the external blocker for `output.py`.
+
+### What's next — Session 6
+
+`contact_extractor`: email + phone from detected pages (direct scrape per ADR-003) — mailto/tel parsing, obfuscation patterns, contact-page hop (reuse the crawl machinery), per-page provenance for the sheet. Resolve the 403-fallback question first.
