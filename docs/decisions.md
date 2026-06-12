@@ -206,3 +206,41 @@ URLs whose `state` slug isn't in the set return `None` from the parser — they 
 - Page-1 recall proves thin on real outreach (add `start` pagination).
 - SerpAPI retires/renames `google_light` (the Step-2-style validation call should precede any engine assumption).
 - Client wants ncala.org-type authority orgs: `site:`-restricted queries can never surface them — Phase 2 needs unrestricted query variants + DR filtering.
+
+---
+
+## ADR-006 — Page detection policy: exclusions, explainable scoring, crawl budget, confidence bands
+
+**Date:** 2026-06-13
+**Status:** Accepted
+**Context:** Session 5 — building `page_detector/`. The component answers, per discovery candidate: "what is the ONE best page on this domain to reference in outreach, and how confident are we?" Session 4's live run catalogued the failure modes this must handle: federal pollution, same-name wrong-state geos, PDFs, news pages, city-level noise.
+
+### Decisions
+
+1. **Competitor domains are excluded outright** (user-locked). The 16 domains from the brief live in package-level `domains.py` (`COMPETITOR_DOMAINS`) because Phase 2's link checker consumes the same list as its link-target set. They are link-check targets, never outreach prospects — samhsa.gov getting a sheet row would be embarrassing in front of the client.
+2. **Federal domains are excluded, drop-but-count** (user-locked) — same instrumentation pattern as discovery's `other` class. `FEDERAL_DOMAINS` is curated (~39 entries): seeded from every federal domain observed polluting Session 4 results, then rounded out with agencies likely to rank for health/justice queries (HRSA, IHS, ACF, BOP, DEA...). Matching is registrable-domain based via tldextract, so `pmc.ncbi.nlm.nih.gov` matches `nih.gov`. Curation rationale: a blocklist is cheap, explainable, and false-negative-safe — an unlisted federal domain just flows to scoring, where geo signals are weak for national sites anyway.
+3. **Rule-based explainable scoring, not ML.** Every score decomposes into named `PageSignal`s (topic-in-title +3, topic-in-path +2, resource marker +2, target state +2, locality +1.5, contact affordance +1.5, news marker −3, generic homepage −1.5, thin content −2). Why not ML: no labeled training data exists, the corpus is ~hundreds of pages, the client was promised a *flagging* system (which requires explaining why a row was flagged), and a misclassification costs one manual review — not a model-worthy loss function. Rules also let the outreach team argue with specific weights.
+4. **Wrong-state hard rejection** (user-locked scope): count full-state-name mentions across title/h1/meta/text; if another state appears ≥2 times and the target state appears zero times, the candidate is rejected (`wrong_state`) when this happens on the surfaced page or homepage, and the page is merely skipped when it happens on a crawled subpage. 2-letter codes are deliberately not counted ("in", "or", "me" collide with English); "West Virginia" mentions are subtracted from "Virginia" counts.
+5. **Crawl fallback with a hard budget of 6 fetches per candidate** (homepage + top-4 keyword-ranked internal links, never leaving the registrable domain). Rationale: the budget bounds worst-case load on government servers (politeness: per-host 2, global 8, robots.txt respected, retries only on transient 5xx); 6 is enough to reach a department page from any homepage we observed, and beyond that the page detector is guessing — low-confidence flagging is cheaper than deep crawling.
+6. **Junk-URL nuance:** a PDF/news/search/login *URL* is rejected as the page, but the *candidate domain* survives into the crawl fallback — a good county that surfaced via a PDF still gets its homepage crawled.
+7. **Confidence bands:** high ≥ 8.0, medium ≥ 4.5, viability floor 1.5 (below floor → `no_viable_page`). `low` is "flagged for manual review" — the flagging system the feasibility doc promised — not "discard". **Topic-relevance cap** (added after live validation): a page with no topic keyword in title, path, *or* body is capped at `low` regardless of score — an "Animal Services" page cleared medium on services+locality+contact alone. Body-only topic earns a weak `topic_in_body` (+0.5) and escapes the cap (health.maryland.gov/bha is titled just "Get Help"; its body is what proves relevance).
+8. **Off-domain redirect rejection** (added after live validation): the final URL after redirects must stay on the candidate's registrable domain. Observed live: `greenfieldca.gov/408/Addiction-Treatment` and `natickma.gov/1551/Drug-Treatment-Resources-for-Veterans` both 301 to `palmerlakerecovery.com` — a private rehab company that would otherwise have entered the outreach sheet under a .gov label, scored 8.5/high.
+
+### Alternatives considered
+
+| Choice | Considered | Why not |
+|---|---|---|
+| ML/embedding-based page classification | yes | No training data, tiny corpus, unexplainable flags, heavier dependency surface. Revisit only if rule precision stalls below the feasibility doc's 70–75% promise after tuning. |
+| Geo-relevance scoring instead of a federal blocklist | yes | National domains *do* mention states constantly (medicare.gov lists all 50) — scoring alone under-rejects. Blocklist first, scoring as backstop. |
+| Unlimited same-domain crawl | yes | Politeness and wall-clock. The budget makes worst-case load predictable per candidate. |
+| Rejecting candidates whose surfaced URL is junk | yes | Loses good domains that surfaced via PDFs — observed repeatedly in Session 4 (bscc.ca.gov, westcliff.edu). |
+
+### Live validation evidence (2026-06-13)
+
+127 candidates across the 5 cached geos → 54 detected (23 high / 21 medium / 10 low), 38 rejected (23 federal, 7 competitor, 3 wrong_state, 3 no_viable_page, 2 junk_url), 35 fetch_failed, 172 page fetches. Blind 20-page accuracy sample (seed 42, high+medium): **high 8/8 correct, medium 5/12, overall 13/20 (65%)** — recommendation: auto-accept high, light-review medium, full-review low. Full breakdown with named examples in `docs/progress.md` Session 5 entry. Dominant fetch-failure mode: WAF/bot 403s against our honest user agent (27% of candidates, including state health departments).
+
+### Trigger to revisit
+
+- Accuracy sample on real outreach batches drops below ~70% — first lever is weight/threshold tuning against the validation corpus, second is query-template refinement, ML last.
+- A federal domain repeatedly pollutes results without being on the list — add it (one line).
+- Client adds non-US geos (the state-name validator is US-only by construction).
