@@ -52,6 +52,9 @@ credentials.json
 scratch/
 tmp/
 
+# Session journals (local working memory, never committed)
+journal/
+
 # Runtime data (monitor state, etc.) — keep dir structure via .gitkeep files only
 data/*
 !data/state/

@@ -56,6 +56,13 @@ All module files are currently stubs (docstring + responsibility, no implementat
 - No AI attribution on commits or PRs. Never add `Co-Authored-By: Claude`, "Generated with Claude Code", or any similar trailer/footer. Commits are authored by the human only.
 - Commit messages: short, conventional-commit style. Subject line ≤ 60 chars, lowercase, imperative ("add x" not "added x"). Body only when truly needed. No marketing language, no emojis.
 - Commit-by-commit workflow: one logical change per commit. If you touch two unrelated things, that's two commits. Easier to review, easier to revert. Never batch unrelated work.
+- Session journal (MANDATORY, self-triggered — the user will never remind you):
+  - Journals live in `journal/` at repo root. `journal/` is gitignored.
+  - File name: `journal/SESSION-{YYYY-MM-DD}-{short-slug}.md`
+  - WHEN to write: (1) immediately when context usage becomes high (~90%+) or you anticipate compaction — write BEFORE compacting, never after; (2) at every natural session end; (3) before any risky long-running operation that could crash the session.
+  - WHAT to write (detailed, not bullets-of-bullets): session goal; what was done with commit hashes; key decisions + reasoning; exact current state (what works, what's half-done, what's broken); live-run numbers if any; open questions; precise next steps so a fresh session can resume with zero re-discovery; any gotchas learned this session.
+  - At the START of every session: check `journal/` for the most recent file and read it as part of context rebuild.
+  - Update `journal/INDEX.md` (one line per session: date, slug, one-sentence summary) every time you write a journal.
 
 ## Reading order for any new session
 
