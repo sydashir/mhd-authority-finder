@@ -65,9 +65,12 @@ def junk_url_reason(url: str) -> str | None:
     path = parsed.path.lower()
     if path.endswith(NON_HTML_EXTENSIONS):
         return f"non-html extension ({path.rsplit('.', 1)[-1]})"
-    if any(segment in path for segment in JUNK_PATH_SEGMENTS):
-        return "news/blog/events/search path"
-    if path.rstrip("/").endswith(JUNK_PATH_SUFFIXES):
+    if (
+        any(segment in path for segment in JUNK_PATH_SEGMENTS)
+        or path.rstrip("/").endswith(JUNK_PATH_SUFFIXES)
+        # Prefixed variants like /wu-news/ (observed live: westcliff.edu/wu-news/).
+        or any(seg.endswith(("-news", "-press", "-blog")) for seg in path.split("/") if seg)
+    ):
         return "news/blog/events/search path"
     if any(marker in path for marker in LOGIN_MARKERS):
         return "login page"
