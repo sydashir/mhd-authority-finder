@@ -25,7 +25,15 @@ src/authority_finder/
   __init__.py          version + public surface
   config.py            pydantic-settings, loads .env
   logging.py           structlog setup
-  geo_monitor.py       MHD/AH sitemap polling → new geo events
+  cli.py               click CLI — `python -m authority_finder.cli`
+  geo_monitor/         MHD/AH sitemap polling → new geo events (package)
+    models.py            SiteConfig / GeoPage / SitemapEntry / MonitorRun / SiteState
+    sites.py             MHD + AH SiteConfig instances
+    states.py            US_STATE_SLUGS whitelist (ADR-004)
+    sitemap_fetcher.py   async fetch: index → page sitemaps → regex filter
+    url_parser.py        pure URL → GeoPage parser
+    state.py             data/state/{site}.json persistence
+    monitor.py           run_monitor orchestrator
   discovery.py         per-geo .gov/.edu/authority search (SerpAPI)
   authority_filter.py  Ahrefs DR threshold filter for non-.gov/.edu
   page_detector.py     finds dept / resource page (not homepage)
@@ -36,12 +44,14 @@ src/authority_finder/
 tests/
 docs/
   brief.md             original brief + feasibility (source of truth)
+  sites.md             confirmed MHD/AH integration details (sitemaps, URL patterns)
   architecture.md      system overview + diagram
   decisions.md         ADR log
   progress.md          running session log
+journal/               session journals (gitignored — see working rules)
 ```
 
-All module files are currently stubs (docstring + responsibility, no implementation). Implementation begins Phase 1.
+`geo_monitor` is implemented; the remaining pipeline modules are stubs (docstring + responsibility, no implementation).
 
 ## Working rules (non-negotiable)
 
@@ -74,20 +84,18 @@ All module files are currently stubs (docstring + responsibility, no implementat
 
 ## Current state
 
-Session 1 (2026-05-19): project scaffold + doc system only. No feature code.
+As of Session 4-prep (2026-06-12):
 
-- Repo layout, `pyproject.toml`, ruff + pyright config, `uv` env wired.
-- Stub modules in place. Each has a one-line docstring describing responsibility.
-- `config.py` and `logging.py` skeletons exist but load nothing real yet.
-- `.env.example` lists every credential the project will need.
-- One placeholder test asserts the package imports and reports its version.
+- Sessions 1–2 (2026-05-19/21): scaffold, doc system, commit-hygiene rules (ADR-002), Hunter/Apollo dropped from MVP (ADR-003), integration targets confirmed in `docs/sites.md`.
+- Session 3 (2026-05-22): `geo_monitor` complete and live-verified — async sitemap fetcher (tenacity retry, robots.txt, per-host semaphore), pure URL parser with state-slug whitelist (ADR-004), atomic state persistence under `data/state/`, orchestrator, `monitor` CLI command. 42 unit + 5 live tests.
+- Session 4-prep (2026-06-12): session-journal rule + SessionStart hook installed (`.claude/`), full toolchain audit green, live baseline MHD 23 / AH 49 geo pages (0 new since Session 3), SerpAPI/httpx/tenacity research done for the discovery build.
+- `discovery`, `page_detector`, `contact_extractor`, `population`, `output` (Phase 1) and `authority_filter`, `link_checker` (Phase 2) are still stubs.
 
 ## What's next (Phase 1 — Core MVP)
 
-Order per feasibility doc Section 9:
+Order per feasibility doc Section 9 — item 1 (geo monitor) shipped in Session 3:
 
-1. Geo monitor — poll MHD + AH sitemaps, detect new city/county/state pages, emit events.
-2. Discovery — SerpAPI queries per geo, filter to `.gov` / `.edu`.
+2. Discovery — SerpAPI queries per geo, filter to `.gov` / `.edu`. (Session 4)
 3. Page detector — keyword-scored ranking of candidate URLs to surface the dept/resource page.
 4. Contact extractor — `httpx` + HTML parsing, direct scrape only (ADR-003).
 5. Population — US Census API.
@@ -103,6 +111,10 @@ Phase 2 (Ahrefs authority filter, competitor link checker, scheduled triggers) c
 - Logs are JSON via `structlog`. No `print`, no stdlib `logging` calls in app code.
 - Tests live under `tests/`, mirror the `src/authority_finder/` layout when meaningful.
 - Commits: conventional style (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`).
+
+## Repo access
+
+Remote `origin` is the private repo `sydashir/mhd-authority-finder`. Pushes require the `sydashir` GitHub account — if `gh auth status` shows a different active account, run `gh auth switch -u sydashir` before pushing.
 
 ## Commands
 
