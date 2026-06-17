@@ -153,6 +153,14 @@ _ROLE_NOISE_LOCALPARTS = frozenset(
 _SOURCE_BASE: dict[EmailSource, float] = {"mailto": 0.9, "contact_page": 0.7, "body_text": 0.5}
 _MAX_EMAIL_LEN = 254
 
+# Labels that precede record/ID numbers — phone-shaped but never a phone (ADR-007).
+_PHONE_JUNK_LABEL = re.compile(
+    r"\b(order|invoice|confirmation|conf|case|account|acct|tracking|track|permit|"
+    r"reference|ref|barcode|loan|member|receipt|transaction|txn|ssn|ein)\b",
+    re.IGNORECASE,
+)
+_PHONE_LABEL_WINDOW = 20
+
 _BRACKET_AT = re.compile(r"\s*[\[({]\s*at\s*[\])}]\s*", re.IGNORECASE)
 _BRACKET_DOT = re.compile(r"\s*[\[({]\s*dot\s*[\])}]\s*", re.IGNORECASE)
 _SPELLED = re.compile(
@@ -254,8 +262,14 @@ def extract_phones(content: PageContent, *, contact_page: bool = False) -> list[
 
     body_source: PhoneSource = "contact_page" if contact_page else "body_text"
     text = content.text_sample
-    for match in phonenumbers.PhoneNumberMatcher(text, "US", leniency=Leniency.VALID):
+    # EXACT_GROUPING + the guards below: an order/case/ID number is phone-shaped but
+    # is an unformatted digit run and/or sits behind a record label — drop both.
+    for match in phonenumbers.PhoneNumberMatcher(text, "US", leniency=Leniency.EXACT_GROUPING):
         if not phonenumbers.is_valid_number(match.number):
+            continue
+        if match.raw_string.isdigit():
+            continue
+        if _PHONE_JUNK_LABEL.search(text[max(0, match.start - _PHONE_LABEL_WINDOW) : match.start]):
             continue
         e164 = phonenumbers.format_number(match.number, PhoneNumberFormat.E164)
         start = max(0, match.start - _CONTEXT_PAD)
