@@ -11,6 +11,7 @@ Isolated in its own module so importing :mod:`authority_finder.fetching` never
 pulls Playwright — only code that wires the fallback imports this.
 """
 
+import asyncio
 from http import HTTPStatus
 
 import structlog
@@ -31,12 +32,17 @@ class PlaywrightBrowserFetcher:
         self._pw: Playwright | None = None
         self._browser: Browser | None = None
         self._nav_timeout_ms = nav_timeout_ms
+        self._launch_lock = asyncio.Lock()
 
     async def _ensure_browser(self) -> Browser:
+        # Double-checked under a lock: concurrent first-escalations must not each
+        # launch (and orphan) a Chromium instance.
         if self._browser is None:
-            self._pw = await async_playwright().start()
-            self._browser = await self._pw.chromium.launch(headless=True)
-            _log.info("playwright.launched")
+            async with self._launch_lock:
+                if self._browser is None:
+                    self._pw = await async_playwright().start()
+                    self._browser = await self._pw.chromium.launch(headless=True)
+                    _log.info("playwright.launched")
         return self._browser
 
     async def fetch(self, url: str) -> tuple[bytes, str]:
