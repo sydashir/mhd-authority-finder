@@ -12,6 +12,7 @@ from authority_finder.fetching.fetcher import (
     parse_html,
 )
 from authority_finder.fetching.models import (
+    BrowserFetcher,
     FetchError,
     FetchFailedError,
     FetchForbiddenError,
@@ -26,6 +27,7 @@ from authority_finder.fetching.models import (
 __all__ = [
     "DEFAULT_TIMEOUT",
     "MAX_BYTES",
+    "BrowserFetcher",
     "FetchError",
     "FetchFailedError",
     "FetchForbiddenError",

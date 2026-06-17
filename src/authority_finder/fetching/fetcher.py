@@ -8,6 +8,7 @@ Responses stream against a 2 MB cap and only ``text/html`` is parsed.
 """
 
 import asyncio
+import ssl
 from http import HTTPStatus
 from urllib.parse import urlparse
 
@@ -23,11 +24,14 @@ from tenacity import (
 )
 
 from authority_finder.fetching.models import (
+    BrowserFetcher,
     FetchFailedError,
+    FetchForbiddenError,
     FetchTier,
     NonHtmlError,
     PageContent,
     PageLink,
+    SslError,
     TooLargeError,
 )
 from authority_finder.robots import USER_AGENT, RobotsChecker
@@ -45,21 +49,28 @@ class _TransientError(FetchFailedError):
 
 
 class PageFetcher:
-    """Polite fetch-and-parse for candidate pages. Counts fetches for budgeting."""
+    """Polite two-tier fetch-and-parse. httpx first; Playwright on 403 / SSL failure.
+
+    Counts logical page fetches (one per :meth:`fetch` call regardless of tier)
+    so the detector's crawl budget is tier-agnostic.
+    """
 
     def __init__(
         self,
         *,
         client: httpx.AsyncClient,
+        browser: BrowserFetcher | None = None,
         global_concurrency: int = 8,
         per_host_concurrency: int = 2,
     ) -> None:
         self._client = client
+        self._browser = browser
         self._robots = RobotsChecker(client=client, timeout=DEFAULT_TIMEOUT)
         self._global_sem = asyncio.Semaphore(global_concurrency)
         self._host_sems: dict[str, asyncio.Semaphore] = {}
         self._per_host = per_host_concurrency
         self.fetch_count = 0
+        self.tier_counts: dict[FetchTier, int] = {"httpx": 0, "playwright": 0}
 
     async def fetch(self, url: str) -> PageContent:
         """Fetch one page politely and parse it, or raise a typed :class:`FetchError`."""
@@ -68,8 +79,26 @@ class PageFetcher:
         sem = self._host_sems.setdefault(host, asyncio.Semaphore(self._per_host))
         self.fetch_count += 1
         async with self._global_sem, sem:
+            body, final_url, tier = await self._fetch_with_escalation(url)
+        self.tier_counts[tier] += 1
+        return parse_html(body, final_url=final_url, fetch_tier=tier)
+
+    async def _fetch_with_escalation(self, url: str) -> tuple[bytes, str, FetchTier]:
+        """httpx tier, escalating to the browser tier on 403 / SSL failure."""
+        try:
             body, final_url = await self._get(url)
-        return parse_html(body, final_url=final_url)
+            return body, final_url, "httpx"
+        except (FetchForbiddenError, SslError) as exc:
+            if self._browser is None:
+                raise FetchFailedError(
+                    f"{type(exc).__name__} and no browser fallback: {url}"
+                ) from exc
+            _log.info("fetch.escalate_playwright", url=url, reason=type(exc).__name__)
+            try:
+                body, final_url = await self._browser.fetch(url)
+            except FetchForbiddenError as browser_exc:
+                raise FetchFailedError(f"403 after playwright escalation: {url}") from browser_exc
+            return body, final_url, "playwright"
 
     async def _get(self, url: str) -> tuple[bytes, str]:
         async for attempt in AsyncRetrying(
@@ -80,28 +109,38 @@ class PageFetcher:
             before_sleep=_log_before_sleep,
         ):
             with attempt:
-                async with self._client.stream(
-                    "GET",
-                    url,
-                    headers={"User-Agent": USER_AGENT, "Accept": "text/html"},
-                    timeout=DEFAULT_TIMEOUT,
-                ) as resp:
-                    if resp.status_code >= HTTPStatus.INTERNAL_SERVER_ERROR:
-                        raise _TransientError(f"{resp.status_code} from {url}")
-                    if resp.status_code != HTTPStatus.OK:
-                        raise FetchFailedError(f"{resp.status_code} from {url}")
-                    content_type = resp.headers.get("content-type", "")
-                    if "text/html" not in content_type.lower():
-                        raise NonHtmlError(f"content-type {content_type!r} at {url}")
-                    chunks: list[bytes] = []
-                    total = 0
-                    async for chunk in resp.aiter_bytes():
-                        total += len(chunk)
-                        if total > MAX_BYTES:
-                            raise TooLargeError(f"body exceeds {MAX_BYTES} bytes at {url}")
-                        chunks.append(chunk)
-                    return b"".join(chunks), str(resp.url)
+                try:
+                    return await self._stream(url)
+                except httpx.ConnectError as exc:
+                    if _is_ssl_error(exc):
+                        raise SslError(f"TLS failure at {url}: {exc}") from exc
+                    raise
         raise RuntimeError("unreachable: AsyncRetrying yielded no attempts")
+
+    async def _stream(self, url: str) -> tuple[bytes, str]:
+        async with self._client.stream(
+            "GET",
+            url,
+            headers={"User-Agent": USER_AGENT, "Accept": "text/html"},
+            timeout=DEFAULT_TIMEOUT,
+        ) as resp:
+            if resp.status_code == HTTPStatus.FORBIDDEN:
+                raise FetchForbiddenError(f"403 from {url}")
+            if resp.status_code >= HTTPStatus.INTERNAL_SERVER_ERROR:
+                raise _TransientError(f"{resp.status_code} from {url}")
+            if resp.status_code != HTTPStatus.OK:
+                raise FetchFailedError(f"{resp.status_code} from {url}")
+            content_type = resp.headers.get("content-type", "")
+            if "text/html" not in content_type.lower():
+                raise NonHtmlError(f"content-type {content_type!r} at {url}")
+            chunks: list[bytes] = []
+            total = 0
+            async for chunk in resp.aiter_bytes():
+                total += len(chunk)
+                if total > MAX_BYTES:
+                    raise TooLargeError(f"body exceeds {MAX_BYTES} bytes at {url}")
+                chunks.append(chunk)
+            return b"".join(chunks), str(resp.url)
 
 
 def parse_html(body: bytes, *, final_url: str, fetch_tier: FetchTier = "httpx") -> PageContent:
@@ -153,6 +192,18 @@ def parse_html(body: bytes, *, final_url: str, fetch_tier: FetchTier = "httpx") 
         tel_links=tel,
         fetch_tier=fetch_tier,
     )
+
+
+def _is_ssl_error(exc: BaseException) -> bool:
+    """True if a TLS verification error appears anywhere in the cause/context chain."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, ssl.SSLError):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def _log_before_sleep(retry_state: RetryCallState) -> None:

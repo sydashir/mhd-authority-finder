@@ -5,11 +5,19 @@ Playwright) so downstream consumers — the page detector's scorer and the
 contact extractor — never care which tier served the bytes.
 """
 
-from typing import Literal
+from typing import Literal, Protocol
 
 from pydantic import BaseModel
 
 FetchTier = Literal["httpx", "playwright"]
+
+
+class BrowserFetcher(Protocol):
+    """A real-browser fetch tier. Returns ``(body_bytes, final_url)`` or raises a FetchError."""
+
+    async def fetch(self, url: str) -> tuple[bytes, str]: ...
+
+    async def aclose(self) -> None: ...
 
 
 class FetchError(RuntimeError):
