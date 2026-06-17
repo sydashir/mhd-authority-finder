@@ -8,7 +8,7 @@ break real-world detection fail here first. Fixtures fetched 2026-06-13.
 from pathlib import Path
 
 from authority_finder.discovery.models import GeoRef
-from authority_finder.page_detector.fetcher import parse_html
+from authority_finder.fetching import parse_html
 from authority_finder.page_detector.models import DetectedPage
 from authority_finder.page_detector.scorer import score_page
 

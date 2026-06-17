@@ -11,8 +11,8 @@ import asyncio
 import structlog
 
 from authority_finder.discovery.models import DiscoveryResult
+from authority_finder.fetching import PageFetcher
 from authority_finder.page_detector.detector import process_candidate
-from authority_finder.page_detector.fetcher import PageFetcher
 from authority_finder.page_detector.models import (
     CandidateOutcome,
     Confidence,

@@ -19,8 +19,8 @@ from urllib.parse import urlparse
 
 from authority_finder.discovery.models import GeoRef
 from authority_finder.discovery.queries import county_display, slug_to_display
+from authority_finder.fetching import PageContent
 from authority_finder.geo_monitor.states import US_STATE_SLUGS
-from authority_finder.page_detector.fetcher import PageContent
 from authority_finder.page_detector.models import Confidence, DetectedPage, PageSignal
 
 TOPIC_KEYWORDS = (

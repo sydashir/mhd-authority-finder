@@ -21,6 +21,7 @@ from authority_finder.config import get_settings
 from authority_finder.discovery.discover import discover_many
 from authority_finder.discovery.models import DiscoveryResult
 from authority_finder.discovery.serpapi_client import SerpApiClient
+from authority_finder.fetching import PageFetcher
 from authority_finder.geo_monitor.models import GeoPage, MonitorRun
 from authority_finder.geo_monitor.monitor import run_monitor
 from authority_finder.geo_monitor.sitemap_fetcher import SitemapFetcher
@@ -28,7 +29,6 @@ from authority_finder.geo_monitor.sites import SITES
 from authority_finder.geo_monitor.state import load_state
 from authority_finder.geo_monitor.url_parser import parse_geo_url
 from authority_finder.logging import configure as configure_logging
-from authority_finder.page_detector.fetcher import PageFetcher
 from authority_finder.page_detector.models import DetectionResult
 from authority_finder.page_detector.orchestrator import detect_for_geo
 

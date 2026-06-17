@@ -20,7 +20,7 @@ import structlog
 
 from authority_finder.discovery.classify import registrable_domain
 from authority_finder.discovery.models import CandidateSite, GeoRef
-from authority_finder.page_detector.fetcher import FetchError, PageContent, PageFetcher
+from authority_finder.fetching import FetchError, PageContent, PageFetcher
 from authority_finder.page_detector.models import CandidateOutcome, DetectedPage
 from authority_finder.page_detector.prefilter import junk_url_reason, prefilter_candidate
 from authority_finder.page_detector.scorer import (

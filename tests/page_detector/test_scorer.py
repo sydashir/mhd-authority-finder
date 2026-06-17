@@ -1,7 +1,7 @@
 """Scorer signal coverage: every signal, wrong-state reject, confidence bands."""
 
 from authority_finder.discovery.models import GeoRef
-from authority_finder.page_detector.fetcher import PageContent, PageLink
+from authority_finder.fetching import PageContent, PageLink
 from authority_finder.page_detector.models import DetectedPage
 from authority_finder.page_detector.scorer import (
     HIGH_THRESHOLD,

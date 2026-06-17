@@ -3,7 +3,7 @@
 import httpx
 
 from authority_finder.discovery.models import DiscoveryResult
-from authority_finder.page_detector.fetcher import PageFetcher
+from authority_finder.fetching import PageFetcher
 from authority_finder.page_detector.orchestrator import detect_for_geo
 from tests.page_detector.conftest import ORANGE_COUNTY_GEO, html_page, make_candidate
 

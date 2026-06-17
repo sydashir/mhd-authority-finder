@@ -3,13 +3,13 @@
 import httpx
 import pytest
 
-from authority_finder.page_detector.detector import MAX_FETCHES_PER_CANDIDATE, process_candidate
-from authority_finder.page_detector.fetcher import (
+from authority_finder.fetching import (
     MAX_BYTES,
     NonHtmlError,
     PageFetcher,
     TooLargeError,
 )
+from authority_finder.page_detector.detector import MAX_FETCHES_PER_CANDIDATE, process_candidate
 from tests.page_detector.conftest import (
     CALIFORNIA_GEO,
     ORANGE_COUNTY_GEO,

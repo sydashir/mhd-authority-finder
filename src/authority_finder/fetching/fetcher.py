@@ -1,4 +1,4 @@
-"""Async HTML page fetcher for candidate .gov/.edu sites.
+"""Async HTML fetcher shared by the page detector and contact extractor.
 
 Politeness is non-negotiable — these are government websites: robots.txt
 respected per host, per-host concurrency capped at 2, a global cap of 8,
@@ -14,7 +14,6 @@ from urllib.parse import urlparse
 import httpx
 import structlog
 from lxml import html as lxml_html
-from pydantic import BaseModel
 from tenacity import (
     AsyncRetrying,
     RetryCallState,
@@ -23,6 +22,14 @@ from tenacity import (
     wait_exponential,
 )
 
+from authority_finder.fetching.models import (
+    FetchFailedError,
+    FetchTier,
+    NonHtmlError,
+    PageContent,
+    PageLink,
+    TooLargeError,
+)
 from authority_finder.robots import USER_AGENT, RobotsChecker
 
 MAX_BYTES = 2_000_000
@@ -33,44 +40,8 @@ DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0)
 _log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 
-class FetchError(RuntimeError):
-    """Base class for page-fetch failures."""
-
-
-class FetchFailedError(FetchError):
-    """Network error or non-success status after retries."""
-
-
 class _TransientError(FetchFailedError):
     """5xx — retried with backoff; surfaces as FetchFailedError when exhausted."""
-
-
-class NonHtmlError(FetchError):
-    """Response content-type is not text/html."""
-
-
-class TooLargeError(FetchError):
-    """Response body exceeded MAX_BYTES."""
-
-
-class PageLink(BaseModel):
-    """One internal/external anchor on a page."""
-
-    text: str
-    href: str
-
-
-class PageContent(BaseModel):
-    """Parsed page representation the scorer works from."""
-
-    final_url: str
-    title: str
-    h1s: list[str]
-    meta_description: str
-    text_sample: str
-    links: list[PageLink]
-    has_mailto: bool
-    has_tel: bool
 
 
 class PageFetcher:
@@ -133,8 +104,8 @@ class PageFetcher:
         raise RuntimeError("unreachable: AsyncRetrying yielded no attempts")
 
 
-def parse_html(body: bytes, *, final_url: str) -> PageContent:
-    """Parse raw HTML into the :class:`PageContent` the scorer consumes."""
+def parse_html(body: bytes, *, final_url: str, fetch_tier: FetchTier = "httpx") -> PageContent:
+    """Parse raw HTML into the :class:`PageContent` consumers work from."""
     doc = lxml_html.fromstring(body or b"<html></html>")
     doc.make_links_absolute(final_url, resolve_base_href=True)
 
@@ -148,15 +119,21 @@ def parse_html(body: bytes, *, final_url: str) -> PageContent:
     text_sample = " ".join(doc.text_content().split())[:TEXT_SAMPLE_CHARS]
 
     links: list[PageLink] = []
-    has_mailto = False
-    has_tel = False
+    mailto: list[str] = []
+    tel: list[str] = []
     for anchor in doc.findall(".//a[@href]"):
         href = (anchor.get("href") or "").strip()
-        if href.startswith("mailto:"):
-            has_mailto = True
+        if href.lower().startswith("mailto:"):
+            addr = href[len("mailto:") :].split("?", 1)[0]
+            for part in addr.split(","):
+                one = part.strip().lower()
+                if one and one not in mailto:
+                    mailto.append(one)
             continue
-        if href.startswith("tel:"):
-            has_tel = True
+        if href.lower().startswith("tel:"):
+            raw = href[len("tel:") :].strip()
+            if raw and raw not in tel:
+                tel.append(raw)
             continue
         if not href or href.startswith(("javascript:", "#")):
             continue
@@ -170,8 +147,11 @@ def parse_html(body: bytes, *, final_url: str) -> PageContent:
         meta_description=meta_description,
         text_sample=text_sample,
         links=links,
-        has_mailto=has_mailto,
-        has_tel=has_tel,
+        has_mailto=bool(mailto),
+        has_tel=bool(tel),
+        mailto_links=mailto,
+        tel_links=tel,
+        fetch_tier=fetch_tier,
     )
 
 
