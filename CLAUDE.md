@@ -36,6 +36,10 @@ src/authority_finder/
     monitor.py           run_monitor orchestrator
   domains.py           COMPETITOR_DOMAINS (16) + FEDERAL_DOMAINS shared lists
   robots.py            shared robots.txt checker + USER_AGENT
+  fetching/            shared two-tier fetcher (httpx → Playwright on 403/SSL, ADR-007)
+    models.py            PageContent / PageLink / fetch errors / BrowserFetcher protocol
+    fetcher.py           PageFetcher + parse_html (politeness, caps, escalation)
+    browser.py           PlaywrightBrowserFetcher (lazy, reused, lock-serialized)
   discovery/           per-geo .gov/.edu candidate search (SerpAPI, package)
     models.py            GeoRef / SearchResult / CandidateSite / DiscoveryResult
     serpapi_client.py    async google_light client + disk cache + billed counter
@@ -50,7 +54,11 @@ src/authority_finder/
     scorer.py            explainable signal scoring + confidence bands (pure)
     detector.py          per-candidate pipeline + bounded crawl fallback (≤6 fetches)
     orchestrator.py      detect_for_geo
-  contact_extractor.py email + phone scraping (direct only, MVP)
+  contact_extractor/   email + phone scraping (direct only, ADR-003/007, package)
+    models.py            EmailHit / PhoneHit / ContactSet / ExtractionResult
+    extract.py           pure email/phone extractors + guards + ranking
+    contact_page.py      contact/staff-directory link discovery (pure)
+    orchestrator.py      extract_for_geo + bounded contact-page fallback
   link_checker.py      checks site for links to 16 competitor domains
   population.py        US Census API lookup for the geo
   output.py            Google Sheets writer + dedupe
@@ -104,13 +112,12 @@ As of Session 4-prep (2026-06-12):
 - Session 4-prep (2026-06-12): session-journal rule + SessionStart hook installed (`.claude/`), full toolchain audit green, live baseline MHD 23 / AH 49 geo pages (0 new since Session 3), SerpAPI/httpx/tenacity research done for the discovery build.
 - Session 4 (2026-06-13): `discovery` complete and live-validated — SerpAPI `google_light` page-1 client with disk cache + quota counters, per-level query templates, tldextract classification with state-portal dedupe exception (ADR-005), orchestrator, `discover` CLI command, 34 unit tests + 1 `live_paid` smoke test. Live run: 5 geos, 19 billed searches, 127 candidates.
 - Session 5 (2026-06-13): `page_detector` complete and live-validated (ADR-006) — shared `domains.py` (competitor + federal exclusions) and `robots.py`, pre-filter, polite HTML fetcher, explainable scorer with wrong-state hard reject and topic-relevance confidence cap, bounded crawl fallback (≤6 fetches), `detect` CLI with `--in/--out` chaining. Live: 127 candidates → 54 detected (23 high / 21 med / 10 low); blind sample: high 8/8, medium 5/12. Known issue: 27% of candidates 403-block our honest UA.
-- `contact_extractor`, `population`, `output` (Phase 1) and `authority_filter`, `link_checker` (Phase 2) are still stubs.
+- Session 6 (2026-06-17): shared two-tier `fetching/` (httpx → Playwright on 403/SSL) + `contact_extractor` complete and live-validated (ADR-007). Playwright recovered 14/35 of Session 5's fetch-failures; extraction email coverage 73% (.gov 70 / .edu 75), phone 81%. Hardened by a 5-lens adversarial audit (ID-number phones, template/DSN/version-pin emails, multi-dot obfuscation, ranking) + glued-digit guard. `extract` CLI chains from detection. `phonenumbers==9.0.32`; `playwright` promoted to runtime dep.
+- `population`, `output` (Phase 1) and `authority_filter`, `link_checker` (Phase 2) are still stubs.
 
 ## What's next (Phase 1 — Core MVP)
 
-Order per feasibility doc Section 9 — items 1 (geo monitor, S3), 2 (discovery, S4), 3 (page detector, S5) shipped:
-
-4. Contact extractor — `httpx` + HTML parsing, direct scrape only (ADR-003).
+Order per feasibility doc Section 9 — items 1 (geo monitor, S3), 2 (discovery, S4), 3 (page detector, S5), 4 (contact extractor, S6) shipped:
 5. Population — US Census API.
 6. Output — Google Sheets append + dedupe.
 7. Manual trigger CLI to run end-to-end per geo.

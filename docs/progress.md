@@ -318,3 +318,57 @@ Open before Session 4:
 ### What's next — Session 6
 
 `contact_extractor`: email + phone from detected pages (direct scrape per ADR-003) — mailto/tel parsing, obfuscation patterns, contact-page hop (reuse the crawl machinery), per-page provenance for the sheet. Resolve the 403-fallback question first.
+
+---
+
+## 2026-06-17 — Session 6: contact extractor + shared two-tier fetch
+
+### Done
+
+- **Shared `fetching/` tier** (`db9898d` refactor, `a9a86ab` playwright): promoted `page_detector/fetcher.py` to `authority_finder/fetching/` (both detector and extractor import it). httpx first, always; escalate to headless Playwright Chromium only on 403 or TLS-chain failure (genuine browser UA, not spoofed httpx headers); robots enforced before either tier; ≤1 browser fetch/URL; one lazily-launched reused browser; hard-403-after-browser → fetch_failed. `PageContent` gained `mailto_links`/`tel_links`/`has_web_form`/`fetch_tier`. `playwright` promoted dev→runtime dep.
+- **`contact_extractor/`** (models `e381b77`, extract `5774914`, contact-page `36edec6`, orchestrator `0995156`, CLI `54c5f3e`): `phonenumbers==9.0.32` via `PhoneNumberMatcher`; vetted email regex + guards (NOT email-validator — DNS-by-default, validates-not-extracts); mailto/tel first, body-text + obfuscation decode; confidence + trust-order ranking; ≤2 same-domain contact-page hops when no email; `extract` CLI chains from detection JSON or runs discover→detect→extract internally.
+- **Adversarial audit (5-lens Workflow) → 5 fix commits.** Each lens generated messy inputs and ran them against the real functions; reproduced defects fixed + pinned as regression tests:
+  - `cc86ef8` phone: EXACT_GROUPING + reject pure-digit raws + record-label guard (killed order/invoice/confirmation/case/account-number false positives that ALL leniency levels accepted).
+  - `23afe9a` email FP: template-token strip (`{{}}`/`${}`), placeholder-domain **suffix** match (Sentry DSN subdomains), non-PSL-TLD reject (tldextract), numeric-domain-label reject (version pins), code-ext blocklist.
+  - `d415df2` multi-segment spelled obfuscation (`info at mail dot county dot gov` was truncating to a *wrong* address; now decodes whole, incl. county `.us`).
+  - `342d1a5` email ranking: trust-order tie-break (mailto > contact_page > body_text) + case-insensitive dedupe.
+  - `df2d9ea` (from live quality sample): reject 5+ digit local-part runs (ZIP/phone glued into the address with no separator).
+- `2a993ef` **concurrency fix found by the live run**: `_ensure_browser` raced under concurrent escalations and launched 7 browsers (orphaning 6); fixed with a double-checked async lock. Re-validated: extraction run launched exactly 1.
+- Tests `9bff2c7`: 53 contact-extractor unit tests + 6 two-tier fetch tests; suite now 181 unit tests, zero network. ADR-007 `d91dd33`.
+
+### Live validation (5 cached geos, 0 SerpAPI calls)
+
+**Part A — Playwright recovery:** of Session 5's **35** fetch-failures, **14 recovered (40%)** — incl. floridahealth.gov, cdph.ca.gov (SSL-chain, browser tolerates the missing intermediate), fsu.edu, umd.edu, fmu.edu (403'd even headless Chromium in S5, loads via nav flow now), umbc.edu, unco.edu, pinellas.gov, ocauditor.gov, 5 more. Detected pages 54→67. Detection fetches: 118 httpx + 24 playwright. **21 still fail** (enterprise WAF/timeout: bha.colorado.gov, cdphe.colorado.gov, baltimorecountymd.gov, virginia.edu…) — graceful degradation.
+
+**Part B — extraction coverage (67 detected pages, 107 fetches: 86 httpx + 18 playwright):**
+- Email: **49/67 = 73%** — .gov **22/31 (70%)**, .edu **27/36 (75%)**.
+- Phone: **54/67 = 81%** — .gov **26/31 (83%)**, .edu **28/36 (77%)**.
+- Form-only: **0** (every page yielded email/phone or nothing — the Session-5 ".edu leans on contact forms" worry didn't materialize; the contact-page fallback closed the .edu gap, and .edu email edged out .gov).
+- fetch_failed during extraction: 2.
+- Both above the feasibility doc's 65–75% promise.
+
+**Quality sample (15 random extracted emails, judged harshly = department-relevant + usable for THIS geo's outreach):** ~8/15 usable. Clearly good: recoverysupport@howardcountymd.gov, bhs@frederickcountymd.gov, chhsmail@chhs.ca.gov, fourth.district@ocgov.com, ivccounseling@ivc.edu. Borderline-usable (real institutional/person inbox): info@csupueblo.edu, jsilverman@umaryland.edu, mallee@ndm.edu. Misses: mdmanual@maryland.gov (archives, not BHA), newsmedia@flhealth.gov (press), bcso@bouldercounty.gov (sheriff), servicedesk@chapman.edu + csinfo@bu.edu (IT/CS — the bu.edu page was a Session-5 mis-detection), cccadmissionsoffice@coastline.edu (admissions). One garbled hit (#7, ZIP+phone glued) → fixed by `df2d9ea`.
+
+**Playwright spot-checks:** 3/3 — recoverysupport@howardcountymd.gov, fourth.district@ocgov.com, chhsmail@chhs.ca.gov — extracted email AND phone confirmed present on the live page (no hallucination).
+
+### Decisions this session (rationale in ADR-007)
+
+- Two-tier httpx→Playwright fetch (user-resolved 403 policy); genuine browser, no UA spoofing.
+- phonenumbers for phones; regex+guards (not email-validator) for emails.
+- All audit/validation-driven precision guards above; precision-over-recall throughout.
+
+### Failure modes, honestly
+
+- **Email misses cluster on wrong-but-real inboxes** the extractor can't distinguish from dept contacts: press/news, IT helpdesk, admissions, archives, sheriff. These are correctly *extracted* (real addresses on the page) but are the wrong *department* — page-relevance, not extraction, is the lever (a future refinement could score local-part vs the page's topic). Two were downstream of Session-5 page mis-detections (bu.edu CS page).
+- **21 hosts still 403/timeout even via Playwright** — enterprise WAFs (Akamai/Cloudflare bot-management) that block headless Chromium too. Flagged, not chased.
+- Role/generic inboxes (info@, servicedesk@) rank below dept inboxes but still surface when nothing better exists — by design.
+
+### Open questions for Session 7
+
+1. **Phase 1 remaining = population (Census, component 7) + Google Sheets output (component 8).** Census API is free (key in `.env.example` as CENSUS_API_KEY — confirm it's set). **Google Sheets needs the Sheet ID + service-account credentials — still not provided; this blocks `output.py`.** Flag to user.
+2. Department-relevance scoring for emails (press/IT/admissions are wrong-dept) — worth a light local-part-vs-topic heuristic in a later pass; the 15-sample is the seed corpus.
+3. The 21 hard-WAF hosts: accept-and-flag is current behavior; revisit only if the client needs those specific orgs.
+
+### What's next — Session 7
+
+`population` (US Census API lookup per geo) then `output` (Google Sheets append + dedupe) — the last two Phase 1 components. Resolve Sheets credentials before `output.py`. After that, Phase 1 ships end-to-end rows.
