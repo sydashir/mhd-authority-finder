@@ -175,6 +175,9 @@ _PHONE_JUNK_LABEL = re.compile(
 _PHONE_LABEL_WINDOW = 20
 
 _TEMPLATE_TOKEN = re.compile(r"\{\{.*?\}\}|\$\{[^}]*\}")
+# A 5+ digit run in the local part means a ZIP/phone ran into the address with no
+# separator (live: "80204303-315-2228spa.admissions@ucdenver.edu") — a garbled hit.
+_LOCAL_DIGIT_RUN = re.compile(r"\d{5,}")
 _BRACKET_AT = re.compile(r"\s*[\[({]\s*at\s*[\])}]\s*", re.IGNORECASE)
 _BRACKET_DOT = re.compile(r"\s*[\[({]\s*dot\s*[\])}]\s*", re.IGNORECASE)
 # Spelled-out form, multi-segment: "info at mail dot county dot gov" → info@mail.county.gov.
@@ -214,6 +217,7 @@ def _is_junk_email(address: str) -> bool:
         labels[-1] in _ASSET_EXTS
         or not _tld(f"http://{domain}").suffix  # not a real public suffix
         or any(label.isdigit() for label in labels[:-1])  # version pins: serde@1.0.gov
+        or bool(_LOCAL_DIGIT_RUN.search(local))  # ZIP/phone glued into the local part
         or local in _PLACEHOLDER_LOCAL
         or placeholder_domain
     )

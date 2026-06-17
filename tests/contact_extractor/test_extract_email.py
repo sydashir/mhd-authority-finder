@@ -64,6 +64,18 @@ def test_email_false_positives_rejected(text: str) -> None:
     assert addrs({"text": text}) == []
 
 
+def test_zip_phone_glued_into_local_part_rejected() -> None:
+    # Live defect: address ran together with a ZIP + phone, no separator.
+    assert addrs({"text": "Denver CO 80204303-315-2228spa.admissions@ucdenver.edu"}) == []
+
+
+def test_short_digit_local_parts_survive() -> None:
+    assert addrs({"text": "Reach covid19@county.gov or team211@county.gov."}) == [
+        "covid19@county.gov",
+        "team211@county.gov",
+    ]
+
+
 def test_real_emails_survive_the_guards() -> None:
     assert addrs({"text": "Reach intake+referrals@dhs.ca.gov or info@mail.county.gov."}) == [
         "info@mail.county.gov",
