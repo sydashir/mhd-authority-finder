@@ -153,6 +153,8 @@ def parse_html(body: bytes, *, final_url: str, fetch_tier: FetchTier = "httpx") 
     meta_node = doc.find('.//meta[@name="description"]')
     meta_description = (meta_node.get("content") or "").strip() if meta_node is not None else ""
 
+    has_web_form = any(_is_input_form(form) for form in doc.findall(".//form"))
+
     for node in list(doc.iter("script", "style", "noscript")):
         node.drop_tree()
     text_sample = " ".join(doc.text_content().split())[:TEXT_SAMPLE_CHARS]
@@ -190,7 +192,18 @@ def parse_html(body: bytes, *, final_url: str, fetch_tier: FetchTier = "httpx") 
         has_tel=bool(tel),
         mailto_links=mailto,
         tel_links=tel,
+        has_web_form=has_web_form,
         fetch_tier=fetch_tier,
+    )
+
+
+def _is_input_form(form: lxml_html.HtmlElement) -> bool:
+    """A form that takes free-form human input (textarea or email/tel field) — an
+    inquiry/contact form, not a bare search box."""
+    if form.findall(".//textarea"):
+        return True
+    return any(
+        (inp.get("type") or "").lower() in ("email", "tel") for inp in form.findall(".//input")
     )
 
 

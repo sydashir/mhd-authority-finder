@@ -64,4 +64,5 @@ class PageContent(BaseModel):
     has_tel: bool
     mailto_links: list[str] = []
     tel_links: list[str] = []
+    has_web_form: bool = False
     fetch_tier: FetchTier = "httpx"
