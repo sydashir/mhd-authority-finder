@@ -18,6 +18,7 @@ best by confidence, then source, then address.
 import re
 
 import phonenumbers
+import tldextract
 from phonenumbers import Leniency, PhoneNumberFormat
 
 from authority_finder.contact_extractor.models import (
@@ -27,6 +28,10 @@ from authority_finder.contact_extractor.models import (
     PhoneSource,
 )
 from authority_finder.fetching.models import PageContent
+
+# Offline PSL extractor (matches discovery.classify config) — rejects emails whose
+# "domain" has no real public suffix (handler@bind.call, x@secret.key, a@host.local).
+_tld = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None)
 
 _EMAIL_RE = re.compile(
     r"(?<![\w.+-])"
@@ -66,6 +71,13 @@ _ASSET_EXTS = frozenset(
         "pdf",
         "zip",
         "xml",
+        # ccTLDs that double as source-file extensions (handler@x.ts, readme@docs.md);
+        # the rest (.tsx/.vue/.py/.scss/...) are non-suffixes the PSL guard rejects anyway.
+        "ts",
+        "py",
+        "sh",
+        "rs",
+        "md",
     }
 )
 _PLACEHOLDER_LOCAL = frozenset(
@@ -161,6 +173,7 @@ _PHONE_JUNK_LABEL = re.compile(
 )
 _PHONE_LABEL_WINDOW = 20
 
+_TEMPLATE_TOKEN = re.compile(r"\{\{.*?\}\}|\$\{[^}]*\}")
 _BRACKET_AT = re.compile(r"\s*[\[({]\s*at\s*[\])}]\s*", re.IGNORECASE)
 _BRACKET_DOT = re.compile(r"\s*[\[({]\s*dot\s*[\])}]\s*", re.IGNORECASE)
 _SPELLED = re.compile(
@@ -183,14 +196,17 @@ def _is_junk_email(address: str) -> bool:
     local, _, domain = address.partition("@")
     if not domain:
         return True
-    tld = domain.rsplit(".", 1)[-1]
-    if tld in _ASSET_EXTS:
-        return True
-    if local.isdigit() and domain.split(".", 1)[0].isdigit():
-        return True
-    if local in _PLACEHOLDER_LOCAL:
-        return True
-    return domain in _PLACEHOLDER_DOMAIN
+    labels = domain.split(".")
+    placeholder_domain = domain in _PLACEHOLDER_DOMAIN or any(
+        domain.endswith(f".{placeholder}") for placeholder in _PLACEHOLDER_DOMAIN
+    )
+    return (
+        labels[-1] in _ASSET_EXTS
+        or not _tld(f"http://{domain}").suffix  # not a real public suffix
+        or any(label.isdigit() for label in labels[:-1])  # version pins: serde@1.0.gov
+        or local in _PLACEHOLDER_LOCAL
+        or placeholder_domain
+    )
 
 
 def _email_confidence(address: str, source: EmailSource) -> float:
@@ -228,7 +244,7 @@ def extract_emails(content: PageContent, *, contact_page: bool = False) -> list[
         add(addr, mailto_source, "mailto: link")
 
     body_source: EmailSource = "contact_page" if contact_page else "body_text"
-    text = deobfuscate(content.text_sample)
+    text = deobfuscate(_TEMPLATE_TOKEN.sub(" ", content.text_sample))
     for match in _EMAIL_RE.finditer(text):
         start = max(0, match.start() - _CONTEXT_PAD)
         context = text[start : match.end() + _CONTEXT_PAD].strip()
