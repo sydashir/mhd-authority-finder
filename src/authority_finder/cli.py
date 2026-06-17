@@ -10,6 +10,8 @@ requested unit errored.
 import asyncio
 import json
 import sys
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -18,10 +20,13 @@ import click
 import httpx
 
 from authority_finder.config import get_settings
+from authority_finder.contact_extractor.models import ExtractionResult
+from authority_finder.contact_extractor.orchestrator import extract_for_geo
 from authority_finder.discovery.discover import discover_many
 from authority_finder.discovery.models import DiscoveryResult
 from authority_finder.discovery.serpapi_client import SerpApiClient
-from authority_finder.fetching import PageFetcher
+from authority_finder.fetching import FetchTier, PageFetcher
+from authority_finder.fetching.browser import PlaywrightBrowserFetcher
 from authority_finder.geo_monitor.models import GeoPage, MonitorRun
 from authority_finder.geo_monitor.monitor import run_monitor
 from authority_finder.geo_monitor.sitemap_fetcher import SitemapFetcher
@@ -31,6 +36,18 @@ from authority_finder.geo_monitor.url_parser import parse_geo_url
 from authority_finder.logging import configure as configure_logging
 from authority_finder.page_detector.models import DetectionResult
 from authority_finder.page_detector.orchestrator import detect_for_geo
+
+
+@asynccontextmanager
+async def _page_fetcher() -> AsyncGenerator[PageFetcher]:
+    """A two-tier PageFetcher with a reused Playwright browser, closed on exit."""
+    browser = PlaywrightBrowserFetcher()
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        try:
+            yield PageFetcher(client=client, browser=browser)
+        finally:
+            await browser.aclose()
+
 
 SiteFailure = tuple[str, str]
 
@@ -260,11 +277,12 @@ def detect(
             sys.exit(2)
         site = site or "both"
 
-    results, fetches = asyncio.run(_run_detect(in_file, site=site, limit=limit, level=level))
+    results, fetches, tiers = asyncio.run(_run_detect(in_file, site=site, limit=limit, level=level))
 
     payload = {
         "results": [r.model_dump(mode="json") for r in results],
         "fetches_used": fetches,
+        "fetch_tiers": tiers,
     }
     if out_file is not None:
         out_file.write_text(json.dumps(payload, indent=2, default=str))
@@ -272,7 +290,7 @@ def detect(
     if as_json:
         click.echo(json.dumps(payload, indent=2, default=str))
     else:
-        _print_detection_table(results, fetches=fetches)
+        _print_detection_table(results, fetches=fetches, tiers=tiers)
 
     if results and all(r.status_counts.get("detected", 0) == 0 for r in results):
         sys.exit(1)
@@ -286,7 +304,7 @@ def _load_discovery_file(path: Path) -> list[DiscoveryResult]:
 
 async def _run_detect(
     in_file: Path | None, *, site: str | None, limit: int | None, level: str | None
-) -> tuple[list[DetectionResult], int]:
+) -> tuple[list[DetectionResult], int, dict[FetchTier, int]]:
     if in_file is not None:
         discovery_results = _load_discovery_file(in_file)
     else:
@@ -295,13 +313,14 @@ async def _run_detect(
             site_ids, limit=limit, level=level, refresh=False
         )
 
-    async with httpx.AsyncClient(follow_redirects=True) as client:
-        fetcher = PageFetcher(client=client)
+    async with _page_fetcher() as fetcher:
         results = [await detect_for_geo(d, fetcher=fetcher) for d in discovery_results]
-        return results, fetcher.fetch_count
+        return results, fetcher.fetch_count, dict(fetcher.tier_counts)
 
 
-def _print_detection_table(results: list[DetectionResult], *, fetches: int) -> None:
+def _print_detection_table(
+    results: list[DetectionResult], *, fetches: int, tiers: dict[FetchTier, int]
+) -> None:
     if not results:
         click.echo("no detection results.")
         return
@@ -323,7 +342,128 @@ def _print_detection_table(results: list[DetectionResult], *, fetches: int) -> N
             f"{rejc.get('wrong_state', 0):>5} {rejc.get('junk_url', 0):>4} "
             f"{rejc.get('no_viable_page', 0):>5} {fail:>4} {r.fetches_used:>5}"
         )
-    click.echo(f"\nsession total: {fetches} page fetches")
+    httpx_n = tiers.get("httpx", 0)
+    pw_n = tiers.get("playwright", 0)
+    click.echo(f"\nsession total: {fetches} page fetches ({httpx_n} httpx, {pw_n} playwright)")
+
+
+@cli.command()
+@click.option(
+    "--in",
+    "in_file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Read detection results from a JSON file instead of discovering + detecting.",
+)
+@click.option(
+    "--site",
+    type=click.Choice(["mhd", "ah", "both"]),
+    default=None,
+    help="Run discover + detect first (cache-aware) for these sites.",
+)
+@click.option("--limit", type=int, default=None, help="Max geos to process (after level filter).")
+@click.option(
+    "--level",
+    type=click.Choice(["state", "county", "city"]),
+    default=None,
+    help="Only geos of this level.",
+)
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Emit structured JSON to stdout instead of a table.",
+)
+@click.option(
+    "--out",
+    "out_file",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Write the JSON payload to a file.",
+)
+def extract(
+    in_file: Path | None,
+    site: str | None,
+    limit: int | None,
+    level: str | None,
+    as_json: bool,
+    out_file: Path | None,
+) -> None:
+    """Extract email + phone contacts from each detected department page."""
+    configure_logging("INFO")
+    if in_file is None:
+        if not get_settings().serpapi_api_key.get_secret_value():
+            click.echo("SERPAPI_API_KEY is not set — aborting before any search.", err=True)
+            sys.exit(2)
+        site = site or "both"
+
+    results, fetches, tiers = asyncio.run(
+        _run_extract(in_file, site=site, limit=limit, level=level)
+    )
+
+    payload = {
+        "results": [r.model_dump(mode="json") for r in results],
+        "fetches_used": fetches,
+        "fetch_tiers": tiers,
+    }
+    if out_file is not None:
+        out_file.write_text(json.dumps(payload, indent=2, default=str))
+        click.echo(f"wrote {len(results)} extraction results to {out_file}")
+    if as_json:
+        click.echo(json.dumps(payload, indent=2, default=str))
+    else:
+        _print_extraction_table(results, fetches=fetches, tiers=tiers)
+
+    if results and all(
+        r.status_counts.get("extracted", 0) + r.status_counts.get("partial", 0) == 0
+        for r in results
+    ):
+        sys.exit(1)
+
+
+def _load_detection_file(path: Path) -> list[DetectionResult]:
+    data: Any = json.loads(path.read_text())
+    items = cast("list[Any]", data["results"] if isinstance(data, dict) else data)
+    return [DetectionResult.model_validate(item) for item in items]
+
+
+async def _run_extract(
+    in_file: Path | None, *, site: str | None, limit: int | None, level: str | None
+) -> tuple[list[ExtractionResult], int, dict[FetchTier, int]]:
+    async with _page_fetcher() as fetcher:
+        if in_file is not None:
+            detections = _load_detection_file(in_file)
+        else:
+            site_ids = list(SITES.keys()) if site == "both" else [site or "both"]
+            discovery_results, _, _ = await _run_discovery(
+                site_ids, limit=limit, level=level, refresh=False
+            )
+            detections = [await detect_for_geo(d, fetcher=fetcher) for d in discovery_results]
+        results = [await extract_for_geo(d, fetcher=fetcher) for d in detections]
+        return results, fetcher.fetch_count, dict(fetcher.tier_counts)
+
+
+def _print_extraction_table(
+    results: list[ExtractionResult], *, fetches: int, tiers: dict[FetchTier, int]
+) -> None:
+    if not results:
+        click.echo("no extraction results.")
+        return
+    click.echo(
+        f"{'geo':<58} {'pages':>5} {'email':>5} {'phone':>5} {'form':>4} "
+        f"{'none':>4} {'fail':>4} {'ftch':>5}"
+    )
+    click.echo("-" * 100)
+    for r in results:
+        click.echo(
+            f"{r.geo.url:<58} {len(r.outcomes):>5} {r.with_email:>5} {r.with_phone:>5} "
+            f"{r.form_only:>4} {r.status_counts.get('none', 0):>4} "
+            f"{r.status_counts.get('fetch_failed', 0):>4} {r.fetches_used:>5}"
+        )
+    httpx_n = tiers.get("httpx", 0)
+    pw_n = tiers.get("playwright", 0)
+    click.echo(f"\nsession total: {fetches} page fetches ({httpx_n} httpx, {pw_n} playwright)")
 
 
 def _print_discovery_table(results: list[DiscoveryResult], *, billed: int, cached: int) -> None:
