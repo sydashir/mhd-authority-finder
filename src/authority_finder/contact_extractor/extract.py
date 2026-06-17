@@ -176,18 +176,27 @@ _PHONE_LABEL_WINDOW = 20
 _TEMPLATE_TOKEN = re.compile(r"\{\{.*?\}\}|\$\{[^}]*\}")
 _BRACKET_AT = re.compile(r"\s*[\[({]\s*at\s*[\])}]\s*", re.IGNORECASE)
 _BRACKET_DOT = re.compile(r"\s*[\[({]\s*dot\s*[\])}]\s*", re.IGNORECASE)
+# Spelled-out form, multi-segment: "info at mail dot county dot gov" → info@mail.county.gov.
+# The middle group absorbs interior " dot " segments so county .us / subdomain-mail hosts
+# decode whole rather than truncating to a wrong address.
 _SPELLED = re.compile(
-    r"([A-Za-z0-9._%+-]+)\s+at\s+([A-Za-z0-9.-]+)\s+dot\s+([A-Za-z]{2,24})",
+    r"([A-Za-z0-9._%+-]+)\s+at\s+([A-Za-z0-9.-]+(?:\s+dot\s+[A-Za-z0-9-]+)*)\s+dot\s+([A-Za-z]{2,24})",
     re.IGNORECASE,
 )
+_DOT_WORD = re.compile(r"\s+dot\s+", re.IGNORECASE)
 _CONTEXT_PAD = 40
+
+
+def _spelled_repl(match: re.Match[str]) -> str:
+    middle = _DOT_WORD.sub(".", match.group(2))
+    return f"{match.group(1)}@{middle}.{match.group(3)}"
 
 
 def deobfuscate(text: str) -> str:
     """Decode the common spelled-out email obfuscations into real ``@``/``.``."""
     text = _BRACKET_AT.sub("@", text)
     text = _BRACKET_DOT.sub(".", text)
-    return _SPELLED.sub(r"\1@\2.\3", text)
+    return _SPELLED.sub(_spelled_repl, text)
 
 
 def _is_junk_email(address: str) -> bool:
