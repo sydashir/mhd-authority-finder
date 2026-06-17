@@ -244,3 +244,42 @@ URLs whose `state` slug isn't in the set return `None` from the parser — they 
 - Accuracy sample on real outreach batches drops below ~70% — first lever is weight/threshold tuning against the validation corpus, second is query-template refinement, ML last.
 - A federal domain repeatedly pollutes results without being on the list — add it (one line).
 - Client adds non-US geos (the state-name validator is US-only by construction).
+
+---
+
+## ADR-007 — Contact extraction (direct-scrape) + two-tier httpx→Playwright fetch
+
+**Date:** 2026-06-17
+**Status:** Accepted
+**Context:** Session 6 — building `contact_extractor/` (feasibility component 5) and resolving Session 5's open issue that 27% of candidates (including state health departments) 403-block our honest user agent. ADR-003 locked direct-scrape only (no Hunter/Apollo). Precision-over-recall is the governing principle: a wrong contact burns sender reputation, so the design biases toward fewer, correct contacts.
+
+### Decisions
+
+1. **Two-tier fetch, shared infra.** The page fetcher (promoted to `authority_finder/fetching/`, used by both the detector and the extractor) tries **httpx first, always**, and escalates to **headless Playwright Chromium only on HTTP 403 or TLS-chain failure**. We never spoof a browser UA on the httpx tier — escalating to a *genuine* browser (which sends Chromium's real UA) is honest, where lying with a fake header from httpx is not. robots.txt is enforced once, before either tier. Hard budget: at most one browser fetch per URL (no Playwright-tier crawling). One browser instance per run, launched lazily on first escalation and reused. If Playwright also gets a hard 403, the row degrades to `fetch_failed` and is flagged — no hanging. Genuine server-side TLS faults (e.g. cdph.ca.gov's missing intermediate) are flagged, not chased.
+2. **`phonenumbers` for phones, regex+guards for emails (not `email-validator`).** `phonenumbers` (Google's libphonenumber port, pinned 9.0.32, pure-Python, ships py.typed) is the only correct tool for extracting US numbers from free text via `PhoneNumberMatcher`. `email-validator` was rejected: it *validates* one known address (with DNS deliverability calls by default) — it does not *extract* — so it adds a network dependency for nothing. Emails use a bounded regex plus a false-positive guard list.
+3. **Email false-positive defenses** (hardened by an adversarial audit — five lenses generated messy inputs and ran them against the real functions; defects below were reproduced then fixed): non-PSL TLD rejection via tldextract (kills `x@host.local`, `handler@bind.call`-class — though `.call` is a real gTLD and is accepted); placeholder-domain **suffix** match (kills Sentry DSN subdomains like `k@o45.ingest.sentry.io`); template-token stripping (`{{...}}`, `${...}`); numeric-domain-label rejection (version pins `serde@1.0.gov`); asset/code-extension blocklist; placeholder local-parts; `mailto:` trusted over body text; role accounts (webmaster/noreply) deprioritized by confidence, not dropped; dept local-parts (health/info/intake) bumped.
+4. **Phone false-positive defenses:** `Leniency.EXACT_GROUPING` + reject pure-digit raw matches (an order/case/ID/tracking number is an *unformatted* valid NANP run) + a record-label context guard (order/invoice/confirmation/case/account/member/ref…). Empirically, leniency alone did not separate IDs from phones; the pure-digit + label guards do, with zero loss on real formatted numbers (incl. fax, toll-free, +1, dotted/spaced/parenthesized).
+5. **Multi-segment spelled obfuscation:** `info at mail dot county dot gov` decodes whole to `info@mail.county.gov` (the single-`dot` version truncated to a *wrong* address — worse than a miss under precision bias). County `.us` hosts decode correctly.
+6. **Ranking:** expose the full ranked list (outreach may want alternates) but mark one best — by confidence desc, then source trust (mailto > contact_page > body_text), with case-insensitive dedupe.
+7. **Contact-page fallback:** when the detected page yields no email, follow ≤2 ranked same-registrable-domain contact/staff-directory links (shared tier → Playwright-eligible), off-domain-redirect guarded. A page offering only an input form → `partial` (still outreach intel), recorded as `has_contact_form`.
+8. **Status semantics:** `extracted` (≥1 email), `partial` (phone or contact-form only), `none`, `fetch_failed`.
+
+### Alternatives considered
+
+| Choice | Considered | Why not |
+|---|---|---|
+| Spoof a browser UA on httpx | yes | Dishonest, and a real browser clears more WAFs than a fake header anyway. |
+| Playwright for every fetch | yes | Orders of magnitude slower; httpx serves the overwhelming majority. Escalate only on 403/SSL. |
+| `email-validator` | yes | Validates one address with default DNS calls; does not extract from text. |
+| Looser phone leniency only | yes | All leniency levels still accept bare ID digit-runs; structural guards are what work. |
+| Drop role/webmaster emails entirely | yes | Sometimes the only public inbox; deprioritize by confidence and let the team decide. |
+
+### Live validation evidence (2026-06-17)
+
+Playwright recovered **14 of 35** Session-5 fetch-failures (40%), incl. floridahealth.gov, cdph.ca.gov (the SSL-chain case), fsu.edu, umd.edu, fmu.edu — detected pages rose 54→67. Extraction over 67 detected pages: **email 49/67 = 73%** (.gov 70%, .edu 75%), **phone 54/67 = 81%** — both above the feasibility doc's 65–75% promise. The 15-email blind quality sample read ~8/15 usable for outreach (harsh: department-relevant) and surfaced one garbled extraction (ZIP+phone glued into the local part) now guarded. Playwright spot-checks confirmed 3/3 extracted email+phone pairs genuinely on-page (no hallucination). Full breakdown in `docs/progress.md` Session 6.
+
+### Trigger to revisit
+
+- Extraction email coverage on real batches falls below ~50% (ADR-003's revisit threshold for reconsidering a paid email-discovery fallback).
+- Playwright recovery proves marginal (then drop the browser tier to cut dependency weight) or insufficient (then reconsider UA policy with the client).
+- A class of wrong contacts recurs in outreach QA — add the guard, pin the case as a regression test.
