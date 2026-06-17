@@ -163,6 +163,7 @@ _ROLE_NOISE_LOCALPARTS = frozenset(
 )
 
 _SOURCE_BASE: dict[EmailSource, float] = {"mailto": 0.9, "contact_page": 0.7, "body_text": 0.5}
+_EMAIL_SOURCE_PRIORITY: dict[EmailSource, int] = {"mailto": 0, "contact_page": 1, "body_text": 2}
 _MAX_EMAIL_LEN = 254
 
 # Labels that precede record/ID numbers — phone-shaped but never a phone (ADR-007).
@@ -304,14 +305,20 @@ def extract_phones(content: PageContent, *, contact_page: bool = False) -> list[
     return hits
 
 
+def _email_rank_key(hit: EmailHit) -> tuple[float, int, str]:
+    """Best-first: confidence desc, then source trust (mailto > contact_page > body_text)."""
+    return (-hit.confidence, _EMAIL_SOURCE_PRIORITY[hit.source], hit.address)
+
+
 def rank_emails(hits: list[EmailHit]) -> list[EmailHit]:
-    """Dedupe by address (keep highest confidence) and sort best-first."""
+    """Dedupe by lowercased address (keep best) and sort best-first."""
     by_address: dict[str, EmailHit] = {}
     for hit in hits:
-        existing = by_address.get(hit.address)
-        if existing is None or hit.confidence > existing.confidence:
-            by_address[hit.address] = hit
-    return sorted(by_address.values(), key=lambda h: (-h.confidence, h.source, h.address))
+        key = hit.address.lower()
+        existing = by_address.get(key)
+        if existing is None or _email_rank_key(hit) < _email_rank_key(existing):
+            by_address[key] = hit
+    return sorted(by_address.values(), key=_email_rank_key)
 
 
 def rank_phones(hits: list[PhoneHit]) -> list[PhoneHit]:
