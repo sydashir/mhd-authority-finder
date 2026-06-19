@@ -60,3 +60,8 @@ data/*
 !data/state/
 data/state/*
 !data/state/.gitkeep
+
+# Service-account / cloud credentials (NEVER commit — rotate if leaked)
+service-account.json
+service-account*.json
+*-service-account.json
