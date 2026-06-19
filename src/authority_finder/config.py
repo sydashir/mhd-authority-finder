@@ -35,8 +35,13 @@ class Settings(BaseSettings):
         default=SecretStr(""),
         description="Ahrefs API key for Domain Rating lookups (Phase 2).",
     )
-    # Census population lookups run keyless (ADR-008): the public endpoint allows
-    # ~500 requests/day/IP without a key, which covers our per-geo volume.
+    census_api_key: SecretStr = Field(
+        default=SecretStr(""),
+        description=(
+            "US Census API key. Census retired keyless access (May 2026, ADR-008); "
+            "a free key is required for population — without it lookups return not_found."
+        ),
+    )
 
     google_sheets_credentials_path: Path = Field(
         default=Path("service-account.json"),
