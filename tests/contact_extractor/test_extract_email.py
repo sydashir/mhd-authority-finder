@@ -71,6 +71,25 @@ def test_zip_phone_glued_into_local_part_rejected() -> None:
     assert addrs({"text": "Denver CO 80204303-315-2228spa.admissions@ucdenver.edu"}) == []
 
 
+def test_separated_phone_glued_into_local_part_rejected() -> None:
+    # Session 9 live defects: a formatted phone glued to the email (no whitespace in source).
+    # The \d{5,} guard misses these because separators break the digit run.
+    assert (
+        addrs({"final_url": "https://regis.edu/x", "text": "303.458.3558Counseling@regis.edu"})
+        == []
+    )
+    assert (
+        addrs({"final_url": "https://ucdenver.edu/x", "text": "724-8859smhservice@ucdenver.edu"})
+        == []
+    )
+
+
+def test_clean_dept_email_without_glued_phone_survives() -> None:
+    assert addrs({"final_url": "https://regis.edu/x", "text": "Email counseling@regis.edu."}) == [
+        "counseling@regis.edu"
+    ]
+
+
 def test_short_digit_local_parts_survive() -> None:
     assert addrs({"text": "Reach covid19@county.gov or team211@county.gov."}) == [
         "covid19@county.gov",

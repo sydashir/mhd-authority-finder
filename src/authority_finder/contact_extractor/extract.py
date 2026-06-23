@@ -252,6 +252,9 @@ _TEMPLATE_TOKEN = re.compile(r"\{\{.*?\}\}|\$\{[^}]*\}")
 # A 5+ digit run in the local part means a ZIP/phone ran into the address with no
 # separator (live: "80204303-315-2228spa.admissions@ucdenver.edu") — a garbled hit.
 _LOCAL_DIGIT_RUN = re.compile(r"\d{5,}")
+# A separated phone (303.458.3558 / 724-8859) glued to the address by missing whitespace
+# in the source — the digit-run guard misses it because separators break the run (Session 9).
+_LOCAL_PHONE_GLUE = re.compile(r"\d{3}[.\-]\d{3,4}")
 _BRACKET_AT = re.compile(r"\s*[\[({]\s*at\s*[\])}]\s*", re.IGNORECASE)
 _BRACKET_DOT = re.compile(r"\s*[\[({]\s*dot\s*[\])}]\s*", re.IGNORECASE)
 # Spelled-out form, multi-segment: "info at mail dot county dot gov" → info@mail.county.gov.
@@ -292,6 +295,9 @@ def _is_junk_email(address: str) -> bool:
         or not _tld(f"http://{domain}").suffix  # not a real public suffix
         or any(label.isdigit() for label in labels[:-1])  # version pins: serde@1.0.gov
         or bool(_LOCAL_DIGIT_RUN.search(local))  # ZIP/phone glued into the local part
+        or bool(
+            _LOCAL_PHONE_GLUE.search(local)
+        )  # formatted phone glued in (303.458.3558counseling@)
         or local in _PLACEHOLDER_LOCAL
         or placeholder_domain
     )
