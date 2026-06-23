@@ -456,3 +456,68 @@ Two Session-7 "real contact, wrong target" defects fixed, plus the page-confiden
 ### Phase 2 (open)
 
 `authority_filter` (Ahrefs DR, unrestricted query variants), `link_checker` (16 `COMPETITOR_DOMAINS`), scheduled triggers. Polish carried: domain-aware phone heuristics; surface contact provenance is now done.
+
+## 2026-06-24 — Session 9: contact quality — diagnose, then lift (ADR-010)
+
+Goal: raise *trustworthy* contacts after Session 8's honest 1/27/40, **without** relaxing the
+trust bands. Diagnose-first; `billed_searches = 0` all session (cache held).
+
+### Diagnosis first (`a15f703` — `docs: contact-quality diagnosis`)
+
+- Built a throwaway diagnosis harness: re-ran discover→detect→extract over the 5 cached geos,
+  faithfully replicated the *current* orchestrator best-pick (trust reproduced 1/28/39, within one
+  row of the S8 baseline → faithful), and **probed** every site for a reachable same-domain
+  department contact.
+- Bucketed all 68 rows (brief's A–E): **A 2 / B 0 / C 10 / D 55 / OK 1 / E 0**. Two findings
+  reshaped the plan: **B = 0** (the ranker was not mis-picking co-present emails) and the raw
+  **D = 55 was inflated** by the narrow dept dictionary hiding real mailboxes.
+- Honest ceiling quantified: **23 / 68 rows (34%) publish no same-domain email at all**
+  (19 phone-only, 4 none). Written up in `docs/contact-quality-audit.md` with an evidence-derived
+  signal set and a projection (high 6 / medium 16 / low 46).
+
+### Fixes (TDD, RED→GREEN each)
+
+- **`8994a4f` — department directory discovery.** Hop trigger fires unless a same-domain department
+  inbox is already in hand (a generic `info@` no longer suppresses it); `find_contact_links` switched
+  to single-best-match weighting and ranks staff/department-directory + MH-topic links above generic
+  "contact us"; same-domain dept inbox ranks first. Shared `is_dept_localpart` added.
+- **`3d14800` — rank contacts by department relevance.** Single evidence-derived `classify_localpart`
+  (dept/role/generic/other) with an `environmental`/`developmental` guard (`environmentalhealth`
+  contains `mentalhealth`); `_email_confidence` and the trust bands re-derived: off-domain→low,
+  role/wrong-dept→low **even as same-domain mailto** (tightening), dept→high(mailto)/medium(hop),
+  generic `info@`→medium (never high), phone-only→low. Removed the old narrow
+  `_DEPT_LOCALPARTS`/`_ROLE_NOISE_LOCALPARTS`.
+- **`31b48b0` — reject phone-glued email local-parts.** The first live re-run produced garbled emails
+  (`303.458.3558counseling@…`, `724-8859smhservice@…`) the `\d{5,}` guard missed because separators
+  break the run. Added a phone-shape guard; `regis` then yielded clean `counseling@regis.edu`.
+- 262 unit tests green throughout; pyright strict 0 errors; ruff clean.
+
+### Live validation (5 cached geos)
+
+- **billed_searches = 0** (361 fetches, 261 httpx / 57 playwright). Rotation gate re-confirmed
+  (key `d97fe38c`, rotated) before Google auth.
+- `replace=True` rewrote **68 rows** (value-correction refresh for the new bands); idempotent append
+  re-run added **0** at the 13-col layout.
+- **Contact-trust distribution: high 1→6 / medium 27→18 / low 40→44.** high+medium 28→24 — it
+  *drops*, because the old `medium` over-counted wrong-dept inboxes; quality rises (6× verified
+  department mailboxes). Reported as a feature, not a regression.
+- **10 promotions** (6 to high — all genuine dept mailboxes; headline: `montgomerycountymd.gov`
+  off-domain `info@frsn.org` → same-domain `frs.peer_support_cism@…`; 4 to medium via directory hops:
+  `sccollege counseling@`, `chhs behavioralhealthtaskforce@`, `regis counseling@`, plus `fsu`
+  `vpsa-webmaster@` → `counseling@fsu.edu`). **11 demotions** (`admissions@`/`communications@`/
+  `webmaster@`/`auditor@`/`mdmanual@`/`facultycouncil@`… medium→low; `info@csupueblo` high→medium).
+- **Playwright-verified all 6 high rows** in a real browser (montgomery, howard, unco, fmu, pinellas,
+  ivc): each is a same-domain `mailto:` on a department-relevant page. No fabrication.
+
+### Honest verdict / residuals
+
+- Quality materially better (high 1→6; the sheet no longer presents `admissions@`/`webmaster@` as
+  trustworthy), but **~40% of authority pages publish no own-domain contact** — the real ceiling;
+  phone + page URL is the deliverable there. The directory finder's measured lift is ~2 rows.
+- Off-domain/role contacts are flagged `low`, not dropped (precision-over-recall). Body-text phones
+  still can't be domain-checked. Population still blank (no `CENSUS_API_KEY`).
+
+### Phase 2 (still open)
+
+`authority_filter` (Ahrefs DR, unrestricted query variants), `link_checker` (16 `COMPETITOR_DOMAINS`),
+scheduled triggers.
