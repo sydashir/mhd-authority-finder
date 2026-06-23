@@ -234,14 +234,28 @@ def _email_confidence(address: str, source: EmailSource) -> float:
     return round(max(0.0, min(1.0, base)), 2)
 
 
+def _registrable_domain(value: str) -> str:
+    target = value if "://" in value else f"http://{value}"
+    return _tld(target).top_domain_under_public_suffix
+
+
 def extract_emails(content: PageContent, *, contact_page: bool = False) -> list[EmailHit]:
-    """Extract guarded emails from one page. Source is ``contact_page`` when fetched as one."""
+    """Extract guarded emails from one page. Source is ``contact_page`` when fetched as one.
+
+    Body-text-regex emails are kept only when same-registrable-domain as the page
+    (drops third-party orgs mentioned in body text, e.g. info@frsn.org on a county
+    page). ``mailto:`` and contact-page hits are intentional and kept regardless.
+    """
+    page_domain = _registrable_domain(content.final_url)
     hits: list[EmailHit] = []
     seen: set[str] = set()
 
-    def add(address: str, source: EmailSource, context: str) -> None:
+    def add(address: str, source: EmailSource, context: str, *, constrain: bool) -> None:
         address = address.strip().rstrip(".").lower()
         if not address or address in seen or _is_junk_email(address):
+            return
+        same_domain = _registrable_domain(address.split("@", 1)[-1]) == page_domain
+        if constrain and not same_domain:
             return
         seen.add(address)
         hits.append(
@@ -250,19 +264,20 @@ def extract_emails(content: PageContent, *, contact_page: bool = False) -> list[
                 source=source,
                 context=context,
                 confidence=_email_confidence(address, source),
+                same_domain=same_domain,
             )
         )
 
     mailto_source: EmailSource = "contact_page" if contact_page else "mailto"
     for addr in content.mailto_links:
-        add(addr, mailto_source, "mailto: link")
+        add(addr, mailto_source, "mailto: link", constrain=False)
 
     body_source: EmailSource = "contact_page" if contact_page else "body_text"
     text = deobfuscate(_TEMPLATE_TOKEN.sub(" ", content.text_sample))
     for match in _EMAIL_RE.finditer(text):
         start = max(0, match.start() - _CONTEXT_PAD)
         context = text[start : match.end() + _CONTEXT_PAD].strip()
-        add(match.group(1), body_source, context)
+        add(match.group(1), body_source, context, constrain=not contact_page)
 
     return hits
 

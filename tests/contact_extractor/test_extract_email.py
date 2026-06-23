@@ -31,7 +31,8 @@ def test_body_text_email_extracted() -> None:
 
 
 def test_trailing_period_does_not_break_match() -> None:
-    assert addrs({"text": "Write to clerk@city.gov."}) == ["clerk@city.gov"]
+    got = addrs({"final_url": "https://www.city.gov/clerk", "text": "Write to clerk@city.gov."})
+    assert got == ["clerk@city.gov"]
 
 
 def test_role_account_deprioritized_not_dropped() -> None:
@@ -77,9 +78,12 @@ def test_short_digit_local_parts_survive() -> None:
 
 
 def test_real_emails_survive_the_guards() -> None:
-    assert addrs({"text": "Reach intake+referrals@dhs.ca.gov or info@mail.county.gov."}) == [
-        "info@mail.county.gov",
-        "intake+referrals@dhs.ca.gov",
+    # Plus-tags and subdomain-mail hosts aren't junk-rejected (each on its own domain page).
+    assert addrs(
+        {"final_url": "https://dhs.ca.gov/x", "text": "Reach intake+referrals@dhs.ca.gov today."}
+    ) == ["intake+referrals@dhs.ca.gov"]
+    assert addrs({"final_url": "https://county.gov/x", "text": "Email info@mail.county.gov."}) == [
+        "info@mail.county.gov"
     ]
 
 
@@ -89,9 +93,9 @@ def test_multi_segment_spelled_obfuscation() -> None:
 
 
 def test_us_county_spelled_obfuscation() -> None:
-    assert addrs({"text": "intake at co dot santa-clara dot ca dot us"}) == [
-        "intake@co.santa-clara.ca.us"
-    ]
+    text = "intake at co dot santa-clara dot ca dot us"
+    got = addrs({"final_url": "https://co.santa-clara.ca.us/x", "text": text})
+    assert got == ["intake@co.santa-clara.ca.us"]
 
 
 def test_bracket_obfuscation() -> None:
@@ -110,7 +114,47 @@ def test_dept_localpart_outranks_role_account() -> None:
 
 
 def test_mailto_outranks_body_at_equal_confidence() -> None:
-    content = page(text="staff aaron.k.miller@dhs.ca.gov", mailto=["hostmaster@dhs.ca.gov"])
+    # Same-domain page so the body email survives the domain constraint and the tie is real.
+    content = page(
+        final_url="https://dhs.ca.gov/staff",
+        text="staff aaron.k.miller@dhs.ca.gov",
+        mailto=["hostmaster@dhs.ca.gov"],
+    )
     ranked = rank_emails(extract_emails(content))
     # hostmaster (mailto 0.5) ties aaron (body 0.5); mailto wins the tie-break.
     assert ranked[0].address == "hostmaster@dhs.ca.gov"
+
+
+# --- Session 8: domain-constrain body-text emails (wrong-ORG fix) ---
+
+
+def test_body_text_foreign_domain_email_dropped() -> None:
+    # Live defect: info@frsn.org (3rd-party crisis line) on a montgomerycountymd.gov page.
+    url = "https://montgomerycountymd.gov/mh"
+    assert addrs({"final_url": url, "text": "Crisis line info@frsn.org."}) == []
+
+
+def test_body_text_same_domain_email_kept() -> None:
+    url = "https://montgomerycountymd.gov/mh"
+    got = addrs({"final_url": url, "text": "bh@montgomerycountymd.gov"})
+    assert got == ["bh@montgomerycountymd.gov"]
+
+
+def test_body_text_email_carries_same_domain_flag() -> None:
+    content = page(final_url="https://county.gov/dept", text="Reach health@county.gov today.")
+    hits = extract_emails(content)
+    assert hits and hits[0].same_domain is True
+
+
+def test_mailto_foreign_domain_kept_as_is() -> None:
+    # mailto is intentional — not domain-constrained (e.g. fourth.district@ocgov.com on oc.gov).
+    content = page(final_url="https://bos4.oc.gov/contact", mailto=["fourth.district@ocgov.com"])
+    addresses = [e.address for e in extract_emails(content)]
+    assert "fourth.district@ocgov.com" in addresses
+
+
+def test_contact_page_body_email_not_domain_constrained() -> None:
+    # Contact-page hop stays as-is even for body-text (the hop is the trust signal).
+    content = page(final_url="https://county.gov/contact", text="Partner: referrals@partnerorg.org")
+    hits = extract_emails(content, contact_page=True)
+    assert "referrals@partnerorg.org" in [e.address for e in hits]

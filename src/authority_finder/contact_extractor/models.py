@@ -19,12 +19,19 @@ ExtractionStatus = Literal["extracted", "partial", "none", "fetch_failed"]
 
 
 class EmailHit(BaseModel):
-    """One extracted email with provenance and a confidence in [0, 1]."""
+    """One extracted email with provenance and a confidence in [0, 1].
+
+    ``same_domain`` = the email's registrable domain matches the page it was found
+    on. Body-text emails are kept only when same-domain (third-party orgs mentioned
+    on a page are not that page's contact); mailto/contact-page hits keep the flag
+    for trust banding but are not dropped on it.
+    """
 
     address: str
     source: EmailSource
     context: str = ""
     confidence: float
+    same_domain: bool = True
 
 
 class PhoneHit(BaseModel):
