@@ -34,8 +34,12 @@ from authority_finder.geo_monitor.sites import SITES
 from authority_finder.geo_monitor.state import load_state
 from authority_finder.geo_monitor.url_parser import parse_geo_url
 from authority_finder.logging import configure as configure_logging
+from authority_finder.output.csv_writer import write_csv
+from authority_finder.output.sheets_writer import SheetsWriter
 from authority_finder.page_detector.models import DetectionResult
 from authority_finder.page_detector.orchestrator import detect_for_geo
+from authority_finder.pipeline import PipelineFunnel, run_pipeline
+from authority_finder.population.census import CensusClient
 
 
 @asynccontextmanager
@@ -208,22 +212,28 @@ async def _run_discovery(
             for sid in site_ids:
                 await run_monitor(SITES[sid], fetcher=SitemapFetcher(client=http_client))
 
-        now = datetime.now(UTC)
-        geos: list[GeoPage] = []
-        for sid in site_ids:
-            state = load_state(sid)
-            for url in sorted(state.known_urls):
-                page = parse_geo_url(url, SITES[sid], now=now)
-                if page is not None:
-                    geos.append(page)
-        if level is not None:
-            geos = [g for g in geos if g.level == level]
-        if limit is not None:
-            geos = geos[:limit]
-
+        geos = _load_geos(site_ids, limit=limit, level=level, now=datetime.now(UTC))
         serp = SerpApiClient(client=http_client, api_key=get_settings().serpapi_api_key)
         results = await discover_many(geos, client=serp)
         return results, serp.billed_search_count, serp.cache_hit_count
+
+
+def _load_geos(
+    site_ids: list[str], *, limit: int | None, level: str | None, now: datetime
+) -> list[GeoPage]:
+    """Geos from the persisted state files, re-parsed and filtered by level/limit."""
+    geos: list[GeoPage] = []
+    for sid in site_ids:
+        state = load_state(sid)
+        for url in sorted(state.known_urls):
+            page = parse_geo_url(url, SITES[sid], now=now)
+            if page is not None:
+                geos.append(page)
+    if level is not None:
+        geos = [g for g in geos if g.level == level]
+    if limit is not None:
+        geos = geos[:limit]
+    return geos
 
 
 @cli.command()
@@ -483,6 +493,109 @@ def _print_discovery_table(results: list[DiscoveryResult], *, billed: int, cache
             f"{counts['other']:>5} {r.billed_searches:>6} {geo_cached:>6} {len(r.errors):>4}"
         )
     click.echo(f"\nsession totals: {billed} billed searches, {cached} cache hits")
+
+
+@cli.command()
+@click.option(
+    "--site",
+    type=click.Choice(["mhd", "ah", "both"]),
+    default="both",
+    show_default=True,
+    help="Whose known geos to run the full pipeline for.",
+)
+@click.option("--limit", type=int, default=None, help="Max geos to process (after level filter).")
+@click.option(
+    "--level",
+    type=click.Choice(["state", "county", "city"]),
+    default=None,
+    help="Only geos of this level.",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Write a local CSV instead of the live Google Sheet.",
+)
+@click.option(
+    "--out",
+    "out_file",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="CSV output path for --dry-run (default data/output/run-<timestamp>.csv).",
+)
+def run(
+    site: str, limit: int | None, level: str | None, dry_run: bool, out_file: Path | None
+) -> None:
+    """Run the full pipeline (discover→detect→extract→populate) → CSV or Google Sheet."""
+    configure_logging("INFO")
+    settings = get_settings()
+    if not settings.serpapi_api_key.get_secret_value():
+        click.echo("SERPAPI_API_KEY is not set — aborting before any search.", err=True)
+        sys.exit(2)
+    if not dry_run and not settings.google_sheet_id:
+        click.echo("GOOGLE_SHEET_ID not set; use --dry-run for CSV output.", err=True)
+        sys.exit(2)
+
+    now = datetime.now(UTC)
+    site_ids = list(SITES.keys()) if site == "both" else [site]
+    funnel, target, written = asyncio.run(
+        _run_full(site_ids, limit=limit, level=level, now=now, dry_run=dry_run, out_file=out_file)
+    )
+    _print_funnel(funnel)
+    click.echo(f"wrote {written} rows to {target}")
+
+
+async def _run_full(
+    site_ids: list[str],
+    *,
+    limit: int | None,
+    level: str | None,
+    now: datetime,
+    dry_run: bool,
+    out_file: Path | None,
+) -> tuple[PipelineFunnel, str, int]:
+    settings = get_settings()
+    geos = _load_geos(site_ids, limit=limit, level=level, now=now)
+    browser = PlaywrightBrowserFetcher()
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        try:
+            rows, funnel = await run_pipeline(
+                geos,
+                serp_client=SerpApiClient(client=client, api_key=settings.serpapi_api_key),
+                fetcher=PageFetcher(client=client, browser=browser),
+                census_client=CensusClient(
+                    client=client, api_key=settings.census_api_key.get_secret_value()
+                ),
+                now=now,
+            )
+        finally:
+            await browser.aclose()
+
+    if dry_run:
+        target = out_file or Path(f"data/output/run-{now:%Y%m%dT%H%M%S}.csv")
+        return funnel, str(target), write_csv(rows, target)
+
+    writer = SheetsWriter(
+        credentials_path=settings.google_sheets_credentials_path,
+        spreadsheet_id=settings.google_sheet_id,
+    )
+    result = await writer.write(rows)
+    return funnel, f"Google Sheet {settings.google_sheet_id}", result.appended
+
+
+def _print_funnel(funnel: PipelineFunnel) -> None:
+    rows_with_email = funnel.with_email
+    click.echo(
+        "funnel: "
+        f"{funnel.geos} geos → {funnel.candidates} candidates → {funnel.detected} detected → "
+        f"{rows_with_email} with-email / {funnel.with_phone} with-phone → {funnel.rows} rows"
+    )
+    tiers = funnel.fetch_tiers
+    click.echo(
+        f"population found: {funnel.population_found}/{funnel.rows} | "
+        f"fetches: {funnel.fetches_used} ({tiers.get('httpx', 0)} httpx, "
+        f"{tiers.get('playwright', 0)} playwright) | billed searches: {funnel.billed_searches}"
+    )
 
 
 if __name__ == "__main__":
