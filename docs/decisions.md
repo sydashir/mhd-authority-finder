@@ -283,3 +283,40 @@ Playwright recovered **14 of 35** Session-5 fetch-failures (40%), incl. floridah
 - Extraction email coverage on real batches falls below ~50% (ADR-003's revisit threshold for reconsidering a paid email-discovery fallback).
 - Playwright recovery proves marginal (then drop the browser tier to cut dependency weight) or insufficient (then reconsider UA policy with the client).
 - A class of wrong contacts recurs in outreach QA — add the guard, pin the case as a regression test.
+
+---
+
+## ADR-008 — Population (Census, keyed) + output schema + dual CSV/Sheets writer
+
+**Date:** 2026-06-19
+**Status:** Accepted
+**Context:** Session 7 — the last two Phase-1 components (population, output) plus the first full end-to-end run. The session opened with the plan to use Census *keyless*, but a pre-build check found that contradicts current reality.
+
+### Decisions
+
+1. **Census keyless is dead — use a free key, degrade gracefully without one.** A real keyless ACS call now 302-redirects to `api.census.gov/data/missing_key.html` (the Bureau retired keyless access ~May 2026). The user's "no key" instruction is no longer satisfiable. `population/census.py` therefore takes a `CENSUS_API_KEY` (free, instant signup) and, when it's absent, returns `not_found` for every geo rather than blocking — population is a prioritization aid, never a row blocker. `census_api_key` was re-added to `Settings` (optional, default empty) after Step 0 had removed it on the now-invalid keyless premise.
+2. **Dataset: ACS 5-year, vintage 2024**, variable `B01003_001E`, base `https://api.census.gov/data/2024/acs/acs5`. ACS5 is the only dataset with complete place-level (city) coverage in one uniform 3-level query. State → direct FIPS (static 51-entry map). County/city → one cached wildcard fetch per state (`for=county:*`/`for=place:*&in=state:FIPS`, which returns the population inline), then client-side fuzzy match.
+3. **Fuzzy-match-and-flag, never guess wrong.** Names are normalized (drop `, State` tail + type suffix `city`/`County`/…, NFKD, periods stripped, `st`↔`saint`) then matched: exact → `exact`; else `difflib` close-match ≥ 0.86 → `fuzzy`; else `not_found`. Negative ACS sentinels (`-666666666`) → `value=None`. Neighborhood slugs that aren't Census places (e.g. `downtown-los-angeles`) honestly return `not_found`. `rapidfuzz` was rejected to avoid a dependency — stdlib `difflib` is adequate for matching within one state's ~hundreds of places.
+4. **Output schema = brief columns, exact order**, plus an 11th internal `Confidence` column so the team can sort by detection confidence (the feasibility doc's flagging system, surfaced in the deliverable). `Competitor Links` is `—` (Phase 2). Every field is a string cell; missing data → empty cell, never fabricated. `build_row` assembles from the chained per-candidate outputs and degrades every hole to blank.
+5. **Two write targets, shared dedupe/sort.** CSV (`--dry-run`, no creds) and Google Sheets (live). Both dedupe by `(registrable domain, Geo Served)` and sort by geo → confidence (high→low) → population (desc, unknown last), so the most valuable prospects sit at the top.
+6. **Sheets idempotency via read-then-append.** One tab with a Source column (matches the brief; simpler than per-source tabs). Existing rows are read first and input is deduped against them by `(Website, Geo Served)`, so re-running never duplicates — idempotent. The google client is sync (httplib2), so the write runs in `asyncio.to_thread`. Failures raise a typed `SheetsError` naming the likely cause (the common one: service account not shared as Editor → 403). Pinned `google-api-python-client==2.197.0` + `google-auth==2.55.0`; the dynamic client is contained behind `Any` so it typechecks clean under pyright strict.
+
+### Alternatives considered
+
+| Choice | Considered | Why not |
+|---|---|---|
+| Keyless Census | yes (planned) | Retired ~May 2026; keyless calls redirect to a missing-key page. |
+| PEP instead of ACS5 | yes | ACS5 has better/uniform place coverage in one variable across all 3 levels. |
+| `rapidfuzz` | yes | Extra dependency; stdlib `difflib` suffices for per-state place matching. |
+| Per-source tabs (MHD/AH) | yes | A Source column on one tab matches the brief and keeps dedupe/append trivial. |
+| Block the row when population is missing | no | Violates the golden rule; population is an aid, not a gate. |
+
+### Live validation evidence (2026-06-19)
+
+(Full funnel, the CSV deliverable sample, population coverage, the live-Sheet write + idempotency re-run, and the Playwright deliverable spot-checks are recorded in `docs/progress.md` Session 7.)
+
+### Trigger to revisit
+
+- A `CENSUS_API_KEY` is added → population fills in (no code change needed).
+- ACS releases a newer vintage → bump the base URL year deliberately.
+- Client wants separate MHD/AH tabs or different columns → the writers take a tab arg and the header is one constant.
