@@ -113,11 +113,24 @@ As of Session 4-prep (2026-06-12):
 - Session 4 (2026-06-13): `discovery` complete and live-validated — SerpAPI `google_light` page-1 client with disk cache + quota counters, per-level query templates, tldextract classification with state-portal dedupe exception (ADR-005), orchestrator, `discover` CLI command, 34 unit tests + 1 `live_paid` smoke test. Live run: 5 geos, 19 billed searches, 127 candidates.
 - Session 5 (2026-06-13): `page_detector` complete and live-validated (ADR-006) — shared `domains.py` (competitor + federal exclusions) and `robots.py`, pre-filter, polite HTML fetcher, explainable scorer with wrong-state hard reject and topic-relevance confidence cap, bounded crawl fallback (≤6 fetches), `detect` CLI with `--in/--out` chaining. Live: 127 candidates → 54 detected (23 high / 21 med / 10 low); blind sample: high 8/8, medium 5/12. Known issue: 27% of candidates 403-block our honest UA.
 - Session 6 (2026-06-17): shared two-tier `fetching/` (httpx → Playwright on 403/SSL) + `contact_extractor` complete and live-validated (ADR-007). Playwright recovered 14/35 of Session 5's fetch-failures; extraction email coverage 73% (.gov 70 / .edu 75), phone 81%. Hardened by a 5-lens adversarial audit (ID-number phones, template/DSN/version-pin emails, multi-dot obfuscation, ranking) + glued-digit guard. `extract` CLI chains from detection. `phonenumbers==9.0.32`; `playwright` promoted to runtime dep.
-- `population`, `output` (Phase 1) and `authority_filter`, `link_checker` (Phase 2) are still stubs.
+- Session 7 (2026-06-19): **Phase 1 MVP feature-complete.** `population/` (ACS5-2024 keyed Census lookup — keyless retired ~May 2026 → free key required, degrades to not_found without one) + `output/` (brief-exact row schema, CSV writer, idempotent Google Sheets writer) + `pipeline.py` + `run` CLI (full chain → CSV `--dry-run` or live Sheet). ADR-008. First full end-to-end run on 5 cached geos: 0 billed → 69 rows (51 email / 57 phone), no fabrication. **Security: a leaked `service-account.json` (committed S6) was purged from git history; the key is NOT yet rotated — rotation in GCP is required. The live Sheet write is HELD until rotation.** `google-api-python-client==2.197.0`, `google-auth==2.55.0`.
 
-## What's next (Phase 1 — Core MVP)
+## What does `run` do
 
-Order per feasibility doc Section 9 — items 1 (geo monitor, S3), 2 (discovery, S4), 3 (page detector, S5), 4 (contact extractor, S6) shipped:
+`python -m authority_finder.cli run --site {mhd|ah|both} [--limit N] [--level …] [--dry-run] [--out FILE]` — the product. Chains monitor-state → discover (SerpAPI, cached) → detect → extract → populate (Census) → assemble brief-column rows → write CSV (`--dry-run`) or append to the Google Sheet (idempotent, dedupe by domain+geo). Per-geo isolation; prints a funnel summary.
+
+## What's next (Phase 2 — Automation + Authority Sites)
+
+Phase 1 is shipping rows. Remaining (feasibility doc Phase 2):
+- `authority_filter` (component 3) — Ahrefs DR threshold for non-.gov/.edu authority orgs (ncala.org-type); needs unrestricted query variants since `site:`-filtered discovery can't surface them.
+- `link_checker` (component 6) — crawl each site for outbound links to the 16 competitor domains (`COMPETITOR_DOMAINS` already in `domains.py`).
+- Automated/scheduled triggers on new geo pages; re-validation runs.
+
+Immediate operational follow-ups (not code): rotate the GCP service-account key; add a free `CENSUS_API_KEY` to light up population.
+
+### Historical Phase-1 order (all shipped)
+
+Per feasibility doc Section 9 — items 1 (geo monitor, S3), 2 (discovery, S4), 3 (page detector, S5), 4 (contact extractor, S6), 5 (population, S7), 6 (output, S7), 7 (`run` CLI, S7):
 5. Population — US Census API.
 6. Output — Google Sheets append + dedupe.
 7. Manual trigger CLI to run end-to-end per geo.

@@ -372,3 +372,42 @@ Open before Session 4:
 ### What's next — Session 7
 
 `population` (US Census API lookup per geo) then `output` (Google Sheets append + dedupe) — the last two Phase 1 components. Resolve Sheets credentials before `output.py`. After that, Phase 1 ships end-to-end rows.
+
+---
+
+## 2026-06-19 — Session 7: population + output + first full end-to-end run
+
+### Security incident (caught at Step 0, handled)
+
+`service-account.json` (a real GCP key) was found tracked — committed in `db9898d` (Session 6, swept in by an unscoped `git add -A`; `.gitignore` only had `credentials.json`) and pushed to `origin/main`. Per the user's instruction ("remove it from git so it's not exposed"), history was rewritten (`git filter-branch`) and force-pushed: `db9898d` and the key blob are gone from current history (local + remote `01335b6`), the file is now gitignored and untracked. **The key was NOT rotated** — and a force-push does not purge unreachable objects from GitHub immediately, so rotation in GCP (delete key `1f07f4d4…`, issue fresh) remains the only full fix. Recorded as memory + the sydashir-only commit/push rule in CLAUDE.md.
+
+### Census keyless retired (blocker, worked around)
+
+A pre-build check found keyless Census access was retired (~May 2026 — keyless calls 302→`missing_key.html`). The session's "keyless" premise is dead. `population/census.py` now takes a free `CENSUS_API_KEY` and degrades to `not_found` without one (population never blocks a row). `.env` has no key, so this run's Population column is uniformly blank — honest, not fabricated. A free instant key fills it in with zero code change. (ADR-008.)
+
+### Done
+
+- **`population/`** (`17db6e9`, `90cd40c`, `a2772f0`): models + `PopulationResult`; static 51-entry state→FIPS map; ACS5-2024 keyed client (`B01003_001E`), state→FIPS direct, county/city → cached per-state wildcard + offline `difflib` fuzzy match with name normalization (suffix/period/`st`↔`saint`), negative-sentinel rejection, no-key → not_found. 10 unit tests.
+- **`output/`** (`2b6067f`, `dacec7e`, `8751428`, `4ed72ab`): brief-exact 11-column row schema (+ internal Confidence); `build_row` degrades every hole to blank; CSV writer with dedupe `(domain, geo)` + sort (geo→confidence→population desc); idempotent Google Sheets writer (read-then-append dedupe, sync client via `asyncio.to_thread`, typed `SheetsError` mapping 403/404/429, dynamic client contained behind `Any`). 16 unit tests. Pinned `google-api-python-client==2.197.0` + `google-auth==2.55.0`.
+- **`pipeline.py` + `run` CLI** (`a5ecf4f`, `18ad959`): full chain discover→detect→extract→populate→assemble with per-geo isolation + funnel; `run --site … [--limit/--level] [--dry-run] [--out]` (CSV vs live Sheet).
+- ADR-008 (`5a23158`); sydashir-only rule (`80bb1c6`). 207 unit tests green throughout.
+
+### First full end-to-end run (5 cached geos, dry-run CSV)
+
+Drove the real `run_pipeline` over the 5 validated geos (discovery from cache → **0 billed searches**), detect+extract live, populate (no key), CSV.
+
+**Funnel:** 5 geos → 127 candidates → **69 detected** → **51 with-email / 57 with-phone** → **69 rows**. Population found: 0/69 (no Census key). Fetches: 298 (212 httpx + 43 Playwright). Billed searches: **0**.
+
+Sample deliverable rows (Website | Specific Page | Email | Phone | Geo | Conf): floridahealth.gov | …/injury-prevention | health@flhealth.gov | (850) 245-4444 | Florida | high · oc.gov | bos4.oc.gov/mental-health-resources | fourth.district@ocgov.com | (714) 834-3440 | Orange County, CA | high · colorado.edu | …/counseling/ | — | (303) 492-1341 | Colorado | high · health.maryland.gov | …/bha/pages/help.aspx | — | (410) 767-6500 | Maryland | medium · ucdenver.edu | …/counseling-center | admissions@ucdenver.edu | (303) 315-5969 | Colorado | medium · newportbeachca.gov | …/departments | — | (949) 270-8150 | Newport Beach, CA | low.
+
+**Deliverable verification (Playwright + provenance trace, no fabrication):** contacts are real — `fourth.district@ocgov.com` traced to `bos4.oc.gov/contact`, `admissions@ucdenver.edu` to `ucdenver.edu/about-cu-denver/contact-us`. The extractor cannot hallucinate (mailto/tel/regex over fetched same-domain HTML only). **Honest failure mode:** when a dept page and its own contact page lack an email, the fallback hops to the org's *generic* contact-us page and can surface a wrong-department inbox (ucdenver → admissions@). Real address, wrong department — the S6-flagged limitation, visible in medium-confidence rows. Provenance (which page a contact came from) is not yet a deliverable column — a transparency gap to consider.
+
+### HELD (security)
+
+The **live Google Sheets write was NOT performed** — it authenticates with the still-compromised, un-rotated key the user instructed not to reuse. Held until the key is rotated. CSV dry-run stands as the validated deliverable; the Sheets writer is unit-tested (header-ensure, append-only idempotency, error mapping) and ready to run post-rotation.
+
+### Open questions / next steps
+
+1. **Rotate the GCP key** (delete `1f07f4d4…`, fresh JSON) → then the live Sheet write + idempotency re-run can complete. **Add a free `CENSUS_API_KEY`** → population fills in.
+2. Wrong-department fallback emails: tighten the contact-page ranker (prefer dept-topical contact pages; down-rank generic university/admissions inboxes), and consider surfacing `contact_page_url` as a deliverable column.
+3. Phase 1 is feature-complete (components 1–2–4–5–7–8 + manual `run`). Phase 2 = Ahrefs authority-site discovery (component 3) + competitor link checker (component 6) + automated/scheduled triggers.
