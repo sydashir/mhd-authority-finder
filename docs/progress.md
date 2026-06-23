@@ -411,3 +411,13 @@ The **live Google Sheets write was NOT performed** — it authenticates with the
 1. **Rotate the GCP key** (delete `1f07f4d4…`, fresh JSON) → then the live Sheet write + idempotency re-run can complete. **Add a free `CENSUS_API_KEY`** → population fills in.
 2. Wrong-department fallback emails: tighten the contact-page ranker (prefer dept-topical contact pages; down-rank generic university/admissions inboxes), and consider surfacing `contact_page_url` as a deliverable column.
 3. Phase 1 is feature-complete (components 1–2–4–5–7–8 + manual `run`). Phase 2 = Ahrefs authority-site discovery (component 3) + competitor link checker (component 6) + automated/scheduled triggers.
+
+### Live close (2026-06-19, after key rotation)
+
+Key rotated (`private_key_id` d97fe38c… ≠ compromised 1f07f4d4…); rotation gate passed → authenticated to Google. Ran the real `run_pipeline` over the same 5 cached geos → **live Google Sheet** (`1decvP…`):
+- **69 rows landed, billed_searches = 0** (cache held; 298 fetches, 212 httpx / 43 playwright).
+- **Idempotency:** immediate re-run appended **0** (skipped 69) — dedupe by Website+Geo Served holds.
+- Population: 0/69 (no `CENSUS_API_KEY`; blank by design).
+- Playwright (3 live rows): pages load, orgs match descriptions, contacts genuinely on-page (no fabrication). **New honest limitation:** body-text extraction can capture a THIRD-PARTY org's contact referenced on the page — `info@frsn.org` (+206 Seattle number) on a montgomerycountymd.gov page is a national crisis line, not the county's own contact. Distinct from the wrong-department issue; fix = constrain body-text emails/phones to the candidate's registrable domain (mailto/tel and contact-page hits are already safe). Confidence reflects page-detection quality, not contact attribution.
+
+**Phase 1 MVP complete + live Sheet verified.** Phase 2 open: authority_filter (Ahrefs, unrestricted queries), link_checker (16 competitor domains), scheduled triggers; polish: domain-constrain body-text contacts + add a Contact Source column.
