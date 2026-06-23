@@ -160,3 +160,14 @@ async def test_missing_creds_file_raises(tmp_path: Path) -> None:
     )
     with pytest.raises(SheetsError, match="service-account file not found"):
         await writer.write([_row("a.gov")])
+
+
+async def test_replace_clears_and_rewrites_existing_schema(tmp_path: Path) -> None:
+    # Value correction: header already matches, but replace=True forces a full rewrite.
+    api = _ValuesApi(existing=[OUTPUT_HEADER, _row("a.gov").cells()])
+    result = await _writer(tmp_path, api).write([_row("a.gov"), _row("b.gov")], replace=True)
+    assert api.cleared
+    assert api.updated is not None and api.updated[0] == OUTPUT_HEADER
+    assert len(api.updated) == 3  # header + 2 rows
+    assert result.appended == 2
+    assert api.appended == []
