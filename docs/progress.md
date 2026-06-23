@@ -421,3 +421,38 @@ Key rotated (`private_key_id` d97fe38c… ≠ compromised 1f07f4d4…); rotation
 - Playwright (3 live rows): pages load, orgs match descriptions, contacts genuinely on-page (no fabrication). **New honest limitation:** body-text extraction can capture a THIRD-PARTY org's contact referenced on the page — `info@frsn.org` (+206 Seattle number) on a montgomerycountymd.gov page is a national crisis line, not the county's own contact. Distinct from the wrong-department issue; fix = constrain body-text emails/phones to the candidate's registrable domain (mailto/tel and contact-page hits are already safe). Confidence reflects page-detection quality, not contact attribution.
 
 **Phase 1 MVP complete + live Sheet verified.** Phase 2 open: authority_filter (Ahrefs, unrestricted queries), link_checker (16 competitor domains), scheduled triggers; polish: domain-constrain body-text contacts + add a Contact Source column.
+
+---
+
+## 2026-06-23 — Session 8: contact attribution hardening (precision pass)
+
+### Done (TDD throughout; sydashir; billed_searches=0)
+
+Two Session-7 "real contact, wrong target" defects fixed, plus the page-confidence-vs-contact-trust split (ADR-009).
+
+- **Domain-constrain body-text contacts** (`3622e42`): body-text-regex emails kept only when same registrable domain as the page (`EmailHit.same_domain` added); `mailto:`/contact-page hits exempt. RED→GREEN with the frsn.org regression fixture.
+- **Contact provenance functions** (`443c961`): `contact_source_label()` + `contact_trust()` (pure, 12 tests).
+- **Contact Source + Contact Trust columns** (`adb08d2`): added to OutputRow/CSV/Sheets (between Phone and Description → Geo Served now index 7); **Sheets schema migration** = clear+rewrite on header mismatch; steady-state stays append-only idempotent.
+- **Cross-domain mailto fix** (`b403fd2`): the live frsn.org defect was a *mailto* to a third-party org (not body-text). Per the spec's banding (medium requires same-domain), a cross-domain mailto is now `low` + labelled "mailto (off-domain)" — flagged, not silently medium. (Can't be dropped without losing legit sibling-gov mailtos like `fourth.district@ocgov.com` on `oc.gov`.)
+- **Sheets `replace` mode** (`bf0f942`): full clear+rewrite for value corrections (append-only can't update existing cells). Used to refresh the live sheet's corrected trust without re-fetching.
+- 228 unit tests green; rotation gate re-confirmed (key `d97fe38c`, rotated) before any Google auth.
+
+### Live validation (5 cached geos)
+
+- **billed_searches = 0** (cache held; 296 fetches, 212 httpx / 40 playwright). Pipeline: 5 geos → 127 candidates → 68 detected → 50 email / 56 phone → 68 rows.
+- **Migration:** WRITE1 cleared the old 11-col sheet + rewrote 68 (header_written). **Idempotency:** WRITE2 appended 0.
+- **frsn.org (Montgomery County):** confirmed a cross-domain `mailto:` to a third-party crisis line. Now `Contact Source = "mailto (off-domain)"`, `Contact Trust = low` — verified by reading the row back from the live sheet. Not dropped (would lose legit sibling-gov contacts); flagged.
+- **ucdenver admissions@:** `Contact Trust = low` (contact-page hop, generic local-part) — same-domain but wrong department, correctly caught by the trust band.
+- **Contact-trust distribution (68 rows): high 1 / medium 27 / low 40** (the cross-domain-mailto fix moved 10 rows medium→low — appropriately conservative).
+- **Playwright (6 rows):** pages load (dpscs transient 522 — gov flakiness); contacts confirmed real, same-domain enforced for body-text, off-domain flagged for mailto. No fabrication.
+
+### Honest residuals
+
+- **Wrong-org cross-domain mailto isn't *removed*, it's *flagged* low/off-domain.** We can't auto-distinguish a third-party mailto (frsn.org) from a legitimate sibling-gov mailto (ocgov.com on oc.gov), so precision-over-recall = flag, don't drop. Outreach reads the trust column.
+- Body-text **phones** still can't be domain-checked (no domain) — a third-party phone mentioned on a page rides along, demoted below tel:.
+- Page Confidence and Contact Trust are now distinct columns; a high-Confidence page can carry a low-Trust contact (that's the point).
+- Append-only can't update existing rows' cells; value corrections need `replace=True` (one-time full refresh).
+
+### Phase 2 (open)
+
+`authority_filter` (Ahrefs DR, unrestricted query variants), `link_checker` (16 `COMPETITOR_DOMAINS`), scheduled triggers. Polish carried: domain-aware phone heuristics; surface contact provenance is now done.
