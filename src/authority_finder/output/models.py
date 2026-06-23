@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from authority_finder.contact_extractor.models import ExtractionOutcome
 from authority_finder.discovery.queries import county_display, slug_to_display
+from authority_finder.output.provenance import contact_source_label, contact_trust
 from authority_finder.population.models import PopulationResult
 
 OUTPUT_HEADER: list[str] = [
@@ -20,6 +21,8 @@ OUTPUT_HEADER: list[str] = [
     "Specific Page",
     "Email",
     "Phone",
+    "Contact Source",  # provenance of the contact (ADR-009)
+    "Contact Trust",  # can outreach trust this contact (≠ page Confidence)
     "Organization Description",
     "Geo Served",
     "Population",
@@ -40,6 +43,8 @@ class OutputRow(BaseModel):
     specific_page: str
     email: str
     phone: str
+    contact_source: str
+    contact_trust: str
     organization_description: str
     geo_served: str
     population: int | None
@@ -53,12 +58,14 @@ class OutputRow(BaseModel):
         return (self.website, self.geo_served)
 
     def cells(self) -> list[str]:
-        """The row as 11 string cells, in :data:`OUTPUT_HEADER` order."""
+        """The row as string cells, in :data:`OUTPUT_HEADER` order."""
         return [
             self.website,
             self.specific_page,
             self.email,
             self.phone,
+            self.contact_source,
+            self.contact_trust,
             self.organization_description,
             self.geo_served,
             "" if self.population is None else str(self.population),
@@ -99,6 +106,8 @@ def build_row(
         specific_page=outcome.page_url,
         email=contacts.best_email or "",
         phone=contacts.best_phone or "",
+        contact_source=contact_source_label(contacts),
+        contact_trust=contact_trust(contacts),
         organization_description=description,
         geo_served=geo_served_label(
             level=geo.level, state=geo.state, county=geo.county, city=geo.city

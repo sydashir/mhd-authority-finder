@@ -40,7 +40,9 @@ def test_row_with_holes_blanks_not_crash() -> None:
     assert row.email == ""
     assert row.phone == ""
     assert row.population is None
-    assert row.cells()[6] == ""  # Population cell blank, not "None"
+    assert row.cells()[OUTPUT_HEADER.index("Population")] == ""  # blank, not "None"
+    assert row.contact_source == ""  # no contact
+    assert row.contact_trust == "low"
     assert row.confidence == "low"
 
 

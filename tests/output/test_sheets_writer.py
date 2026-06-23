@@ -41,7 +41,9 @@ class _ValuesApi:
     def __init__(self, existing: list[list[str]], error: Exception | None = None) -> None:
         self.existing = existing
         self.appended: list[list[str]] = []
+        self.updated: list[list[str]] | None = None
         self.header_set: list[list[str]] | None = None
+        self.cleared = False
         self._error = error
 
     def get(self, **_: Any) -> _Req:
@@ -49,6 +51,7 @@ class _ValuesApi:
 
     def update(self, *, body: dict[str, Any], **_: Any) -> _Req:
         def _apply() -> dict[str, Any]:
+            self.updated = body["values"]
             self.header_set = body["values"]
             return {}
 
@@ -57,6 +60,13 @@ class _ValuesApi:
     def append(self, *, body: dict[str, Any], **_: Any) -> _Req:
         def _apply() -> dict[str, Any]:
             self.appended.extend(body["values"])
+            return {}
+
+        return _Req(_apply)
+
+    def clear(self, **_: Any) -> _Req:
+        def _apply() -> dict[str, Any]:
+            self.cleared = True
             return {}
 
         return _Req(_apply)
@@ -81,9 +91,22 @@ def _writer(tmp_path: Path, values_api: _ValuesApi) -> SheetsWriter:
     return writer
 
 
+async def test_schema_migration_clears_and_rewrites(tmp_path: Path) -> None:
+    # Old 11-column layout present -> clear + full rewrite (no duplicate, no mixed layouts).
+    old_header = ["Website", "Specific Page", "Email", "Phone", "Geo Served"]
+    api = _ValuesApi(existing=[old_header, ["a.gov", "u", "", "", "Maryland"]])
+    result = await _writer(tmp_path, api).write([_row("a.gov"), _row("b.gov")])
+    assert api.cleared
+    assert api.updated is not None and api.updated[0] == OUTPUT_HEADER
+    assert len(api.updated) == 3  # header + 2 rows
+    assert result.appended == 2
+    assert api.appended == []  # rewrite via update, not append
+
+
 async def test_writes_header_when_empty_and_appends(tmp_path: Path) -> None:
     api = _ValuesApi(existing=[])
     result = await _writer(tmp_path, api).write([_row("a.gov"), _row("b.gov")])
+    assert not api.cleared
     assert api.header_set == [OUTPUT_HEADER]
     assert result.header_written
     assert result.appended == 2
