@@ -6,36 +6,14 @@ Confidence, which only rates how well the page matches the geo. The primary
 contact is the best email if any, else the best phone.
 """
 
+from authority_finder.contact_extractor.extract import classify_localpart
 from authority_finder.contact_extractor.models import ContactSet, EmailHit, EmailSource
-
-# Department-meaningful local-parts → a contact you'd actually email for outreach.
-_DEPT_LOCALPARTS = frozenset(
-    {
-        "health",
-        "behavioralhealth",
-        "mentalhealth",
-        "publichealth",
-        "counseling",
-        "contact",
-        "info",
-        "recovery",
-        "intake",
-        "referrals",
-        "wellness",
-    }
-)
 
 _SOURCE_LABELS: dict[EmailSource, str] = {
     "mailto": "mailto (same-domain)",
     "body_text": "body-text (same-domain)",
     "contact_page": "contact-page hop",
 }
-
-
-def _dept_localpart(address: str) -> bool:
-    local = address.split("@", 1)[0].lower()
-    head = local.replace(".", "").replace("_", "").replace("-", "")
-    return local in _DEPT_LOCALPARTS or head in _DEPT_LOCALPARTS
 
 
 def contact_source_label(contacts: ContactSet) -> str:
@@ -61,11 +39,18 @@ def contact_trust(contacts: ContactSet) -> str:
 
 
 def _email_trust(email: EmailHit) -> str:
-    dept = _dept_localpart(email.address)
-    if email.source == "mailto":
-        if not email.same_domain:
-            return "low"  # cross-domain mailto = a third-party org (e.g. info@frsn.org)
-        return "high" if dept else "medium"
-    if email.source == "contact_page":
-        return "medium" if dept else "low"
-    return "medium" if dept else "low"  # body_text (same-domain by construction), weaker
+    """Trust band re-derived by department relevance (Session 9, ADR-010 — tightened).
+
+    Off-domain → ``low`` (third-party/sibling org, not this page's own contact); wrong-dept /
+    role-noise → ``low`` even as a same-domain mailto; a real same-domain department inbox →
+    ``high`` (mailto) or ``medium`` (reached via a hop / body); a generic same-domain inbox
+    (``info@``/``contact@``) → ``medium`` as a mailto, else ``low``.
+    """
+    if not email.same_domain:
+        return "low"
+    category = classify_localpart(email.address)
+    if category == "role":
+        return "low"
+    if category == "dept":
+        return "high" if email.source == "mailto" else "medium"
+    return "medium" if email.source == "mailto" else "low"  # generic / other

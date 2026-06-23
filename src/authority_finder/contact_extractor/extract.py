@@ -16,6 +16,7 @@ best by confidence, then source, then address.
 """
 
 import re
+from typing import Literal
 
 import phonenumbers
 import tldextract
@@ -119,49 +120,6 @@ _PLACEHOLDER_DOMAIN = frozenset(
     }
 )
 
-# Department-meaningful local-parts get a confidence bump; role accounts a penalty.
-_DEPT_LOCALPARTS = frozenset(
-    {
-        "health",
-        "info",
-        "contact",
-        "behavioralhealth",
-        "mentalhealth",
-        "publichealth",
-        "dph",
-        "hhs",
-        "dhs",
-        "dhcs",
-        "recovery",
-        "counseling",
-        "clerk",
-        "reception",
-        "help",
-        "intake",
-        "referrals",
-        "wellness",
-        "bhrs",
-        "mhsa",
-        "services",
-    }
-)
-_ROLE_NOISE_LOCALPARTS = frozenset(
-    {
-        "webmaster",
-        "postmaster",
-        "noreply",
-        "no-reply",
-        "donotreply",
-        "do-not-reply",
-        "mailer-daemon",
-        "hostmaster",
-        "abuse",
-        "root",
-        "support@sentry",
-        "privacy",
-    }
-)
-
 _SOURCE_BASE: dict[EmailSource, float] = {"mailto": 0.9, "contact_page": 0.7, "body_text": 0.5}
 _EMAIL_SOURCE_PRIORITY: dict[EmailSource, int] = {"mailto": 0, "contact_page": 1, "body_text": 2}
 _MAX_EMAIL_LEN = 254
@@ -208,13 +166,78 @@ _DEPT_STEMS = (
 # Checked first: 'environmentalhealth' contains 'mentalhealth'; 'developmental' contains 'mental'.
 _DEPT_EXCLUDE = ("environmental", "developmental", "governmental")
 
+# Wrong-department / role-noise local-parts → never the outreach contact, even as a
+# same-domain mailto (admissions@/communications@/webmaster@ on a counseling page).
+# Department matching takes precedence, so a real dept inbox is never misread as role.
+_ROLE_STEMS = (
+    "admission",
+    "webmaster",
+    "webmarketing",
+    "webteam",
+    "communications",
+    "newsmedia",
+    "media",
+    "press",
+    "marketing",
+    "publicinformation",
+    "helpdesk",
+    "servicedesk",
+    "postmaster",
+    "mailerdaemon",
+    "hostmaster",
+    "noreply",
+    "donotreply",
+    "registrar",
+    "financialaid",
+    "finaid",
+    "alumni",
+    "advancement",
+    "housing",
+    "mayor",
+    "citymanager",
+    "cityclerk",
+    "cityattorney",
+    "prosecutor",
+    "auditor",
+    "facultycouncil",
+    "titleix",
+    "mdmanual",
+    "smteam",
+)
+_ROLE_EXACT = frozenset({"pio", "pioac", "consumer", "abuse", "root", "privacy"})
+_DISTRICT_RE = re.compile(r"^district\d+")
+# Real inboxes that aren't department-specific: usable, but never high-trust.
+_GENERIC_LOCALPARTS = frozenset({"info", "contact", "contactus", "reception", "hello", "feedback"})
+
+ContactCategory = Literal["dept", "role", "generic", "other"]
+
+
+def _norm_localpart(address: str) -> str:
+    return re.sub(r"[._+-]", "", address.split("@", 1)[0].lower())
+
+
+def classify_localpart(address: str) -> ContactCategory:
+    """Categorise an email local-part for ranking + trust banding (audit §3).
+
+    Department relevance is decided before role-noise, so a real department inbox is
+    never misread as role; ``environmental``/``developmental`` heads are excluded from
+    the mental-health stems first.
+    """
+    head = _norm_localpart(address)
+    if any(x in head for x in _DEPT_EXCLUDE):
+        return "other"
+    if head in _DEPT_EXACT or any(stem in head for stem in _DEPT_STEMS):
+        return "dept"
+    if _DISTRICT_RE.match(head) or head in _ROLE_EXACT or any(r in head for r in _ROLE_STEMS):
+        return "role"
+    if head in _GENERIC_LOCALPARTS:
+        return "generic"
+    return "other"
+
 
 def is_dept_localpart(address: str) -> bool:
     """True if the email local-part names a mental/behavioral-health-relevant department."""
-    head = re.sub(r"[._+-]", "", address.split("@", 1)[0].lower())
-    if any(x in head for x in _DEPT_EXCLUDE):
-        return False
-    return head in _DEPT_EXACT or any(stem in head for stem in _DEPT_STEMS)
+    return classify_localpart(address) == "dept"
 
 
 # Labels that precede record/ID numbers — phone-shaped but never a phone (ADR-007).
@@ -276,11 +299,10 @@ def _is_junk_email(address: str) -> bool:
 
 def _email_confidence(address: str, source: EmailSource) -> float:
     base = _SOURCE_BASE[source]
-    local = address.split("@", 1)[0].lower()
-    head = re.split(r"[._+-]", local, maxsplit=1)[0]
-    if local in _ROLE_NOISE_LOCALPARTS or head in _ROLE_NOISE_LOCALPARTS:
+    category = classify_localpart(address)
+    if category == "role":
         base -= 0.4
-    elif local in _DEPT_LOCALPARTS or head in _DEPT_LOCALPARTS:
+    elif category == "dept":
         base += 0.1
     return round(max(0.0, min(1.0, base)), 2)
 

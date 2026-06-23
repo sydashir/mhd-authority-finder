@@ -54,8 +54,42 @@ def test_trust_high_dept_mailto_same_domain() -> None:
     assert contact_trust(_emails(_e("behavioralhealth@county.gov", "mailto"))) == "high"
 
 
-def test_trust_medium_generic_mailto() -> None:
-    assert contact_trust(_emails(_e("webmaster@county.gov", "mailto"))) == "medium"
+def test_trust_broad_dept_mailto_is_high() -> None:
+    # Real department mailboxes the old narrow dict missed (Session 9, audit §3).
+    for addr in (
+        "recoverysupport@howardcountymd.gov",
+        "ivccounseling@ivc.edu",
+        "humansvs@pinellas.gov",
+        "unccounselingcenter@unco.edu",
+    ):
+        assert contact_trust(_emails(_e(addr, "mailto"))) == "high", addr
+
+
+def test_trust_generic_mailto_is_medium() -> None:
+    # A genuinely generic inbox (info@/contact@) on its own domain stays medium.
+    assert contact_trust(_emails(_e("info@county.gov", "mailto"))) == "medium"
+
+
+def test_trust_role_mailto_demoted_to_low() -> None:
+    # Session 9 tightening: wrong-dept / role-noise same-domain mailto is NOT medium.
+    for addr in (
+        "webmaster@county.gov",
+        "admissions@westcliff.edu",
+        "communications@uci.edu",
+        "auditor@longbeach.gov",
+    ):
+        assert contact_trust(_emails(_e(addr, "mailto"))) == "low", addr
+
+
+def test_trust_environmental_health_not_high() -> None:
+    # Guard: environmental health is not MH/BH; same-domain mailto -> medium (other), not high.
+    assert contact_trust(_emails(_e("environmentalhealth@longbeach.gov", "mailto"))) == "medium"
+
+
+def test_trust_off_domain_contact_page_is_low() -> None:
+    # An off-domain email surfaced via a same-domain hop is a sibling/third-party org, not ours.
+    cs = _emails(_e("health@flhealth.gov", "contact_page", same_domain=False))
+    assert contact_trust(cs) == "low"
 
 
 def test_trust_medium_dept_contact_page() -> None:

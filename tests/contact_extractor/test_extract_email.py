@@ -200,3 +200,13 @@ def test_is_dept_localpart_true(addr: str) -> None:
 )
 def test_is_dept_localpart_false(addr: str) -> None:
     assert not is_dept_localpart(addr)
+
+
+def test_role_localpart_confidence_penalised() -> None:
+    # admissions is a wrong-dept role account now (Session 9): 0.9 base - 0.4.
+    assert extract_emails(page(mailto=["admissions@county.gov"]))[0].confidence == 0.5
+
+
+def test_broad_dept_localpart_confidence_bumped() -> None:
+    # recoverysupport is a real dept inbox the old narrow dict missed: 0.9 base + 0.1.
+    assert extract_emails(page(mailto=["recoverysupport@county.gov"]))[0].confidence == 1.0
