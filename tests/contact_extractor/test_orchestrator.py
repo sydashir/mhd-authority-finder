@@ -118,6 +118,70 @@ async def test_fetch_failed_status() -> None:
     assert outcome.status == "fetch_failed"
 
 
+# --- Session 9: department-directory discovery ---
+
+
+def _html_multi(
+    *, body: str = "", mailtos: tuple[str, ...] = (), links: tuple[tuple[str, str], ...] = ()
+) -> bytes:
+    parts = [f"<p>{body}</p>"]
+    parts.extend(f'<a href="mailto:{m}">e</a>' for m in mailtos)
+    parts.extend(f'<a href="{href}">{text}</a>' for text, href in links)
+    return f"<html><body>{''.join(parts)}</body></html>".encode()
+
+
+async def test_dept_directory_link_beats_generic_contact_us() -> None:
+    # Detected page has no email; the dept directory is preferred over generic contact-us,
+    # and the directory's dept email becomes the row's contact.
+    url = "https://county.gov/behavioral-health"
+    contact = "https://county.gov/contact-us"
+    directory = "https://county.gov/staff-directory"
+    routes = {
+        url: html(body="x", links=(("Contact Us", contact), ("Staff Directory", directory))),
+        contact: html(mailto="info@county.gov"),
+        directory: html(mailto="behavioralhealth@county.gov"),
+    }
+    outcome = await extract_candidate(candidate_outcome(url), fetcher=fetcher_for(routes))
+    assert outcome.contacts.best_email == "behavioralhealth@county.gov"
+
+
+async def test_directory_dept_email_chosen_among_several() -> None:
+    url = "https://county.gov/behavioral-health"
+    directory = "https://county.gov/staff-directory"
+    routes = {
+        url: html(body="See the directory.", links=(("Staff Directory", directory),)),
+        directory: _html_multi(
+            mailtos=("admissions@county.gov", "behavioralhealth@county.gov", "webmaster@county.gov")
+        ),
+    }
+    outcome = await extract_candidate(candidate_outcome(url), fetcher=fetcher_for(routes))
+    assert outcome.contacts.best_email == "behavioralhealth@county.gov"
+
+
+async def test_hops_for_dept_even_when_generic_email_on_page() -> None:
+    # Trigger change: a generic same-domain mailto no longer suppresses the directory hop.
+    url = "https://county.gov/behavioral-health"
+    directory = "https://county.gov/staff-directory"
+    routes = {
+        url: html(body="x", mailto="info@county.gov", links=(("Staff Directory", directory),)),
+        directory: html(mailto="behavioralhealth@county.gov"),
+    }
+    outcome = await extract_candidate(candidate_outcome(url), fetcher=fetcher_for(routes))
+    assert outcome.contacts.best_email == "behavioralhealth@county.gov"
+    assert outcome.fetches_used == 2
+
+
+async def test_keeps_generic_when_no_dept_reachable_within_budget() -> None:
+    url = "https://county.gov/dept"
+    links = tuple((f"Contact {i}", f"https://county.gov/contact-{i}") for i in range(4))
+    routes = {url: html(body="x", mailto="info@county.gov", links=links)}
+    for i in range(4):
+        routes[f"https://county.gov/contact-{i}"] = html(body="no dept email here")
+    outcome = await extract_candidate(candidate_outcome(url), fetcher=fetcher_for(routes))
+    assert outcome.contacts.best_email == "info@county.gov"
+    assert outcome.fetches_used <= 1 + MAX_CONTACT_FETCHES
+
+
 async def test_extract_for_geo_aggregates_coverage() -> None:
     good = "https://county.gov/bh"
     phone_only = "https://county.gov/clinic"

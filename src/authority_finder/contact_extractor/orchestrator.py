@@ -17,11 +17,13 @@ from authority_finder.contact_extractor.contact_page import find_contact_links
 from authority_finder.contact_extractor.extract import (
     extract_emails,
     extract_phones,
+    is_dept_localpart,
     rank_emails,
     rank_phones,
 )
 from authority_finder.contact_extractor.models import (
     ContactSet,
+    EmailHit,
     ExtractionOutcome,
     ExtractionResult,
     ExtractionStatus,
@@ -37,6 +39,11 @@ if TYPE_CHECKING:
 MAX_CONTACT_FETCHES = 2
 
 _log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+
+
+def _has_dept_contact(emails: list[EmailHit]) -> bool:
+    """True once we hold a same-domain department inbox — the directory hop's goal."""
+    return any(e.same_domain and is_dept_localpart(e.address) for e in emails)
 
 
 async def _safe_fetch(fetcher: PageFetcher, url: str) -> PageContent | None:
@@ -74,7 +81,10 @@ async def extract_candidate(
     has_form = content.has_web_form
     contact_page_url: str | None = None
 
-    if not emails:
+    # Hop to a department/directory/contact page unless the detected page already
+    # carries a same-domain department inbox (a generic info@ no longer suppresses the
+    # hop — Session 9); stop as soon as a department contact is in hand.
+    if not _has_dept_contact(emails):
         for link in find_contact_links(content, domain=domain, limit=MAX_CONTACT_FETCHES):
             if fetches >= 1 + MAX_CONTACT_FETCHES:
                 break
@@ -87,7 +97,7 @@ async def extract_candidate(
             emails.extend(extract_emails(cp, contact_page=True))
             phones.extend(extract_phones(cp, contact_page=True))
             has_form = has_form or cp.has_web_form
-            if emails:
+            if _has_dept_contact(emails):
                 break
 
     ranked_emails = rank_emails(emails)

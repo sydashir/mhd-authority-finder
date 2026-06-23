@@ -9,6 +9,7 @@ import pytest
 from authority_finder.contact_extractor.extract import (
     deobfuscate,
     extract_emails,
+    is_dept_localpart,
     rank_emails,
 )
 from tests.contact_extractor.conftest import page
@@ -158,3 +159,44 @@ def test_contact_page_body_email_not_domain_constrained() -> None:
     content = page(final_url="https://county.gov/contact", text="Partner: referrals@partnerorg.org")
     hits = extract_emails(content, contact_page=True)
     assert "referrals@partnerorg.org" in [e.address for e in hits]
+
+
+# --- Session 9: department-relevance predicate (evidence-derived, audit §3) ---
+
+
+@pytest.mark.parametrize(
+    "addr",
+    [
+        "counseling@uni.edu",
+        "ivccounseling@ivc.edu",
+        "unccounselingcenter@unco.edu",
+        "counselinf@fmu.edu",
+        "behavioralhealth@county.gov",
+        "recoverysupport@howardcountymd.gov",
+        "humansvs@pinellas.gov",
+        "frs.peer_support_cism@montgomerycountymd.gov",
+        "health@county.gov",
+        "mentalhealth@county.gov",
+        "studenthealth@uni.edu",
+    ],
+)
+def test_is_dept_localpart_true(addr: str) -> None:
+    assert is_dept_localpart(addr)
+
+
+@pytest.mark.parametrize(
+    "addr",
+    [
+        "admissions@uni.edu",
+        "webmaster@county.gov",
+        "communications@uci.edu",
+        "auditor@longbeach.gov",
+        "helpdesk@franklin.edu",
+        "careerservices@floridapoly.edu",
+        "info@county.gov",  # generic, not dept-specific
+        "contact@county.gov",
+        "environmentalhealth@longbeach.gov",  # guard: contains 'mentalhealth'
+    ],
+)
+def test_is_dept_localpart_false(addr: str) -> None:
+    assert not is_dept_localpart(addr)

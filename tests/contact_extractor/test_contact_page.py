@@ -5,6 +5,8 @@ from tests.contact_extractor.conftest import page
 
 
 def test_finds_and_ranks_contact_links() -> None:
+    # Session 9: a department/staff directory is preferred over a generic contact-us
+    # (a directory is more likely to carry the actual department contact).
     content = page(
         final_url="https://county.gov/dept",
         links=[
@@ -14,9 +16,33 @@ def test_finds_and_ranks_contact_links() -> None:
         ],
     )
     links = find_contact_links(content, domain="county.gov")
-    assert links[0] == "https://county.gov/about/contact-us"
-    assert "https://county.gov/staff/directory" in links
+    assert links[0] == "https://county.gov/staff/directory"
+    assert "https://county.gov/about/contact-us" in links
     assert "https://county.gov/parks" not in links
+
+
+def test_prefers_department_directory_over_contact_us() -> None:
+    content = page(
+        final_url="https://county.gov/dept",
+        links=[
+            ("Contact Us", "https://county.gov/contact-us"),
+            ("Department Directory", "https://county.gov/department-directory"),
+        ],
+    )
+    links = find_contact_links(content, domain="county.gov")
+    assert links[0] == "https://county.gov/department-directory"
+
+
+def test_prefers_dept_topic_link_over_generic_contact() -> None:
+    content = page(
+        final_url="https://county.gov/x",
+        links=[
+            ("Contact Us", "https://county.gov/contact-us"),
+            ("Behavioral Health Division", "https://county.gov/behavioral-health"),
+        ],
+    )
+    links = find_contact_links(content, domain="county.gov")
+    assert links[0] == "https://county.gov/behavioral-health"
 
 
 def test_excludes_other_domains() -> None:

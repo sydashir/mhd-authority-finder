@@ -166,6 +166,57 @@ _SOURCE_BASE: dict[EmailSource, float] = {"mailto": 0.9, "contact_page": 0.7, "b
 _EMAIL_SOURCE_PRIORITY: dict[EmailSource, int] = {"mailto": 0, "contact_page": 1, "body_text": 2}
 _MAX_EMAIL_LEN = 254
 
+# Department relevance for MH/BH/SUD/wellness/counseling/human-services outreach
+# (evidence-derived — docs/contact-quality-audit.md §3). Used to decide when a
+# detected page already carries a usable department contact (so the directory hop
+# can be skipped) and to rank a real department inbox ahead of generic/role inboxes.
+_DEPT_EXACT = frozenset(
+    {
+        "health",
+        "behavioralhealth",
+        "mentalhealth",
+        "publichealth",
+        "humanservices",
+        "bha",
+        "bhrs",
+        "dph",
+        "dhs",
+        "dhcs",
+        "hhs",
+        "mhsa",
+    }
+)
+_DEPT_STEMS = (
+    "counsel",
+    "behavioral",
+    "mentalhealth",
+    "recovery",
+    "wellness",
+    "wellbeing",
+    "humanserv",
+    "humansvc",
+    "humansvs",
+    "crisis",
+    "substance",
+    "psych",
+    "peersupport",
+    "intake",
+    "referral",
+    "studenthealth",
+    "healthservices",
+)
+# Checked first: 'environmentalhealth' contains 'mentalhealth'; 'developmental' contains 'mental'.
+_DEPT_EXCLUDE = ("environmental", "developmental", "governmental")
+
+
+def is_dept_localpart(address: str) -> bool:
+    """True if the email local-part names a mental/behavioral-health-relevant department."""
+    head = re.sub(r"[._+-]", "", address.split("@", 1)[0].lower())
+    if any(x in head for x in _DEPT_EXCLUDE):
+        return False
+    return head in _DEPT_EXACT or any(stem in head for stem in _DEPT_STEMS)
+
+
 # Labels that precede record/ID numbers — phone-shaped but never a phone (ADR-007).
 _PHONE_JUNK_LABEL = re.compile(
     r"\b(order|invoice|confirmation|conf|case|account|acct|tracking|track|permit|"
@@ -324,9 +375,10 @@ def extract_phones(content: PageContent, *, contact_page: bool = False) -> list[
     return hits
 
 
-def _email_rank_key(hit: EmailHit) -> tuple[float, int, str]:
-    """Best-first: confidence desc, then source trust (mailto > contact_page > body_text)."""
-    return (-hit.confidence, _EMAIL_SOURCE_PRIORITY[hit.source], hit.address)
+def _email_rank_key(hit: EmailHit) -> tuple[int, float, int, str]:
+    """Best-first: same-domain department inbox, then confidence desc, then source trust."""
+    dept = 0 if (hit.same_domain and is_dept_localpart(hit.address)) else 1
+    return (dept, -hit.confidence, _EMAIL_SOURCE_PRIORITY[hit.source], hit.address)
 
 
 def rank_emails(hits: list[EmailHit]) -> list[EmailHit]:
