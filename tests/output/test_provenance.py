@@ -77,3 +77,15 @@ def test_trust_low_when_no_contact() -> None:
 
 def test_trust_body_text_dept_is_medium() -> None:
     assert contact_trust(_emails(_e("health@county.gov", "body_text"))) == "medium"
+
+
+def test_trust_cross_domain_mailto_is_low() -> None:
+    # Live: info@frsn.org is a mailto to a THIRD-PARTY org on a county page.
+    # Per spec, medium requires same-domain mailto -> cross-domain mailto is low.
+    cs = _emails(_e("info@frsn.org", "mailto", same_domain=False))
+    assert contact_trust(cs) == "low"
+
+
+def test_source_cross_domain_mailto_flagged_off_domain() -> None:
+    cs = _emails(_e("info@frsn.org", "mailto", same_domain=False))
+    assert contact_source_label(cs) == "mailto (off-domain)"

@@ -42,10 +42,9 @@ def contact_source_label(contacts: ContactSet) -> str:
     """Provenance of the row's primary contact: e.g. 'mailto (same-domain)', 'tel'."""
     if contacts.emails:
         email = contacts.emails[0]
-        label = _SOURCE_LABELS[email.source]
-        if email.source == "mailto" and not email.same_domain:
-            return "mailto"
-        return label
+        if email.source == "mailto":
+            return "mailto (same-domain)" if email.same_domain else "mailto (off-domain)"
+        return _SOURCE_LABELS[email.source]
     if contacts.phones:
         source = contacts.phones[0].source
         return {"tel": "tel", "contact_page": "contact-page hop", "body_text": "body-text phone"}[
@@ -64,7 +63,9 @@ def contact_trust(contacts: ContactSet) -> str:
 def _email_trust(email: EmailHit) -> str:
     dept = _dept_localpart(email.address)
     if email.source == "mailto":
-        return "high" if (email.same_domain and dept) else "medium"
+        if not email.same_domain:
+            return "low"  # cross-domain mailto = a third-party org (e.g. info@frsn.org)
+        return "high" if dept else "medium"
     if email.source == "contact_page":
         return "medium" if dept else "low"
     return "medium" if dept else "low"  # body_text (same-domain by construction), weaker
