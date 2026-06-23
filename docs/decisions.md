@@ -357,3 +357,43 @@ Re-ran the 5 cached geos to the live sheet, billed_searches=0. Body-text foreign
 
 - A wrong-org contact still slips through (tighten body-text or extend the constraint to suspicious mailto domains).
 - Outreach reports the trust bands don't match their experience → recalibrate the dept local-part set / banding.
+
+## ADR-010 — Contact quality: department-directory discovery + dept-relevance ranking & band re-derivation
+
+**Date:** 2026-06-24
+**Status:** Accepted
+**Context:** Session 8 made contact *attribution* honest (same-domain constraint + trust band), but the live distribution exposed the real ceiling: **high 1 / medium 27 / low 40** over 68 rows. A Step-1 diagnosis (`docs/contact-quality-audit.md`, re-run at `billed_searches=0`) found page detection is strong but contact quality is weak, and quantified *why*: the ranker was **not** mis-picking among emails already on the page (bucket B = 0); a large part of the apparent "unfixable" tail was real department mailboxes the **narrow** Session-8 dept dictionary failed to recognise (`recoverysupport@`, `ivccounseling@`, `humansvs@`, `counselinf@`); and **23 / 68 rows (34%) publish no same-domain email at all** — a structural ceiling no code can lift. The goal was to raise *trustworthy* contacts without relaxing the bands.
+
+### Decisions
+
+1. **Department-directory discovery.** The contact-page hop now fires unless the detected page already holds a same-domain **department** inbox (a generic `info@` no longer suppresses it), and stops as soon as a department contact is found. Link ranking (`find_contact_links`) switches from summed keywords to a single best-match weight and ranks staff/department-directory and MH-topic links **above** a generic "contact us", so the hop reaches the actual department. Budget unchanged (≤2 extra fetches), shared httpx→Playwright tier (recovers soft-blocked WAF pages).
+2. **Department-relevance classification + ranking.** A single evidence-derived classifier (`classify_localpart` → `dept` / `role` / `generic` / `other`) is the source of truth, with an `environmental`/`developmental`/`governmental` guard checked first (`environmentalhealth` contains `mentalhealth`). A same-domain department inbox now ranks ahead of any non-department email regardless of source confidence; role/wrong-dept local-parts take a confidence penalty.
+3. **Trust bands re-derived — TIGHTENED, not loosened.** Off-domain → `low`; **role / wrong-department → `low` even as a same-domain mailto** (`admissions@`, `communications@`, `webmaster@`, `auditor@`…); same-domain department inbox → `high` (mailto) or `medium` (reached via a hop / body); generic `info@`/`contact@` → `medium` as a mailto (never `high`), else `low`; phone-only → `low`. This *demotes* the old lone `high` (`info@csupueblo.edu`) to `medium` and demotes ~11 over-trusted mediums to `low`. We explicitly narrowed what counts as trustworthy.
+4. **Phone-glue guard.** Reject email local-parts with a formatted phone number glued in (`303.458.3558counseling@…`, `724-8859smhservice@…`) — the live re-run surfaced these; the existing `\d{5,}` run-guard misses them because separators break the run.
+
+### Why a smaller "high+medium" is the correct outcome
+
+A wrong or garbled contact emailed in good faith burns sender reputation; a blank costs nothing. The old `medium` counted *every* same-domain mailto, including wrong-department inboxes, so the headline overstated trust. After tightening, **high+medium falls (28→24) while quality rises** — `high` is now 6 verified department mailboxes rather than 1. We report that drop as a feature, not a regression.
+
+### The honest ceiling (bucket-D reality)
+
+23 / 68 rows have no same-domain email anywhere (19 phone-only, 4 none); adding off-domain-only sites, **~40% of authority pages publish no own-domain contact**. The directory finder's *measured* real lift is ~2 rows — most sites simply don't expose a department email to reach. For that ~40%, phone + page URL is the deliverable. No part of this ADR changes that.
+
+### Alternatives considered
+
+| Choice | Considered | Why not |
+|---|---|---|
+| Feed page topic/Confidence into Contact Trust | yes | Re-merges the page-vs-contact split ADR-009 deliberately made; relevance already lives in the Confidence column. |
+| Drop off-domain / role contacts instead of banding `low` | yes | Precision-over-recall = flag, don't delete; outreach may still want the only inbox a page offers. |
+| Broaden the dept dictionary but keep role inboxes at `medium` | no | That inflates the aggregate without improving trust — the opposite of the goal. |
+| Bare `health` substring as department | no | Matches `environmentalhealth`/`healthinspector` (food/restaurant inspection); kept as an exact match + guarded stems. |
+
+### Live validation evidence (2026-06-24)
+
+Re-ran the 5 cached geos, **`billed_searches = 0`** (361 fetches, 261 httpx / 57 playwright). `replace=True` rewrote **68 rows**; idempotent append re-run added **0** at the 13-col layout. **Contact-trust distribution: high 1→6 / medium 27→18 / low 40→44.** 10 promotions (6 to `high`, all genuine department mailboxes — incl. `montgomerycountymd.gov` off-domain `info@frsn.org` → same-domain `frs.peer_support_cism@…`; 4 to `medium` via directory hops), 11 demotions (precision corrections). The 6 `high` rows were Playwright-verified in a real browser: each contact is a same-domain `mailto:` on a department-relevant page, no fabrication.
+
+### Trigger to revisit
+
+- Outreach finds department mailboxes still missed → extend the dept stem set from new evidence (keep the env/dev guard).
+- A role/wrong-dept inbox still reads `medium` → add the local-part to the role set.
+- The structural ~40% needs coverage → that is a sourcing problem (phone/forms), not a ranking one; consider capturing contact-form URLs as a distinct deliverable field.
