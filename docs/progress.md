@@ -521,3 +521,61 @@ trust bands. Diagnose-first; `billed_searches = 0` all session (cache held).
 
 `authority_filter` (Ahrefs DR, unrestricted query variants), `link_checker` (16 `COMPETITOR_DOMAINS`),
 scheduled triggers.
+
+## 2026-06-24 — Session 10: link_checker (component 6) — competitor backlink detection (ADR-011)
+
+Goal: fill the blank "Competitor Links" column — for each authority page, which of the 16
+`COMPETITOR_DOMAINS` does it link OUT to? Precision over recall (a wrong flag misleads outreach
+positioning). `billed_searches = 0` all session.
+
+### Built (TDD, RED→GREEN each)
+
+- **`2008e39` link checker models** — new `link_checker/` package (converted from the empty stub);
+  `CompetitorLink` (domain/found_on/anchor/url) + `LinkCheckResult` (`competitor_domains` summary).
+- **`d8b45e4` competitor link detection** — `check.find_competitor_links`: registrable-domain match
+  (reuses `registrable_domain` + `COMPETITOR_DOMAINS`, the `is_competitor` primitives), `urljoin`
+  resolution of relative/scheme-relative hrefs, own-domain skip, dedupe. 7 precision tests incl. the
+  `rehabsomething.com` substring trap, protocol-relative, subdomain, clean-empty.
+- **`6217274` resources-page discovery** — `resources.find_resources_link`: ONE same-domain
+  resources/links/community-partners page (single-best-match weighting, junk/own-domain discipline).
+- **`dad9cf9` link-check orchestrator** — `check_links_for_candidate`: detected page + ONE resources
+  hop (mode b), ≤2 fetches, shared httpx→Playwright tier, per-candidate error isolation.
+- **`952ad26` populate column** — wired into `pipeline.run_pipeline` (`_check_links` gathers per
+  candidate, `return_exceptions=True`); `build_row` gains `competitor_links`; cell = `"; ".join(domains)`
+  or `"—"`. "Competitor Links" was already a column (ADR-008) → value fill, no schema change.
+- 282 unit tests green; pyright strict 0 errors; ruff clean.
+
+### Live validation (5 cached geos)
+
+- **billed_searches = 0**, 484 fetches (364 httpx / 75 playwright). Key rotation gate re-confirmed
+  (`d97fe38c`).
+- Wrote the run's rows to the live sheet via `replace=True` (value refresh) → 68 rewritten;
+  idempotent append re-run added **0** (the populated column did not re-trigger appends — keyed on
+  Website+Geo).
+- **8 of 68 rows link to a competitor; 11 competitor links** — `samhsa.gov` ×8, `findtreatment.gov`
+  ×1, `addictioncenter.com` ×1, `treatmentatlas.org` ×1.
+- Examples: `cityoffrederickmd.gov` → SAMHSA + findtreatment.gov "treatment locator";
+  `orangecoastcollege.edu` (Helpful Hotlines page) → treatmentatlas.org + samhsa.gov;
+  `ndm.edu` (Counseling Center) → addictioncenter.com; `montgomerycountymd.gov` → SAMHSA national
+  helpline; `umbc.edu`, `hcfl.gov`, `oc.gov`, `chhs.ca.gov` → SAMHSA.
+- **Playwright-verified 4 flagged rows (0 false positives)** + 2 unflagged rows
+  (howardcountymd.gov 0/1,416 anchors; unco.edu 0/105) — **no under-detection**.
+
+### Honest recall limits
+
+- JS-injected links on httpx-served pages (Playwright tier only on 403/SSL) are not seen.
+- Deep pages beyond detected + one resources hop are not crawled (mode b tradeoff).
+- `MAX_LINKS=500` parse cap: a page with >500 anchors (howard had 1,416) only exposes its first 500.
+- Only ONE resources page is followed.
+
+### Gotchas
+
+- Scratch runner crashed twice before the good run: a missing `detect_for_geo` import, then an
+  uncaught `httpx.ConnectTimeout` (the harness `gather` lacked `return_exceptions`; the production
+  `_check_links` already has it → pipeline is robust). Fixed by reusing the pipeline's `_check_links`.
+
+### Phase 2 (remaining)
+
+- `authority_filter` (Ahrefs DR, unrestricted query variants) — **BLOCKED pending the user's Ahrefs
+  API-access answer.**
+- Scheduled/automated triggers on new geo pages; re-validation runs.
