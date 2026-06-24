@@ -397,3 +397,46 @@ Re-ran the 5 cached geos, **`billed_searches = 0`** (361 fetches, 261 httpx / 57
 - Outreach finds department mailboxes still missed → extend the dept stem set from new evidence (keep the env/dev guard).
 - A role/wrong-dept inbox still reads `medium` → add the local-part to the role set.
 - The structural ~40% needs coverage → that is a sourcing problem (phone/forms), not a ranking one; consider capturing contact-form URLs as a distinct deliverable field.
+
+## ADR-011 — Competitor backlink detection (link_checker, component 6)
+
+**Date:** 2026-06-24
+**Status:** Accepted
+**Context:** The brief's component 6 fills the previously-blank "Competitor Links" column: for each authority page in the sheet, does that `.gov`/`.edu` site link OUT to any of the 16 `COMPETITOR_DOMAINS`? A site already linking to a competitor directory is a warmer prospect (it lists directories) and tells outreach which competitor to position against. Precision is paramount — a wrong "links to competitor X" flag misleads positioning, so the bar is precision over recall (ADR-003/007/010).
+
+### Decisions
+
+1. **Which pages to check — mode (b): the detected page + ONE resources page.** Directories of external orgs (and thus competitor links) live on a "resources / links / community partners / helpful links" page far more often than on the detected department page (live: `orangecoastcollege.edu`'s competitor links were on its "Helpful Hotlines and Links" page). So we check the detected page and, if present, follow ONE same-domain resources/links link (`find_resources_link`, single-best-match keyword weighting, same junk/own-domain discipline as the contact-page picker). **Budget ≤2 fetches/candidate.** Recall tradeoff vs a deeper crawl (option c): a competitor link buried 3+ clicks deep, or on a second resources page, is missed — accepted for politeness (these are government sites) and speed; option (a) detected-page-only was rejected because it misses the resources-page directories that are the common case.
+2. **Match on registrable domain only — reuse, don't reinvent.** Matching is `registrable_domain(url) in COMPETITOR_DOMAINS` (tldextract, the exact primitive behind `domains.is_competitor`), so `rehabs.com` matches `www.rehabs.com/florida` and `florida.rehabs.com` but **not** `rehabsomething.com` (the substring trap). Relative / scheme-relative hrefs are resolved against the page's `final_url` (`urljoin`) before extracting the domain; links to the candidate's own registrable domain are skipped; identical `(domain, url)` links are deduped. Each match keeps its anchor text + found-on URL for human QA.
+3. **Output.** "Competitor Links" was already a column (ADR-008, index 9, placeholder `"—"`); this populates it with `"; ".join(unique competitor domains)` (e.g. `"findtreatment.gov; samhsa.gov"`), `"—"` when none. **No schema change** — Sheets idempotency stays keyed on `(Website, Geo Served)`, so populating the column does not re-trigger appends; the value refresh onto existing rows uses `replace=True` (append-only can't update cells, ADR-009).
+4. **Re-fetch, not reuse (for now).** The link checker re-fetches the detected page rather than threading the `PageContent` already fetched in detection/extraction — consistent with the existing detect→extract re-fetch pattern. `check_links_for_candidate` accepts an optional `content=` to skip that fetch, so a future pass that threads `PageContent` through all stages can drop the re-fetch with no interface change. Pipeline-level `return_exceptions=True` isolates a per-candidate fetch failure as `checked_ok=False` → `"—"`.
+
+### Why precision is the bar
+
+A blank cell costs nothing; "links to recovery.com" emailed to outreach as fact, when it doesn't, sends them to position against the wrong competitor. Registrable-domain matching + relative-URL resolution + own-domain skip keep false positives near zero (live: 4/4 flagged rows Playwright-verified, 0 false positives).
+
+### Honest recall limits (what this can miss)
+
+- **JS-injected links** on a page served by the httpx tier (the Playwright tier only runs on 403/SSL escalation) — a competitor link added by client-side JS on an otherwise-200 page is not seen.
+- **Deep pages** beyond the detected page + one resources hop (mode b).
+- **The `MAX_LINKS=500` parse cap** — a page with >500 anchors (live: `howardcountymd.gov` had 1,416) only exposes its first 500 to the checker; a competitor link past #500 is missed (here there were none).
+- **Only ONE resources page** is followed; a second directory page is not.
+
+### Alternatives considered
+
+| Choice | Considered | Why not |
+|---|---|---|
+| (a) Detected page only | yes | Misses the resources/links pages where external directories actually live. |
+| (c) Shallow crawl (N pages) | yes | More fetches + load on government sites for marginal recall; (b) catches the common case at ≤2 fetches. |
+| Substring / `in url` matching | no | `rehabs.com` would match `rehabsomething.com` — the exact false-flag we must avoid. |
+| Add a 14th column | no | "Competitor Links" already exists (ADR-008); this is a value fill, no migration. |
+
+### Live validation evidence (2026-06-24)
+
+5 cached geos, **`billed_searches = 0`**, 484 fetches (364 httpx / 75 playwright). **8 of 68 rows link to a competitor; 11 competitor links total** — by domain: `samhsa.gov` ×8, `findtreatment.gov` ×1, `addictioncenter.com` ×1, `treatmentatlas.org` ×1. `replace=True` rewrote 68 rows with the populated column; idempotent append re-run added 0. Playwright-verified 4 flagged rows in a real browser (cityoffrederickmd.gov → SAMHSA + findtreatment.gov; ndm.edu → addictioncenter.com; orangecoastcollege.edu → treatmentatlas.org + samhsa.gov; montgomerycountymd.gov → samhsa.gov national-helpline) — **0 false positives** — and 2 unflagged rows (howardcountymd.gov: 0 of 1,416 anchors; unco.edu: 0 of 105) — **no under-detection**.
+
+### Trigger to revisit
+
+- Outreach reports missed competitor links → raise `MAX_LINKS`, follow >1 resources page, or add a shallow crawl for high-value geos.
+- A competitor domain is added/removed from the brief → update `COMPETITOR_DOMAINS` (single source of truth).
+- JS-injected competitor links matter → make the link check Playwright-eligible regardless of status (cost tradeoff).
