@@ -91,10 +91,13 @@ def build_row(
     *,
     population: PopulationResult,
     now: datetime,
+    competitor_links: str = "—",
 ) -> OutputRow:
     """Assemble one :class:`OutputRow` from the chained per-candidate outputs.
 
-    Every missing piece degrades to an empty cell — never crashes, never fabricates.
+    ``competitor_links`` is the pre-formatted cell from the link checker (component 6),
+    e.g. ``"samhsa.gov; recovery.com"``; ``"—"`` when none / not checked. Every missing
+    piece degrades to an empty cell — never crashes, never fabricates.
     """
     candidate = outcome.candidate
     geo = candidate.geo
@@ -113,7 +116,7 @@ def build_row(
             level=geo.level, state=geo.state, county=geo.county, city=geo.city
         ),
         population=population.value,
-        competitor_links="—",  # Phase 2 (link_checker); not yet computed
+        competitor_links=competitor_links,
         source_tag=_SOURCE_TAGS.get(geo.site_id, geo.site_id.upper()),
         date_added=now.date().isoformat(),
         confidence=outcome.page_confidence,

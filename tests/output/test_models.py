@@ -46,6 +46,19 @@ def test_row_with_holes_blanks_not_crash() -> None:
     assert row.confidence == "low"
 
 
+def test_competitor_links_column_populated() -> None:
+    row = build_row(
+        outcome(), population=_pop(3170345), now=NOW, competitor_links="recovery.com; samhsa.gov"
+    )
+    assert row.competitor_links == "recovery.com; samhsa.gov"
+    assert row.cells()[OUTPUT_HEADER.index("Competitor Links")] == "recovery.com; samhsa.gov"
+
+
+def test_competitor_links_default_dash() -> None:
+    row = build_row(outcome(), population=_pop(3170345), now=NOW)
+    assert row.competitor_links == "—"
+
+
 def test_source_tag_ah() -> None:
     o = outcome(geo=geo_ref("state", site_id="ah"))
     row = build_row(o, population=_pop(39538223), now=NOW)

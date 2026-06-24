@@ -7,11 +7,13 @@ rows. Writing (CSV or Sheets) is the caller's job — this returns the assembled
 :class:`OutputRow`s plus a funnel summary.
 """
 
+import asyncio
 from datetime import datetime
 
 import structlog
 from pydantic import BaseModel
 
+from authority_finder.contact_extractor.models import ExtractionResult
 from authority_finder.contact_extractor.orchestrator import extract_for_geo
 from authority_finder.discovery.discover import discover_many
 from authority_finder.discovery.models import GeoRef
@@ -19,6 +21,8 @@ from authority_finder.discovery.serpapi_client import SerpApiClient
 from authority_finder.fetching import PageFetcher
 from authority_finder.fetching.models import FetchTier
 from authority_finder.geo_monitor.models import GeoPage
+from authority_finder.link_checker.models import LinkCheckResult
+from authority_finder.link_checker.orchestrator import check_links_for_candidate
 from authority_finder.output.models import OutputRow, build_row
 from authority_finder.page_detector.orchestrator import detect_for_geo
 from authority_finder.population.census import CensusClient
@@ -36,9 +40,40 @@ class PipelineFunnel(BaseModel):
     with_phone: int
     rows: int
     population_found: int
+    rows_with_competitor_links: int
+    competitor_links_found: int
     fetches_used: int
     fetch_tiers: dict[FetchTier, int]
     billed_searches: int
+
+
+async def _check_links(
+    extraction: ExtractionResult, *, fetcher: PageFetcher
+) -> list[LinkCheckResult]:
+    """Competitor link check for every detected page in one geo, per-candidate isolated."""
+    raw = await asyncio.gather(
+        *(
+            check_links_for_candidate(o.candidate, o.page_url, fetcher=fetcher)
+            for o in extraction.outcomes
+        ),
+        return_exceptions=True,
+    )
+    results: list[LinkCheckResult] = []
+    for outcome, result in zip(extraction.outcomes, raw, strict=True):
+        if isinstance(result, BaseException):
+            _log.error(
+                "pipeline.linkcheck_failed",
+                domain=outcome.candidate.registrable_domain,
+                error=str(result),
+            )
+            results.append(
+                LinkCheckResult(
+                    candidate=outcome.candidate, checked_ok=False, note="linkcheck error"
+                )
+            )
+        else:
+            results.append(result)
+    return results
 
 
 def _geo_page(ref: GeoRef, *, now: datetime) -> GeoPage:
@@ -67,12 +102,14 @@ async def run_pipeline(
 
     rows: list[OutputRow] = []
     candidates = detected = with_email = with_phone = population_found = 0
+    competitor_rows = competitor_links_total = 0
     for discovery in discovery_results:
         candidates += len(discovery.candidates)
         try:
             detection = await detect_for_geo(discovery, fetcher=fetcher)
             extraction = await extract_for_geo(detection, fetcher=fetcher)
             population = await census_client.population_for(_geo_page(discovery.geo, now=now))
+            link_results = await _check_links(extraction, fetcher=fetcher)
         except Exception as exc:
             # Isolate one geo's failure so the batch goes on.
             _log.error("pipeline.geo_failed", geo=discovery.geo.url, error=str(exc))
@@ -81,11 +118,15 @@ async def run_pipeline(
         detected += len(extraction.outcomes)
         with_email += extraction.with_email
         with_phone += extraction.with_phone
-        for outcome in extraction.outcomes:
-            row = build_row(outcome, population=population, now=now)
+        for outcome, link_result in zip(extraction.outcomes, link_results, strict=True):
+            cell = "; ".join(link_result.competitor_domains) or "—"
+            row = build_row(outcome, population=population, now=now, competitor_links=cell)
             rows.append(row)
             if row.population is not None:
                 population_found += 1
+            if link_result.links_found:
+                competitor_rows += 1
+                competitor_links_total += len(link_result.links_found)
 
     funnel = PipelineFunnel(
         geos=len(discovery_results),
@@ -95,6 +136,8 @@ async def run_pipeline(
         with_phone=with_phone,
         rows=len(rows),
         population_found=population_found,
+        rows_with_competitor_links=competitor_rows,
+        competitor_links_found=competitor_links_total,
         fetches_used=fetcher.fetch_count,
         fetch_tiers=dict(fetcher.tier_counts),
         billed_searches=serp_client.billed_search_count,
