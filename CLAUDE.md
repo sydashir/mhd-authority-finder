@@ -66,6 +66,14 @@ src/authority_finder/
     orchestrator.py      check_links_for_candidate (detected page + 1 resources hop, ≤2 fetches)
   population.py        US Census API lookup for the geo
   output.py            Google Sheets writer + dedupe
+  pipeline.py          full discover→detect→extract→links→populate→row chain
+  scheduler/           scheduled auto-triggers (component 8, ADR-012)
+    models.py            IncrementalRunResult / RunOutcome
+    incremental.py       run_incremental — new-geos-only, cost-safe, state-on-success
+    runner.py            APScheduler tick loop + per-site wiring (run_tick / scheduled_tick)
+  cli.py               + schedule command (--once / --interval-hours)
+Dockerfile             scheduler image (py3.12 + uv + chromium)
+docker-compose.yml     mounts secrets read-only + data/ volume; runs the scheduler
 tests/
 docs/
   brief.md             original brief + feasibility (source of truth)
@@ -117,6 +125,7 @@ As of Session 4-prep (2026-06-12):
 - Session 4 (2026-06-13): `discovery` complete and live-validated — SerpAPI `google_light` page-1 client with disk cache + quota counters, per-level query templates, tldextract classification with state-portal dedupe exception (ADR-005), orchestrator, `discover` CLI command, 34 unit tests + 1 `live_paid` smoke test. Live run: 5 geos, 19 billed searches, 127 candidates.
 - Session 5 (2026-06-13): `page_detector` complete and live-validated (ADR-006) — shared `domains.py` (competitor + federal exclusions) and `robots.py`, pre-filter, polite HTML fetcher, explainable scorer with wrong-state hard reject and topic-relevance confidence cap, bounded crawl fallback (≤6 fetches), `detect` CLI with `--in/--out` chaining. Live: 127 candidates → 54 detected (23 high / 21 med / 10 low); blind sample: high 8/8, medium 5/12. Known issue: 27% of candidates 403-block our honest UA.
 - Session 6 (2026-06-17): shared two-tier `fetching/` (httpx → Playwright on 403/SSL) + `contact_extractor` complete and live-validated (ADR-007). Playwright recovered 14/35 of Session 5's fetch-failures; extraction email coverage 73% (.gov 70 / .edu 75), phone 81%. Hardened by a 5-lens adversarial audit (ID-number phones, template/DSN/version-pin emails, multi-dot obfuscation, ranking) + glued-digit guard. `extract` CLI chains from detection. `phonenumbers==9.0.32`; `playwright` promoted to runtime dep.
+- Session 11 (2026-06-25): **scheduled auto-triggers + Docker (component 8, ADR-012) — MVP COMPLETE.** New `scheduler/` package: `monitor.diff_sitemap` (detect split from persist) + `run_incremental` (process ONLY newly-published geos; persist state only after success, only for processed geos; zero new ⇒ zero spend/writes; crash never marks geos seen) + in-process APScheduler 3.x (`AsyncIOScheduler`, `schedule` CLI, `--once`, `RUN_INTERVAL_HOURS`). **Cost rails:** `MAX_NEW_GEOS_PER_RUN` (25, cap+defer) + `MAX_BILLED_SEARCHES_PER_RUN` circuit breaker (`SerpApiClient(max_billed=…)` → distinct `QuotaExceededError`, `discover_many` re-raises → abort no-save). **Docker:** single-stage py3.12-slim-bookworm + uv + chromium (secrets MOUNTED read-only never baked; `./data` bind-mounted so cache+state persist → no backlog re-processing; config-driven `--no-sandbox`). Live: no-op tick 0/0/0; new-geo sim billed=4 / 12 rows for one geo (not the set); container builds + runs + state persists across restart. 290 tests. **All 8 brief components done; component 3 (Ahrefs authority_filter) intentionally SKIPPED per client (no API).**
 - Session 10 (2026-06-24): **competitor backlink detection — `link_checker` (component 6, ADR-011).** New `link_checker/` package (models, `check.find_competitor_links`, `resources.find_resources_link`, orchestrator). Matches on registrable domain (`rehabs.com` ≠ `rehabsomething.com`), resolves relative/scheme-relative hrefs, skips own-domain, dedupes. Mode (b): checks the detected page + ONE resources/links page, ≤2 fetches/candidate. Wired into the pipeline; the previously-blank **Competitor Links** column is now populated (`"; ".join(domains)` / `"—"`), no schema change (idempotency still keyed on Website+Geo; value refresh via `replace`). Live: 0 billed, 484 fetches (364 httpx/75 pw), **8/68 rows link to a competitor (11 links: samhsa.gov ×8, findtreatment.gov/addictioncenter.com/treatmentatlas.org ×1)**; replace 68 + idempotent 0; 4 flagged Playwright-verified (0 false positives) + 2 clean verified (no under-detection). 282 tests. Recall limits: JS-injected links, deep pages, `MAX_LINKS=500` cap.
 - Session 9 (2026-06-24): **contact quality — diagnose, then lift (ADR-010).** Diagnosed first (`docs/contact-quality-audit.md`): page detection strong, attribution weak, ranker not mis-picking (bucket B=0), and **23/68 rows (34%) publish no same-domain email — the structural ceiling**. Built **department-directory discovery** (hop fires unless a same-domain dept inbox is already held; dept/directory/MH-topic links ranked over generic contact-us; dept inbox ranks first), a single evidence-derived `classify_localpart` (dept/role/generic/other, with an `environmental`/`developmental` guard), and **re-derived the trust bands — TIGHTENED**: role/wrong-dept→`low` even as same-domain mailto, generic `info@`→`medium` (never `high`), dept same-domain mailto→`high`. Plus a phone-glue email guard. Live re-run: 0 billed, `replace` rewrite 68 + idempotent append 0; **trust high 1→6 / medium 27→18 / low 40→44** (high+medium drops 28→24 — the old mediums over-counted wrong-dept inboxes; quality up, not down). 6 high rows Playwright-verified on same-domain dept pages. 262 tests.
 - Session 8 (2026-06-23): **contact attribution hardening (ADR-009).** Body-text emails domain-constrained to the candidate's registrable domain (`EmailHit.same_domain`); page-detection `Confidence` split from a new **Contact Trust** band + **Contact Source** provenance column; cross-domain mailto (e.g. the live `info@frsn.org` third-party case) flagged "mailto (off-domain)" / `low` rather than shown as trusted; ucdenver `admissions@` → `low`. Sheets `replace` mode added for value-correction full refresh. Live re-run: 0 billed, migration + idempotency clean, trust distribution high 1 / medium 27 / low 40. 228 tests.
@@ -126,14 +135,17 @@ As of Session 4-prep (2026-06-12):
 
 `python -m authority_finder.cli run --site {mhd|ah|both} [--limit N] [--level …] [--dry-run] [--out FILE]` — the product. Chains monitor-state → discover (SerpAPI, cached) → detect → extract → populate (Census) → assemble brief-column rows → write CSV (`--dry-run`) or append to the Google Sheet (idempotent, dedupe by domain+geo). Per-geo isolation; prints a funnel summary.
 
-## What's next (Phase 2 — Automation + Authority Sites)
+## Status: MVP COMPLETE (Phase 1 + Phase 2)
 
-Phase 1 is shipping rows. Remaining (feasibility doc Phase 2):
-- `authority_filter` (component 3) — Ahrefs DR threshold for non-.gov/.edu authority orgs (ncala.org-type); needs unrestricted query variants since `site:`-filtered discovery can't surface them. **BLOCKED pending the user's Ahrefs API-access answer.**
-- ~~`link_checker` (component 6)~~ — **DONE (Session 10, ADR-011):** competitor backlink detection wired in; Competitor Links column populated.
-- Automated/scheduled triggers on new geo pages; re-validation runs.
+All brief components are shipped except component 3 (Ahrefs `authority_filter`), which is
+**intentionally out of scope per the client (no Ahrefs API)** — not missing:
+- ~~`link_checker` (component 6)~~ — **DONE (S10, ADR-011):** competitor backlink detection; Competitor Links column populated.
+- ~~Scheduled auto-triggers + Docker (component 8)~~ — **DONE (S11, ADR-012):** `schedule` CLI / Dockerized scheduler; cost-safe incremental runs.
+- `authority_filter` (component 3) — **SKIPPED (client decision, no Ahrefs API).** If revived: needs unrestricted query variants since `site:`-filtered discovery can't surface ncala.org-type orgs.
 
-Immediate operational follow-ups (not code): rotate the GCP service-account key; add a free `CENSUS_API_KEY` to light up population.
+Operational follow-ups (not code): pick a cloud host (Docker-ready — `docker compose up -d`); add a free `CENSUS_API_KEY` to light up Population; show Jake.
+
+How to run it: `python -m authority_finder.cli run …` (one-off, below) or `python -m authority_finder.cli schedule` / `docker compose up -d` (continuous — see README).
 
 ### Historical Phase-1 order (all shipped)
 

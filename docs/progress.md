@@ -579,3 +579,55 @@ positioning). `billed_searches = 0` all session.
 - `authority_filter` (Ahrefs DR, unrestricted query variants) — **BLOCKED pending the user's Ahrefs
   API-access answer.**
 - Scheduled/automated triggers on new geo pages; re-validation runs.
+
+## 2026-06-25 — Session 11: scheduled auto-triggers + Docker (ADR-012) — MVP COMPLETE
+
+Goal: run the pipeline on a schedule, processing ONLY newly-published geo pages (cost-safe — a
+runaway job burning SerpAPI quota is the failure mode to design against), runnable identically on
+the Mac and in a container. gh switched dev778d → sydashir at session start.
+
+### Built (TDD, RED→GREEN each)
+
+- **`ab92033` incremental run mode** — split detect from persist: `monitor.diff_sitemap` (fetch +
+  parse + diff, no write); `run_monitor` = diff + save (unchanged behaviour). New `scheduler/`
+  package: `run_incremental` detects new geos → injected `run_and_write` seam → persists state ONLY
+  after success, ONLY for processed geos. Zero new ⇒ zero spend / zero writes / no state change; a
+  crash never marks geos seen. `SitemapSource` Protocol for testability.
+- **`4d560fe` scheduler entrypoint** — in-process APScheduler 3.x `AsyncIOScheduler` (4.0 is alpha);
+  `run_tick` (per-site isolation) + `scheduled_tick` (real wiring) + `run_scheduler` (interval job,
+  run-once-on-start, graceful SIGINT/SIGTERM). `schedule` CLI; `RUN_INTERVAL_HOURS`. (`8cec5df`
+  chore: gitignore .playwright-mcp.)
+- **`96582c7` safety rails** — `MAX_NEW_GEOS_PER_RUN` (default 25, cap+defer+warn);
+  `MAX_BILLED_SEARCHES_PER_RUN` circuit breaker via `SerpApiClient(max_billed=…)` raising a distinct
+  `QuotaExceededError` that `discover_many` re-raises (so it aborts the run, not swallowed as a
+  per-query error) → `run_incremental` aborts without saving state. `.env.example` updated.
+- **`b8c73ec` dockerfile** + **`b9f58d4` docker-compose** — single-stage py3.12-slim-bookworm + uv
+  (pinned) + explicit chromium apt deps + `playwright install chromium` (venv binary, not `uv run`,
+  which would build the not-yet-copied project — the build bug caught + fixed live); non-root;
+  config-driven `--no-sandbox` (`playwright_no_sandbox`). Compose mounts secrets read-only (never
+  baked) + bind-mounts `./data` (cache+state persist; no backlog re-processing). README run-on-Mac +
+  run-via-Docker; `schedule --once` for single-tick/cron.
+- 290 unit tests green; pyright strict 0 errors; ruff clean.
+
+### Live validation (2026-06-25)
+
+- **No-op tick** (host): both sites `new=0`, **billed=0, rows=0**, aborted=[] — quiet days cost nothing.
+- **New-geo sim**: removed `…/orange-county/irvine/` from MHD state → one tick processed **exactly 1
+  geo, billed=4** (that geo only, not the 23-geo set), **12 rows** appended to the live Sheet; AH
+  `new=0`; state restored to 23. (Live Sheet now 80 rows.)
+- **Docker**: image builds (3.56 GB); `docker compose run … schedule --once` runs a tick with
+  structured logs; second container run (simulated restart) again `new=0` — **state persisted via the
+  bind-mount, nothing re-processed**.
+- **Caps**: unit-tested (cap+defer, max_billed→QuotaExceededError, discover_many re-raise, abort-no-save).
+- **billed_searches this session: 4** (the single irvine geo). Rotation gate re-confirmed (`d97fe38c`).
+
+### Full MVP status (all 8 brief components)
+
+1. geo monitor (S3) · 2. discovery (S4) · 3. **authority_filter — intentionally SKIPPED per client
+   (no Ahrefs API)** · 4. page detector (S5) · 5. contact extractor (S6, hardened S8–S9) ·
+   6. population + output/Sheets (S7) · 7. link_checker (S10) · 8. scheduled triggers + Docker (S11).
+**Phase 1 + Phase 2 COMPLETE** (component 3 deliberately out of scope, not missing).
+
+### Operational follow-ups (not code)
+
+Pick a cloud host (Docker-ready); add a free `CENSUS_API_KEY` to light up Population; show Jake.
