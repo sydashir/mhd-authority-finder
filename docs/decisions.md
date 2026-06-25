@@ -440,3 +440,43 @@ A blank cell costs nothing; "links to recovery.com" emailed to outreach as fact,
 - Outreach reports missed competitor links → raise `MAX_LINKS`, follow >1 resources page, or add a shallow crawl for high-value geos.
 - A competitor domain is added/removed from the brief → update `COMPETITOR_DOMAINS` (single source of truth).
 - JS-injected competitor links matter → make the link check Playwright-eligible regardless of status (cost tradeoff).
+
+## ADR-012 — Scheduled auto-triggers: incremental run mode, in-process scheduler, safety caps, Docker
+
+**Date:** 2026-06-25
+**Status:** Accepted
+**Context:** The final Phase-2 piece: run the pipeline on a schedule, processing geo pages as they're published instead of by hand. SerpAPI is paid, so the failure mode to design against is a runaway scheduled job re-processing the whole geo set and burning quota. It must also run identically on the user's Mac today and a cloud box later, with no code change to move hosts.
+
+### Decisions
+
+1. **Incremental "new geos only" run mode — the cost-safety core.** A scheduled run detects newly-published geos via the existing sitemap diff and runs the full chain for **only those**. To make this safe, the monitor's detect step was split from its persist step: `diff_sitemap` fetches + parses + diffs without writing state (`run_monitor` is now `diff_sitemap` + save, behaviour unchanged); the incremental runner persists state **only after a successful run, and only for the geos it actually processed**. So zero new geos ⇒ zero SerpAPI spend, zero writes, no state change; and a crash or abort mid-run never marks a geo "seen" (it retries next tick). Idempotent sheet append on `(Website, Geo Served)` means a re-run adds nothing.
+2. **In-process APScheduler (3.x `AsyncIOScheduler`) over system cron.** One command (`schedule`) runs identically on a laptop and in a container — no host-level cron to configure per environment. It's async-native (the job is an `async def` awaited on the same loop), supports run-once-on-start (`next_run_time=now`), overlap guard (`max_instances=1`, `coalesce`), and graceful SIGINT/SIGTERM shutdown. Pinned `APScheduler>=3.11,<4.0` — 4.0 is still alpha with a different, unstable API. A `--once` flag runs a single tick and exits (cron / smoke test).
+3. **Two safety rails.** `MAX_NEW_GEOS_PER_RUN` (default 25) caps the batch — if a site re-publishes its whole sitemap, the overflow is deferred to the next tick (logged loudly), never blowing quota in one shot. `MAX_BILLED_SEARCHES_PER_RUN` (default 150) is a circuit breaker: `SerpApiClient(max_billed=…)` raises `QuotaExceededError` **before** the over-budget billed search; that error is a distinct type (not a `SerpApiError`, so `discover_for_geo` doesn't swallow it) that `discover_many` **re-raises**, so it propagates out of `run_pipeline` and the incremental runner aborts **without saving state**. Both sites run per-tick with per-site isolation.
+4. **Docker: one image, secrets mounted, state persisted.** Single-stage `python:3.12-slim-bookworm` + uv (pinned `0.11.15`) + the explicit Debian-bookworm chromium apt deps + `playwright install chromium` (invoked via the venv binary, not `uv run`, so it doesn't try to build the not-yet-copied project), non-root user. Secrets (`.env`, `service-account.json`) are **mounted read-only at runtime, never baked into a layer** (the ADR-008 leak lesson). `./data` is **bind-mounted** so the SerpAPI cache + monitor state survive restarts — a restart never re-processes already-seen geos. Containers can't use chromium's setuid sandbox, so `PLAYWRIGHT_NO_SANDBOX` flips a config-driven `--no-sandbox` (off by default on a normal host).
+
+### Why bind-mount `./data` rather than a named volume
+
+A named volume starts **empty**, so a fresh container would see every geo as new and re-process the entire backlog on first run (capped at `MAX_NEW_GEOS_PER_RUN`/tick, but still spend) and couldn't reuse the existing SerpAPI cache. A host bind-mount persists state across restarts **and** reuses the existing cache + known-geo state — directly serving the cost-safety goal and enabling a true zero-spend no-op tick. A named/cloud volume remains the host-decoupled alternative; it just needs seeding (or it processes the backlog, capped).
+
+### Alternatives considered
+
+| Choice | Considered | Why not |
+|---|---|---|
+| System cron | yes | Host-specific setup; doesn't move between Mac and a container unchanged. |
+| Persist state before processing | no | A crash would mark geos "seen" and skip them forever — the opposite of cost-safety. |
+| No caps / no circuit breaker | no | A re-published sitemap or a query explosion would burn quota unbounded. |
+| Bake secrets into the image | no | A secret in an image layer is a leak (ADR-008); mount read-only instead. |
+| APScheduler 4.0 | no | Still alpha, unstable API, no migration guarantee. |
+
+### Live validation evidence (2026-06-25)
+
+- **No-op tick** (host, current state): both sites `new=0`, **`billed_searches=0`, `rows_written=0`**, `aborted=[]` — proves quiet days cost nothing.
+- **New-geo simulation**: removed one known geo (`…/orange-county/irvine/`) from MHD state, ran one tick → processed **exactly 1 geo**, **`billed_searches=4`** (that geo only, not the 23-geo set), **12 rows** appended to the live Sheet; AH `new=0`; state self-healed and was restored to 23.
+- **Docker**: image builds; `docker compose run … schedule --once` runs a tick with structured per-tick logs; a second container run (simulated restart) is again `new=0` — **state persisted, nothing re-processed**.
+- **Safety caps**: unit-tested — `MAX_NEW_GEOS` cap+defer, `max_billed` raising `QuotaExceededError`, `discover_many` re-raising it, and the incremental abort-without-save.
+
+### Trigger to revisit
+
+- Move to a cloud host with a managed volume → swap the `./data` bind-mount for that volume (seed it once or accept capped backlog processing).
+- The backlog grows large → raise `MAX_NEW_GEOS_PER_RUN` or shorten `RUN_INTERVAL_HOURS` so it clears faster.
+- Need horizontal scale / durable scheduling across restarts of the scheduler itself → graduate from in-process APScheduler to a job store or an external trigger.
