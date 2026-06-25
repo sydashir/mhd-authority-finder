@@ -28,10 +28,13 @@ _log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 class PlaywrightBrowserFetcher:
     """Lazy-launched, reused headless Chromium. One browser instance per run."""
 
-    def __init__(self, *, nav_timeout_ms: int = NAV_TIMEOUT_MS) -> None:
+    def __init__(self, *, nav_timeout_ms: int = NAV_TIMEOUT_MS, no_sandbox: bool = False) -> None:
         self._pw: Playwright | None = None
         self._browser: Browser | None = None
         self._nav_timeout_ms = nav_timeout_ms
+        # Chromium's setuid sandbox can't initialize in a container; --no-sandbox is the
+        # standard fix there. Off by default so local runs keep the sandbox.
+        self._launch_args = ["--no-sandbox"] if no_sandbox else []
         self._launch_lock = asyncio.Lock()
 
     async def _ensure_browser(self) -> Browser:
@@ -41,8 +44,10 @@ class PlaywrightBrowserFetcher:
             async with self._launch_lock:
                 if self._browser is None:
                     self._pw = await async_playwright().start()
-                    self._browser = await self._pw.chromium.launch(headless=True)
-                    _log.info("playwright.launched")
+                    self._browser = await self._pw.chromium.launch(
+                        headless=True, args=self._launch_args
+                    )
+                    _log.info("playwright.launched", no_sandbox=bool(self._launch_args))
         return self._browser
 
     async def fetch(self, url: str) -> tuple[bytes, str]:

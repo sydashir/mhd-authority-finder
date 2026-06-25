@@ -70,7 +70,7 @@ def _make_run_and_write(*, settings: Settings, now: datetime) -> RunAndWrite:
     """Build the pipeline+sheet closure; the costly clients are created only when called."""
 
     async def _run_and_write(geos: list[GeoPage]) -> RunOutcome:
-        browser = PlaywrightBrowserFetcher()
+        browser = PlaywrightBrowserFetcher(no_sandbox=settings.playwright_no_sandbox)
         async with httpx.AsyncClient(follow_redirects=True) as client:
             try:
                 serp = SerpApiClient(

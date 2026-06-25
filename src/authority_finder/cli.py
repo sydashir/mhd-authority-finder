@@ -40,13 +40,13 @@ from authority_finder.page_detector.models import DetectionResult
 from authority_finder.page_detector.orchestrator import detect_for_geo
 from authority_finder.pipeline import PipelineFunnel, run_pipeline
 from authority_finder.population.census import CensusClient
-from authority_finder.scheduler.runner import run_scheduler
+from authority_finder.scheduler.runner import run_scheduler, scheduled_tick
 
 
 @asynccontextmanager
 async def _page_fetcher() -> AsyncGenerator[PageFetcher]:
     """A two-tier PageFetcher with a reused Playwright browser, closed on exit."""
-    browser = PlaywrightBrowserFetcher()
+    browser = PlaywrightBrowserFetcher(no_sandbox=get_settings().playwright_no_sandbox)
     async with httpx.AsyncClient(follow_redirects=True) as client:
         try:
             yield PageFetcher(client=client, browser=browser)
@@ -557,7 +557,7 @@ async def _run_full(
 ) -> tuple[PipelineFunnel, str, int]:
     settings = get_settings()
     geos = _load_geos(site_ids, limit=limit, level=level, now=now)
-    browser = PlaywrightBrowserFetcher()
+    browser = PlaywrightBrowserFetcher(no_sandbox=settings.playwright_no_sandbox)
     async with httpx.AsyncClient(follow_redirects=True) as client:
         try:
             rows, funnel = await run_pipeline(
@@ -612,7 +612,13 @@ def _print_funnel(funnel: PipelineFunnel) -> None:
     show_default=True,
     help="Run one tick immediately on start.",
 )
-def schedule(interval_hours: int | None, run_now: bool) -> None:
+@click.option(
+    "--once",
+    is_flag=True,
+    default=False,
+    help="Run a single tick and exit (no scheduler loop) — for cron or a smoke test.",
+)
+def schedule(interval_hours: int | None, run_now: bool, once: bool) -> None:
     """Run the scheduler: periodically process newly-published geo pages → live Sheet."""
     configure_logging("INFO")
     settings = get_settings()
@@ -622,6 +628,16 @@ def schedule(interval_hours: int | None, run_now: bool) -> None:
     if not settings.google_sheet_id:
         click.echo("GOOGLE_SHEET_ID is not set — the scheduler writes the live Sheet.", err=True)
         sys.exit(2)
+
+    if once:
+        click.echo("running a single scheduler tick…", err=True)
+        results = asyncio.run(scheduled_tick(settings=settings))
+        for r in results:
+            click.echo(
+                f"  {r.site_id}: new={r.new_geos_found} processed={r.processed} "
+                f"rows={r.rows_written} billed={r.billed_searches} aborted={r.aborted}"
+            )
+        return
 
     interval = interval_hours or settings.run_interval_hours
     click.echo(

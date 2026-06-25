@@ -81,6 +81,14 @@ class Settings(BaseSettings):
         ),
     )
 
+    playwright_no_sandbox: bool = Field(
+        default=False,
+        description=(
+            "Launch headless Chromium with --no-sandbox (PLAYWRIGHT_NO_SANDBOX). Required in "
+            "containers where the setuid sandbox can't initialize; leave off on a normal host."
+        ),
+    )
+
     log_level: LogLevel = Field(
         default="INFO",
         description="Root log level for structlog and the stdlib logging shim.",
