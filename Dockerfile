@@ -32,8 +32,9 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
-# Install ONLY chromium, with the exact playwright version the lockfile pinned.
-RUN uv run playwright install chromium
+# Install ONLY chromium, with the exact playwright the dep-sync put in the venv. Call the
+# venv binary directly — `uv run` would try to build the not-yet-copied project and fail.
+RUN /app/.venv/bin/playwright install chromium
 
 # Project source, then install the project itself into the same venv.
 COPY . .
