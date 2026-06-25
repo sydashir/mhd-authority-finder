@@ -59,6 +59,12 @@ class Settings(BaseSettings):
         description="Minimum Domain Rating for a non-.gov/.edu site to be retained.",
     )
 
+    run_interval_hours: int = Field(
+        default=24,
+        ge=1,
+        description="Scheduler interval between incremental runs (RUN_INTERVAL_HOURS).",
+    )
+
     log_level: LogLevel = Field(
         default="INFO",
         description="Root log level for structlog and the stdlib logging shim.",

@@ -40,6 +40,7 @@ from authority_finder.page_detector.models import DetectionResult
 from authority_finder.page_detector.orchestrator import detect_for_geo
 from authority_finder.pipeline import PipelineFunnel, run_pipeline
 from authority_finder.population.census import CensusClient
+from authority_finder.scheduler.runner import run_scheduler
 
 
 @asynccontextmanager
@@ -596,6 +597,37 @@ def _print_funnel(funnel: PipelineFunnel) -> None:
         f"fetches: {funnel.fetches_used} ({tiers.get('httpx', 0)} httpx, "
         f"{tiers.get('playwright', 0)} playwright) | billed searches: {funnel.billed_searches}"
     )
+
+
+@cli.command()
+@click.option(
+    "--interval-hours",
+    type=int,
+    default=None,
+    help="Override RUN_INTERVAL_HOURS (hours between incremental runs).",
+)
+@click.option(
+    "--run-now/--no-run-now",
+    default=True,
+    show_default=True,
+    help="Run one tick immediately on start.",
+)
+def schedule(interval_hours: int | None, run_now: bool) -> None:
+    """Run the scheduler: periodically process newly-published geo pages → live Sheet."""
+    configure_logging("INFO")
+    settings = get_settings()
+    if not settings.serpapi_api_key.get_secret_value():
+        click.echo("SERPAPI_API_KEY is not set — aborting before scheduling.", err=True)
+        sys.exit(2)
+    if not settings.google_sheet_id:
+        click.echo("GOOGLE_SHEET_ID is not set — the scheduler writes the live Sheet.", err=True)
+        sys.exit(2)
+
+    interval = interval_hours or settings.run_interval_hours
+    click.echo(
+        f"scheduler starting: every {interval}h, run_now={run_now}. Ctrl-C to stop.", err=True
+    )
+    asyncio.run(run_scheduler(interval_hours=interval, run_now=run_now))
 
 
 if __name__ == "__main__":
