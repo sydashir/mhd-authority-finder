@@ -13,6 +13,7 @@ suffix and date-only strings — best-effort, drops bad values to ``None``.
 import asyncio
 from datetime import datetime
 from http import HTTPStatus
+from typing import Protocol
 from urllib.parse import urlparse
 
 import httpx
@@ -33,6 +34,12 @@ DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0)
 SITEMAP_NS = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
 
 _log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+
+
+class SitemapSource(Protocol):
+    """The sitemap dependency the monitor/scheduler need — a seam for testing."""
+
+    async def fetch_all_geo_entries(self, config: SiteConfig) -> list[SitemapEntry]: ...
 
 
 class SitemapFetcher:
