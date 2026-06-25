@@ -8,6 +8,7 @@ only after a successful run, and only for the geos actually processed.
 from datetime import UTC, datetime
 from pathlib import Path
 
+from authority_finder.discovery.serpapi_client import QuotaExceededError
 from authority_finder.geo_monitor.models import GeoPage, SiteConfig, SitemapEntry, SiteState
 from authority_finder.geo_monitor.sites import MHD
 from authority_finder.geo_monitor.state import load_state, save_state
@@ -89,3 +90,43 @@ async def test_crash_does_not_save_state(tmp_path: Path) -> None:
     assert result.processed == 0
     # CA must NOT be marked seen — a crash mid-run retries next tick.
     assert load_state("mhd", state_dir=tmp_path).known_urls == {FL}
+
+
+async def test_caps_new_geos_and_defers_rest(tmp_path: Path) -> None:
+    locs = [f"{BASE}/serving/{s}/" for s in ("florida", "california", "colorado", "texas", "ohio")]
+    save_state("mhd", SiteState(known_urls=set()), state_dir=tmp_path)
+    runner = RecordingRunner(RunOutcome(rows_written=2, billed_searches=6))
+    result = await run_incremental(
+        MHD,
+        sitemap_fetcher=FakeSitemap(locs),
+        run_and_write=runner,
+        now=NOW,
+        state_dir=tmp_path,
+        max_new_geos=2,
+    )
+    assert result.new_geos_found == 5
+    assert result.processed == 2
+    assert result.deferred == 3
+    assert len(runner.calls[0]) == 2  # only 2 processed this tick
+    # ONLY the 2 processed are marked seen; the deferred 3 retry next tick.
+    assert len(load_state("mhd", state_dir=tmp_path).known_urls) == 2
+
+
+async def test_circuit_breaker_aborts_without_saving(tmp_path: Path) -> None:
+    save_state("mhd", SiteState(known_urls=set()), state_dir=tmp_path)
+
+    async def over_quota(_geos: list[GeoPage]) -> RunOutcome:
+        raise QuotaExceededError("billed-search cap reached (150)")
+
+    result = await run_incremental(
+        MHD,
+        sitemap_fetcher=FakeSitemap([f"{BASE}/serving/florida/"]),
+        run_and_write=over_quota,
+        now=NOW,
+        state_dir=tmp_path,
+        max_new_geos=25,
+    )
+    assert result.aborted is True
+    assert "cap" in result.note.lower()
+    # circuit breaker tripped → nothing marked seen → retried next tick.
+    assert load_state("mhd", state_dir=tmp_path).known_urls == set()

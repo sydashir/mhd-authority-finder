@@ -64,6 +64,22 @@ class Settings(BaseSettings):
         ge=1,
         description="Scheduler interval between incremental runs (RUN_INTERVAL_HOURS).",
     )
+    max_new_geos_per_run: int = Field(
+        default=25,
+        ge=1,
+        description=(
+            "Cap on new geos processed per scheduled run (MAX_NEW_GEOS_PER_RUN). Overflow is "
+            "deferred to the next tick so a site re-publishing its sitemap can't blow quota."
+        ),
+    )
+    max_billed_searches_per_run: int = Field(
+        default=150,
+        ge=1,
+        description=(
+            "Circuit breaker: abort a run once it has spent this many billed SerpAPI searches "
+            "(MAX_BILLED_SEARCHES_PER_RUN)."
+        ),
+    )
 
     log_level: LogLevel = Field(
         default="INFO",

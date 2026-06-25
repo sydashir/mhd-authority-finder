@@ -44,6 +44,7 @@ async def run_tick(
     sitemap_fetcher: SitemapSource,
     build_run_and_write: BuildRunAndWrite,
     now: datetime,
+    max_new_geos: int = 1000,
     state_dir: Path = DEFAULT_STATE_DIR,
 ) -> list[IncrementalRunResult]:
     """Run the incremental pipeline for every site, isolating per-site failures."""
@@ -55,6 +56,7 @@ async def run_tick(
                 sitemap_fetcher=sitemap_fetcher,
                 run_and_write=build_run_and_write(config),
                 now=now,
+                max_new_geos=max_new_geos,
                 state_dir=state_dir,
             )
         except Exception as exc:
@@ -71,7 +73,11 @@ def _make_run_and_write(*, settings: Settings, now: datetime) -> RunAndWrite:
         browser = PlaywrightBrowserFetcher()
         async with httpx.AsyncClient(follow_redirects=True) as client:
             try:
-                serp = SerpApiClient(client=client, api_key=settings.serpapi_api_key)
+                serp = SerpApiClient(
+                    client=client,
+                    api_key=settings.serpapi_api_key,
+                    max_billed=settings.max_billed_searches_per_run,
+                )
                 rows, funnel = await run_pipeline(
                     geos,
                     serp_client=serp,
@@ -106,6 +112,7 @@ async def scheduled_tick(
             sitemap_fetcher=fetcher,
             build_run_and_write=lambda _cfg: _make_run_and_write(settings=settings, now=now),
             now=now,
+            max_new_geos=settings.max_new_geos_per_run,
             state_dir=state_dir,
         )
     _log.info(

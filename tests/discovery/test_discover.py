@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import pytest
 from pydantic import SecretStr
 
 from authority_finder.discovery.discover import (
@@ -13,7 +14,7 @@ from authority_finder.discovery.discover import (
     discover_many,
     parse_organic_results,
 )
-from authority_finder.discovery.serpapi_client import SerpApiClient
+from authority_finder.discovery.serpapi_client import QuotaExceededError, SerpApiClient
 from authority_finder.geo_monitor.models import GeoPage
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "google_light_california.json"
@@ -46,6 +47,23 @@ def test_parse_organic_results_skips_malformed_rows() -> None:
 
 def test_parse_organic_results_empty_payload() -> None:
     assert parse_organic_results({}, query="q") == []
+
+
+async def test_discover_many_reraises_quota_exceeded(tmp_path: Path) -> None:
+    # max_billed=0 → the first billed search raises QuotaExceededError (NOT a SerpApiError, so
+    # discover_for_geo doesn't swallow it); discover_many re-raises so the run aborts loudly
+    # instead of silently returning empty results.
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"organic_results": []})
+
+    client = SerpApiClient(
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        api_key=SecretStr("k"),
+        cache_dir=tmp_path,
+        max_billed=0,
+    )
+    with pytest.raises(QuotaExceededError):
+        await discover_many([CALIFORNIA], client=client)
 
 
 def _serp_client(handler: httpx.MockTransport, cache_dir: Path) -> SerpApiClient:

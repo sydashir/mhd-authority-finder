@@ -7,7 +7,11 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
-from authority_finder.discovery.serpapi_client import SerpApiClient, SerpApiError
+from authority_finder.discovery.serpapi_client import (
+    QuotaExceededError,
+    SerpApiClient,
+    SerpApiError,
+)
 
 PAYLOAD = {"organic_results": [{"position": 1, "title": "t", "link": "https://x.gov/"}]}
 
@@ -18,6 +22,24 @@ def _client(handler: httpx.MockTransport, cache_dir: Path) -> SerpApiClient:
         api_key=SecretStr("test-key"),
         cache_dir=cache_dir,
     )
+
+
+async def test_max_billed_circuit_breaker_raises(tmp_path: Path) -> None:
+    # The (max_billed+1)-th billed search raises BEFORE spending; the cap is never exceeded.
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=PAYLOAD)
+
+    client = SerpApiClient(
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        api_key=SecretStr("k"),
+        cache_dir=tmp_path,
+        max_billed=2,
+    )
+    await client.search("q1")
+    await client.search("q2")
+    with pytest.raises(QuotaExceededError):
+        await client.search("q3")
+    assert client.billed_search_count == 2  # never overspent past the cap
 
 
 async def test_cache_miss_then_hit(tmp_path: Path) -> None:

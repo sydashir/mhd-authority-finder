@@ -24,7 +24,11 @@ from authority_finder.discovery.models import (
     SearchResult,
 )
 from authority_finder.discovery.queries import build_queries
-from authority_finder.discovery.serpapi_client import SerpApiClient, SerpApiError
+from authority_finder.discovery.serpapi_client import (
+    QuotaExceededError,
+    SerpApiClient,
+    SerpApiError,
+)
 from authority_finder.geo_monitor.models import GeoPage
 
 _log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -102,6 +106,9 @@ async def discover_many(
 
     out: list[DiscoveryResult] = []
     for geo, result in zip(geos, raw_results, strict=True):
+        if isinstance(result, QuotaExceededError):
+            # Cost circuit breaker — abort the whole run, don't mask it as a per-geo error.
+            raise result
         if isinstance(result, BaseException):
             _log.error("discovery.geo_failed", geo=geo.url, error=str(result))
             out.append(

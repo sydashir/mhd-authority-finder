@@ -39,6 +39,14 @@ class SerpApiError(RuntimeError):
     """Non-retryable SerpAPI failure (bad request, auth, malformed response)."""
 
 
+class QuotaExceededError(RuntimeError):
+    """The per-run billed-search cap was reached — a cost circuit breaker (ADR-012).
+
+    Deliberately NOT a :class:`SerpApiError`, so discovery's per-query handler does
+    not swallow it: it propagates out of ``discover_many`` to abort the whole run.
+    """
+
+
 class RetryableSerpApiError(SerpApiError):
     """429 or 5xx — retried with backoff, honoring Retry-After when present."""
 
@@ -63,10 +71,12 @@ class SerpApiClient:
         client: httpx.AsyncClient,
         api_key: SecretStr,
         cache_dir: Path = DEFAULT_CACHE_DIR,
+        max_billed: int | None = None,
     ) -> None:
         self._client = client
         self._api_key = api_key
         self._cache_dir = cache_dir
+        self._max_billed = max_billed
         self.billed_search_count = 0
         self.cache_hit_count = 0
 
@@ -83,6 +93,9 @@ class SerpApiClient:
             self.cache_hit_count += 1
             _log.debug("serpapi.cache_hit", query=query)
             return RawSearch(data=cached, billed=False)
+
+        if self._max_billed is not None and self.billed_search_count >= self._max_billed:
+            raise QuotaExceededError(f"billed-search cap reached ({self._max_billed})")
 
         data = await self._fetch(params)
         self.billed_search_count += 1
