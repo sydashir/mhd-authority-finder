@@ -631,3 +631,51 @@ the Mac and in a container. gh switched dev778d → sydashir at session start.
 ### Operational follow-ups (not code)
 
 Pick a cloud host (Docker-ready); add a free `CENSUS_API_KEY` to light up Population; show Jake.
+
+## 2026-06-25 — Session 12: light up Population (Census key now present)
+
+Goal: the Population component (built S7, ADR-008) returned blank for every row because there was no
+Census key. The key is now in `.env` — verify the lookup works live, fill the column, verify accuracy
+honestly. No new features. `billed_searches=0` (SerpAPI cached; Census is separate + free).
+
+### Key
+
+`CENSUS_API_KEY` was **absent** from `.env` (not an env-var name mismatch) — added the value the user
+provided into the gitignored `.env`; now loads (len 40). Never echoed/committed.
+
+### Step 1 — live lookup verified, one bug found + fixed (`c49ca75`)
+
+Ran `CensusClient` live against ACS 5-year 2024 across all levels:
+- Maryland (state) → `Maryland` = 6,206,011 (exact); Orange County, CA (county) → 3,165,820 (exact);
+  Newport Beach, CA (city) → `Newport Beach city` = 83,845 (exact).
+- **Bug:** the tricky `palos-verdes` (a peninsula/neighborhood, not a Census place) **fuzzy-matched the
+  unrelated `Palo Verde CDP` (pop 75)** at ratio 0.909 — a confident wrong value. Fixed: tightened
+  `_FUZZY_CUTOFF` 0.86 → 0.92 (TDD: added a decoy + neighborhood test). `palos-verdes` now honestly
+  `not_found`. All 5 cached geos match **exact**, so the fix doesn't change the live fill. 291 tests.
+
+### Step 2 — column filled live (`billed_searches=0`)
+
+Enriched the 68 S10 rows with per-geo population (Census-only, no SerpAPI) and `replace`-wrote:
+- All 5 cached geos resolve exact: **Maryland 6,206,011 · Colorado 5,862,189 · Florida 22,416,077 ·
+  Orange County, CA 3,165,820 · Newport Beach, CA 83,845.**
+- **68/68 rows filled, 0 not_found** (the 5 cached geos are all clean state/county/city; the only
+  not_found-class case — neighborhoods like palos-verdes — isn't among them).
+- `WRITE1_REPLACE` rewrote 68; `WRITE2_IDEMPOTENCY` appended 0. Rotation gate `d97fe38c` re-confirmed.
+- Note: the `replace` reset the sheet to the canonical 68 rows; the 12 `irvine` rows from the S11
+  new-geo *simulation* were dropped (a test artifact; re-addable, cached → billed=0).
+
+### Step 3 — accuracy spot-check (4 rows, web-verified, cross-state lens)
+
+All four are an **exact match to the published ACS 2024 5-year figure** and the **right geography**
+(no Springfield-style cross-state confusion):
+- Maryland 6,206,011 ✓ (only same-named alt is a tiny NY town, off by 3 orders).
+- Florida 22,416,077 ✓ (Vintage-2024 point-in-time is 23.4M — different product, ~4%, expected).
+- Orange County **CA** 3,165,820 ✓ (FIPS 06059; OC-FL ~1.45M / OC-NY ~0.4M ruled out — the state-FIPS
+  scoping disambiguates correctly).
+- Newport Beach **CA** 83,845 ✓ (geoid 16000US0651182, 06=CA, not 44=RI Newport).
+
+### Status
+
+Deliverable now has **Population filled and accuracy-verified**. MVP complete + every brief column now
+populated (except competitor-free rows showing `—`, and component 3 Ahrefs intentionally skipped).
+No new ADR (the fuzzy-cutoff change is a parameter tightening within ADR-008, not a design change).
