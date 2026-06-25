@@ -27,6 +27,9 @@ RESPONSES: dict[tuple[str, str | None], list[list[str]]] = {
         ["NAME", POP, "state", "place"],
         ["Newport Beach city, California", "85239", "06", "51182"],
         ["Los Angeles city, California", "3820914", "06", "44000"],
+        # A real-but-unrelated decoy: "Palos Verdes" (a peninsula/neighborhood, not a
+        # Census place) string-matches this tiny Imperial-County CDP at ratio ~0.91.
+        ["Palo Verde CDP, California", "75", "06", "55044"],
     ],
     ("place:*", "state:29"): [
         ["NAME", POP, "state", "place"],
@@ -131,6 +134,16 @@ async def test_punctuation_fuzzy_match(tmp_path: Path) -> None:
 async def test_neighborhood_not_found(tmp_path: Path) -> None:
     result = await _client(tmp_path).population_for(
         _geo("city", "california", county="los-angeles", city="downtown-los-angeles")
+    )
+    assert result.confidence == "not_found"
+    assert result.value is None
+
+
+async def test_ambiguous_neighborhood_not_fuzzy_matched_to_wrong_place(tmp_path: Path) -> None:
+    # "palos-verdes" (a peninsula, not a Census place) is ~0.91 string-similar to the unrelated
+    # "Palo Verde CDP" (pop 75). It must NOT match — not_found is the honest result (Session 12).
+    result = await _client(tmp_path).population_for(
+        _geo("city", "california", county="los-angeles", city="palos-verdes")
     )
     assert result.confidence == "not_found"
     assert result.value is None

@@ -30,7 +30,10 @@ SOURCE_DATASET = "ACS 5-year 2024"
 DEFAULT_CACHE_DIR = Path("data/cache/census")
 DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0)
 _NO_DATA_FLOOR = -100_000_000  # ACS jam values: -666666666 etc. mean "no data"
-_FUZZY_CUTOFF = 0.86
+# Tightened in Session 12: at 0.86 a non-Census neighborhood like "Palos Verdes" wrongly
+# matched the unrelated "Palo Verde CDP" (ratio ~0.91, pop 75). 0.92 rejects different-word
+# places while keeping punctuation/apostrophe-level variants — not_found is the honest result.
+_FUZZY_CUTOFF = 0.92
 _MIN_ROWS = 2  # header + at least one data row
 
 _TYPE_SUFFIXES = (
