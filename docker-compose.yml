@@ -1,0 +1,20 @@
+# Run the scheduler in a container: `docker compose up -d` (see README).
+# Secrets are mounted read-only at runtime — NEVER baked into the image (a secret in an
+# image layer leaks; we learned that the hard way, ADR-008). State + SerpAPI cache + output
+# are bind-mounted to the host ./data so they survive restarts AND so the container reuses the
+# already-known monitor state — a restart never re-processes already-seen geos (cost-safety,
+# ADR-012). For a fully host-decoupled deploy, swap ./data for a named/cloud volume (it then
+# starts empty and processes the existing backlog at MAX_NEW_GEOS_PER_RUN per tick).
+services:
+  scheduler:
+    build: .
+    image: mhd-authority-finder:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Container chromium can't use the setuid sandbox; force --no-sandbox regardless of .env.
+      PLAYWRIGHT_NO_SANDBOX: "1"
+    volumes:
+      - ./service-account.json:/app/service-account.json:ro
+      - ./data:/app/data

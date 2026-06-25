@@ -14,7 +14,44 @@ uv run playwright install chromium   # one-time, needed for `pytest -m live`
 
 ## Running
 
-Nothing is wired to a CLI yet — Phase 1 (Session 2) adds a manual per-geo entry point. For now:
+Copy `.env.example` → `.env` and fill in `SERPAPI_API_KEY`, `GOOGLE_SHEET_ID`, and (optionally)
+`CENSUS_API_KEY`; put the Google service-account JSON at `service-account.json` (shared as Editor
+on the sheet). Then:
+
+```bash
+uv run python -m authority_finder.cli run --site both            # full pipeline → live Sheet
+uv run python -m authority_finder.cli run --site both --dry-run  # → local CSV instead
+uv run python -m authority_finder.cli monitor                    # just diff the sitemaps
+```
+
+### Scheduler (auto-trigger on new geo pages)
+
+The scheduler polls both sitemaps on an interval and runs the full pipeline **only for newly
+published geo pages** (cost-safe — zero SerpAPI spend on quiet days), appending to the live Sheet
+idempotently. Caps (`MAX_NEW_GEOS_PER_RUN`, `MAX_BILLED_SEARCHES_PER_RUN`) guard against a runaway
+run. Interval is `RUN_INTERVAL_HOURS` (default daily). Runs identically on a laptop or in a container.
+
+**On the host (Mac/Linux):**
+
+```bash
+uv run python -m authority_finder.cli schedule            # run forever: one tick now, then every N hours
+uv run python -m authority_finder.cli schedule --once     # a single tick, then exit (cron / smoke test)
+```
+
+**In Docker** (same code, no changes to move hosts):
+
+```bash
+docker compose build
+docker compose up -d          # scheduler runs detached, restarts on failure
+docker compose logs -f        # structured JSON logs per tick
+docker compose run --rm scheduler uv run python -m authority_finder.cli schedule --once   # one-shot
+```
+
+`docker-compose.yml` mounts `.env` and `service-account.json` **read-only** at runtime — secrets are
+never baked into the image — and bind-mounts `./data` so the SerpAPI cache and monitor state survive
+restarts (so a restart never re-processes already-seen geos).
+
+### Dev
 
 ```bash
 uv run pytest                 # tests
