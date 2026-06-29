@@ -6,6 +6,26 @@
 # ADR-012). For a fully host-decoupled deploy, swap ./data for a named/cloud volume (it then
 # starts empty and processes the existing backlog at MAX_NEW_GEOS_PER_RUN per tick).
 services:
+  # Postgres source-of-truth for the SaaS (ADR-013). Local dev DB; a named volume persists
+  # data across restarts. Credentials come from .env (never baked into any image).
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-authority}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-authority}
+      POSTGRES_DB: ${POSTGRES_DB:-authority}
+    ports:
+      # Host 5433 (5432 is commonly taken by another local Postgres); container port stays 5432.
+      - "5433:5432"
+    volumes:
+      - authority-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-authority} -d ${POSTGRES_DB:-authority}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   scheduler:
     build: .
     image: mhd-authority-finder:latest
@@ -15,6 +35,14 @@ services:
     environment:
       # Container chromium can't use the setuid sandbox; force --no-sandbox regardless of .env.
       PLAYWRIGHT_NO_SANDBOX: "1"
+      # In-container the DB is reached by the compose service name, not localhost.
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-authority}:${POSTGRES_PASSWORD:-authority}@postgres:5432/${POSTGRES_DB:-authority}
+    depends_on:
+      postgres:
+        condition: service_healthy
     volumes:
       - ./service-account.json:/app/service-account.json:ro
       - ./data:/app/data
+
+volumes:
+  authority-pgdata:
