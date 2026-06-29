@@ -64,6 +64,14 @@ class Settings(BaseSettings):
         ge=1,
         description="Scheduler interval between incremental runs (RUN_INTERVAL_HOURS).",
     )
+
+    database_url: str = Field(
+        default="postgresql+psycopg://authority:authority@localhost:5433/authority",
+        description=(
+            "Postgres source-of-truth (ADR-013). psycopg 3 URL (`+psycopg`) — one driver for the "
+            "async app and sync Alembic. Default targets docker-compose postgres on localhost:5433."
+        ),
+    )
     max_new_geos_per_run: int = Field(
         default=25,
         ge=1,
