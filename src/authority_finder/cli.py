@@ -22,6 +22,8 @@ import httpx
 from authority_finder.config import get_settings
 from authority_finder.contact_extractor.models import ExtractionResult
 from authority_finder.contact_extractor.orchestrator import extract_for_geo
+from authority_finder.db.ingest import persist_pipeline_run
+from authority_finder.db.session import make_engine, make_session_factory
 from authority_finder.discovery.discover import discover_many
 from authority_finder.discovery.models import DiscoveryResult
 from authority_finder.discovery.serpapi_client import SerpApiClient
@@ -524,10 +526,22 @@ def _print_discovery_table(results: list[DiscoveryResult], *, billed: int, cache
     default=None,
     help="CSV output path for --dry-run (default data/output/run-<timestamp>.csv).",
 )
+@click.option(
+    "--persist-db",
+    is_flag=True,
+    default=False,
+    help="Also upsert prospects + record the run in Postgres (ADR-013). Additive — the "
+    "Sheet/CSV is still written exactly as before.",
+)
 def run(
-    site: str, limit: int | None, level: str | None, dry_run: bool, out_file: Path | None
+    site: str,
+    limit: int | None,
+    level: str | None,
+    dry_run: bool,
+    out_file: Path | None,
+    persist_db: bool,
 ) -> None:
-    """Run the full pipeline (discover→detect→extract→populate) → CSV or Google Sheet."""
+    """Run the full pipeline (discover→detect→extract→populate) → CSV or Google Sheet (+DB)."""
     configure_logging("INFO")
     settings = get_settings()
     if not settings.serpapi_api_key.get_secret_value():
@@ -539,11 +553,21 @@ def run(
 
     now = datetime.now(UTC)
     site_ids = list(SITES.keys()) if site == "both" else [site]
-    funnel, target, written = asyncio.run(
-        _run_full(site_ids, limit=limit, level=level, now=now, dry_run=dry_run, out_file=out_file)
+    funnel, target, written, db_note = asyncio.run(
+        _run_full(
+            site_ids,
+            limit=limit,
+            level=level,
+            now=now,
+            dry_run=dry_run,
+            out_file=out_file,
+            persist_db=persist_db,
+        )
     )
     _print_funnel(funnel)
     click.echo(f"wrote {written} rows to {target}")
+    if db_note is not None:
+        click.echo(db_note)
 
 
 async def _run_full(
@@ -554,7 +578,8 @@ async def _run_full(
     now: datetime,
     dry_run: bool,
     out_file: Path | None,
-) -> tuple[PipelineFunnel, str, int]:
+    persist_db: bool,
+) -> tuple[PipelineFunnel, str, int, str | None]:
     settings = get_settings()
     geos = _load_geos(site_ids, limit=limit, level=level, now=now)
     browser = PlaywrightBrowserFetcher(no_sandbox=settings.playwright_no_sandbox)
@@ -574,14 +599,34 @@ async def _run_full(
 
     if dry_run:
         target = out_file or Path(f"data/output/run-{now:%Y%m%dT%H%M%S}.csv")
-        return funnel, str(target), write_csv(rows, target)
+        written, target_str = write_csv(rows, target), str(target)
+    else:
+        writer = SheetsWriter(
+            credentials_path=settings.google_sheets_credentials_path,
+            spreadsheet_id=settings.google_sheet_id,
+        )
+        result = await writer.write(rows)
+        written, target_str = result.appended, f"Google Sheet {settings.google_sheet_id}"
 
-    writer = SheetsWriter(
-        credentials_path=settings.google_sheets_credentials_path,
-        spreadsheet_id=settings.google_sheet_id,
-    )
-    result = await writer.write(rows)
-    return funnel, f"Google Sheet {settings.google_sheet_id}", result.appended
+    db_note: str | None = None
+    if persist_db:
+        site_label = "both" if len(site_ids) > 1 else site_ids[0]
+        engine = make_engine()
+        try:
+            async with make_session_factory(engine)() as session:
+                run_id, persisted = await persist_pipeline_run(
+                    session,
+                    rows=rows,
+                    geos=geos,
+                    site=site_label,
+                    billed_searches=funnel.billed_searches,
+                )
+                await session.commit()
+            db_note = f"persisted {persisted} prospects (run #{run_id}) to Postgres"
+        finally:
+            await engine.dispose()
+
+    return funnel, target_str, written, db_note
 
 
 def _print_funnel(funnel: PipelineFunnel) -> None:

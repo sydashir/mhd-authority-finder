@@ -1,0 +1,81 @@
+"""Bridge: persist a completed pipeline run to the DB (ADR-013).
+
+The one module that knows BOTH the pipeline's output shape (:class:`OutputRow`,
+:class:`GeoPage`) and the repository — it maps OutputRow → :class:`ProspectIn` so
+the repository stays pipeline-agnostic. Takes a session and does NOT commit (the
+caller owns the transaction).
+"""
+
+from datetime import date
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from authority_finder.db import repository as repo
+from authority_finder.db.models import GeoLevel, RunStatus, SourceTag, TrustBand
+from authority_finder.geo_monitor.models import GeoPage
+from authority_finder.output.models import OutputRow, geo_served_label
+
+
+def _to_prospect_in(row: OutputRow, *, run_id: int, geo_id: int | None) -> repo.ProspectIn:
+    return repo.ProspectIn(
+        website=row.website,
+        specific_page=row.specific_page,
+        email=row.email,
+        phone=row.phone,
+        contact_source=row.contact_source,
+        contact_trust=TrustBand(row.contact_trust),
+        organization_description=row.organization_description,
+        geo_served=row.geo_served,
+        population=row.population,
+        competitor_links=row.competitor_links,
+        source_tag=SourceTag(row.source_tag),
+        confidence=TrustBand(row.confidence),
+        date_added=date.fromisoformat(row.date_added),
+        run_id=run_id,
+        geo_id=geo_id,
+    )
+
+
+async def persist_pipeline_run(
+    session: AsyncSession,
+    *,
+    rows: list[OutputRow],
+    geos: list[GeoPage],
+    site: str,
+    billed_searches: int,
+) -> tuple[int, int]:
+    """Persist one run: record the run, upsert its geos, upsert its prospects.
+
+    Returns ``(run_id, rows_written)``. The (website, geo_served) unique constraint
+    makes prospect writes idempotent. Caller commits.
+    """
+    run = await repo.create_run(session, site=site)
+
+    geo_id_by_label: dict[str, int] = {}
+    for geo in geos:
+        geo_id = await repo.upsert_geo(
+            session,
+            url=geo.url,
+            site_id=geo.site_id,
+            state=geo.state,
+            county=geo.county,
+            city=geo.city,
+            level=GeoLevel(geo.level),
+        )
+        label = geo_served_label(level=geo.level, state=geo.state, county=geo.county, city=geo.city)
+        geo_id_by_label[label] = geo_id
+
+    for row in rows:
+        await repo.upsert_prospect(
+            session, _to_prospect_in(row, run_id=run.id, geo_id=geo_id_by_label.get(row.geo_served))
+        )
+
+    await repo.finish_run(
+        session,
+        run.id,
+        geos_processed=len(geos),
+        rows_written=len(rows),
+        billed_searches=billed_searches,
+        status=RunStatus.success,
+    )
+    return run.id, len(rows)
