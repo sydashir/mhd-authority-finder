@@ -480,3 +480,40 @@ A named volume starts **empty**, so a fresh container would see every geo as new
 - Move to a cloud host with a managed volume → swap the `./data` bind-mount for that volume (seed it once or accept capped backlog processing).
 - The backlog grows large → raise `MAX_NEW_GEOS_PER_RUN` or shorten `RUN_INTERVAL_HOURS` so it clears faster.
 - Need horizontal scale / durable scheduling across restarts of the scheduler itself → graduate from in-process APScheduler to a job store or an external trigger.
+
+## ADR-013 — Database foundation: monorepo, Postgres source-of-truth, SQLAlchemy 2.x async
+
+**Date:** 2026-06-26
+**Status:** Accepted
+**Context:** The repo is becoming a single-customer SaaS (auth + UI + hosting; no billing/multi-tenancy). The proven pipeline stays; a database layer is added *underneath* it. A UI can't reliably read from JSON files + a Google Sheet — it needs relational data with real queries (filter by trust/geo/source, run history). Hard constraint: nothing that currently works may break — the existing CLI pipeline and all ~291 tests stay green; the DB is added alongside the Sheet, not swapped in.
+
+### Decisions
+
+1. **Monorepo layout.** The pipeline stays the core library at `src/authority_finder/`; the persistence layer is a subpackage `src/authority_finder/db/` (`models.py`, `session.py`, `repository.py`, `ingest.py`) so both the pipeline and the future backend import it as one installable package. Alembic lives at the repo root (`alembic/`, `alembic.ini`). Phase B (FastAPI) and Phase C (React) will be **top-level** `backend/` and `frontend/` siblings that import `authority_finder`.
+2. **Postgres is the source-of-truth; the Google Sheet becomes an export.** Relational queries, real constraints, and run history can't live in JSON/Sheets. The Sheet is demoted to one output target among others (still written unchanged) — outreach keeps it; the UI reads Postgres.
+3. **SQLAlchemy 2.x async + Alembic, driven by psycopg 3.** Modern 2.x declarative (`DeclarativeBase`, `Mapped`/`mapped_column`), `create_async_engine` + `async_sessionmaker(expire_on_commit=False)`. **psycopg 3 over asyncpg**: one driver + one `postgresql+psycopg://` URL serves both the async app and *synchronous* Alembic (no async env.py, no asyncpg SSL/PgBouncer quirks). Versions pinned: sqlalchemy 2.0.51, alembic 1.18.5, psycopg[binary] 3.3.4.
+4. **Schema** (from the pipeline's `OutputRow` + domain): `prospects` (every OutputRow column typed; native PG enums `trust_band` for contact_trust + confidence, `source_tag`), `runs` (run history → the UI's run list), `geos` (the monitored geo pages, eventually replacing the JSON state files). A prospect links to its `run` and `geo` (FKs). **The (website, geo_served) dedup key is now a real `UNIQUE` constraint** (`uq_prospect_website_geo`) — DB-level idempotency via `INSERT … ON CONFLICT DO UPDATE`, strictly stronger than the old app-level dedupe (concurrent writers / the future API can't create a duplicate).
+5. **Additive integration — opt-in `--persist-db`.** Phase A keeps `run`/`schedule` byte-identical: with no new flag they behave exactly as before (Sheet/CSV only, no DB dependency). `run --persist-db` writes the Sheet/CSV **and** upserts prospects + records the run in Postgres. The bridge (`db/ingest.py`) maps `OutputRow → ProspectIn` so the repository stays pipeline-agnostic. Phase B will flip DB-write to the default once the API/UI is the primary surface.
+6. **The persistence layer is tested against a REAL Postgres** (testcontainers spins an ephemeral `postgres:16`), never mocks — a persistence layer mocked is a persistence layer unproven. Tests skip cleanly when Docker is absent.
+
+### Alternatives considered
+
+| Choice | Considered | Why not |
+|---|---|---|
+| Keep JSON/Sheet as source-of-truth | no | A UI can't filter/paginate/join over JSON files + a Sheet; relational queries need a real DB. |
+| asyncpg driver | yes | Needs an async Alembic env.py + has SSL/PgBouncer quirks; psycopg 3 is one driver for app + sync Alembic. |
+| Big-bang swap (DB replaces Sheet) | no | Violates "nothing that works may break"; DB is added alongside, Sheet stays an export. |
+| Make `--persist-db` the default now | no | Would change `run`/`schedule` behaviour + add a hard DB dependency to a quick CSV dry-run. Opt-in for Phase A; default in Phase B. |
+| App-level dedup only | no | A `UNIQUE` constraint is enforced even under concurrent writers / direct API writes — strictly stronger. |
+| Mock the DB in tests | no | A persistence layer must be proven against real Postgres. |
+
+### Live validation evidence (2026-06-26)
+
+(See `docs/progress.md` Session 13.) Pipeline over the 5 cached geos at `billed_searches=0` persisted to Postgres via the production path: prospects loaded into `prospects`, the run recorded in `runs`, geos in `geos`; a second persist of the same rows left the prospect count unchanged (the unique constraint held — DB-level idempotency); a `contact_trust='high'` filter returned the high-trust rows. Full existing suite stayed green; `run --dry-run` (no `--persist-db`) still produces the CSV unchanged.
+
+### Trigger to revisit
+
+- Phase B (FastAPI) needs the repository's read methods — extend `get_prospects` filters / add pagination there.
+- The `geos` table should fully replace the JSON state files → migrate the monitor to read/write `geos` (kept in parallel this phase).
+- Enum evolution (a new trust band / source) needs a manual `ALTER TYPE` migration (Alembic won't autogenerate it).
+- Production deploy → managed Postgres + run Alembic migrations on release, not `create_all`.
