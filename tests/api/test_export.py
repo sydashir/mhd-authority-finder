@@ -38,8 +38,9 @@ class _RecordingExporter:
         self.title = title
         return ExportResult(
             spreadsheet_id="sid123",
-            url="https://docs.google.com/spreadsheets/d/sid123",
+            url="https://docs.google.com/spreadsheets/d/sid123/edit#gid=42",
             row_count=len(rows),
+            tab=title,
         )
 
 
@@ -95,7 +96,7 @@ async def test_export_only_filtered_rows_reach_exporter(
     assert resp.status_code == 200
     body = resp.json()
     assert body["row_count"] == 1
-    assert body["url"] == "https://docs.google.com/spreadsheets/d/sid123"
+    assert body["url"] == "https://docs.google.com/spreadsheets/d/sid123/edit#gid=42"
 
     assert fake.rows is not None
     assert [r.website for r in fake.rows] == ["hi.gov"]  # only the high row exported
@@ -135,25 +136,11 @@ def _output_row(website: str) -> OutputRow:
 
 
 class _FakeReq:
-    def __init__(self, ret: dict[str, str]) -> None:
+    def __init__(self, ret: dict[str, Any]) -> None:
         self._ret = ret
 
-    def execute(self) -> dict[str, str]:
+    def execute(self) -> dict[str, Any]:
         return self._ret
-
-
-class _FakeSpreadsheets:
-    def __init__(self, calls: dict[str, Any]) -> None:
-        self._calls = calls
-
-    def create(self, **kwargs: Any) -> _FakeReq:
-        self._calls["create"] = kwargs
-        return _FakeReq(
-            {"spreadsheetId": "sid", "spreadsheetUrl": "https://docs.google.com/spreadsheets/d/sid"}
-        )
-
-    def values(self) -> "_FakeValues":
-        return _FakeValues(self._calls)
 
 
 class _FakeValues:
@@ -165,13 +152,16 @@ class _FakeValues:
         return _FakeReq({})
 
 
-class _FakePermissions:
+class _FakeSpreadsheets:
     def __init__(self, calls: dict[str, Any]) -> None:
         self._calls = calls
 
-    def create(self, **kwargs: Any) -> _FakeReq:
-        self._calls["perm"] = kwargs
-        return _FakeReq({})
+    def batchUpdate(self, **kwargs: Any) -> _FakeReq:  # noqa: N802 (google API method name)
+        self._calls["batchUpdate"] = kwargs
+        return _FakeReq({"replies": [{"addSheet": {"properties": {"sheetId": 99}}}]})
+
+    def values(self) -> _FakeValues:
+        return _FakeValues(self._calls)
 
 
 class _FakeService:
@@ -180,9 +170,6 @@ class _FakeService:
 
     def spreadsheets(self) -> _FakeSpreadsheets:
         return _FakeSpreadsheets(self._calls)
-
-    def permissions(self) -> _FakePermissions:
-        return _FakePermissions(self._calls)
 
 
 class _FakeDiscovery:
@@ -203,25 +190,25 @@ class _FakeSa:
     Credentials = _FakeCreds
 
 
-async def test_sheet_exporter_builds_create_write_share(
-    monkeypatch: MonkeyPatch, tmp_path: Path
-) -> None:
+async def test_sheet_exporter_adds_tab_and_writes(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     creds = tmp_path / "sa.json"
     creds.write_text("{}")
     calls: dict[str, Any] = {}
     monkeypatch.setattr(se, "_discovery", _FakeDiscovery(calls))
     monkeypatch.setattr(se, "_sa", _FakeSa)
 
-    result = await SheetExporter(credentials_path=creds).export(
+    result = await SheetExporter(credentials_path=creds, spreadsheet_id="WB1").export(
         [_output_row("a.gov"), _output_row("b.edu")], title="My Export"
     )
 
-    assert result.spreadsheet_id == "sid"
-    assert result.url == "https://docs.google.com/spreadsheets/d/sid"
+    assert result.spreadsheet_id == "WB1"
+    assert result.tab == "My Export"
+    assert result.url == "https://docs.google.com/spreadsheets/d/WB1/edit#gid=99"
     assert result.row_count == 2
-    assert calls["create"]["body"]["properties"]["title"] == "My Export"
+    added = calls["batchUpdate"]["body"]["requests"][0]["addSheet"]["properties"]["title"]
+    assert added == "My Export"  # a NEW tab, not the master Sheet1
+    assert calls["update"]["range"] == "'My Export'!A1"
     values = calls["update"]["body"]["values"]
     assert values[0] == OUTPUT_HEADER
     assert len(values) == 3  # header + 2 rows
     assert values[1][0] == "a.gov"
-    assert "perm" in calls  # shared anyone-with-link

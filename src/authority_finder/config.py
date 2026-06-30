@@ -51,6 +51,15 @@ class Settings(BaseSettings):
         default="",
         description="Target Google Sheet ID (the long token in the sheet URL).",
     )
+    export_sheet_id: str = Field(
+        default="",
+        description=(
+            "Workbook the UI's 'Export to Google Sheet' writes a NEW tab into (EXPORT_SHEET_ID). "
+            "A plain service account can't create standalone spreadsheets, so exports add a tab to "
+            "a workbook it can edit. Defaults to GOOGLE_SHEET_ID; the auto-write tab (Sheet1) is "
+            "never touched. Point this at a dedicated workbook to keep exports out of the master."
+        ),
+    )
 
     ahrefs_dr_threshold: int = Field(
         default=40,

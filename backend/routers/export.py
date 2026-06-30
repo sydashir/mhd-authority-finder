@@ -21,7 +21,11 @@ router = APIRouter(prefix="/export", tags=["export"])
 
 
 def get_exporter() -> SheetExporter:
-    return SheetExporter(credentials_path=get_settings().google_sheets_credentials_path)
+    settings = get_settings()
+    return SheetExporter(
+        credentials_path=settings.google_sheets_credentials_path,
+        spreadsheet_id=settings.export_sheet_id or settings.google_sheet_id,
+    )
 
 
 ExporterDep = Annotated[SheetExporter, Depends(get_exporter)]
@@ -40,9 +44,9 @@ async def export_sheet(
         level=body.level,
     )
     rows = [prospect_to_output_row(p) for p in prospects]
-    title = body.title or (
-        f"AuthorityScout export — {datetime.now(UTC).date().isoformat()} ({len(rows)} prospects)"
-    )
+    # A unique, tab-safe title (sheet tab names can't repeat or contain : \ / ? * [ ]).
+    stamp = datetime.now(UTC).strftime("%Y-%m-%d %H%M%S")
+    title = body.title or f"AuthorityScout {stamp} ({len(rows)})"
     result = await exporter.export(rows, title=title)
     return ExportOut(
         url=result.url, spreadsheet_id=result.spreadsheet_id, row_count=result.row_count
