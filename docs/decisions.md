@@ -517,3 +517,43 @@ A named volume starts **empty**, so a fresh container would see every geo as new
 - The `geos` table should fully replace the JSON state files → migrate the monitor to read/write `geos` (kept in parallel this phase).
 - Enum evolution (a new trust band / source) needs a manual `ALTER TYPE` migration (Alembic won't autogenerate it).
 - Production deploy → managed Postgres + run Alembic migrations on release, not `create_all`.
+
+## ADR-014 — Backend API: FastAPI over the Postgres source-of-truth, background runs via the runs table
+
+**Date:** 2026-06-30
+**Status:** Accepted
+**Context:** Phase A (ADR-013) added Postgres + a repository layer. Phase B builds the HTTP API the React UI (Phase C) will consume: read prospects + run history, and trigger pipeline runs. Same discipline — additive, nothing that works breaks, the Google Sheet stays a permanent output. Built and verified standalone (HTTP + tests) before any frontend.
+
+### Decisions
+
+1. **FastAPI app under top-level `backend/`, an app factory + lifespan.** `create_app(settings)` (not a bare module global) so tests build isolated apps and prod serves `backend.app:app`. The async engine + `async_sessionmaker` live on `app.state` via a lifespan context manager and are disposed on shutdown — never a module-level engine (no import-time DB side effects; the engine's lifecycle is bound to the app instance). Routers are one module per resource (`health`, `prospects`, `runs`). `backend/` is a first-party package wired into ruff/pyright/pytest; a `py.typed` marker makes `authority_finder` resolve as typed from the new root.
+2. **Request-scoped `get_session` dependency reached via `app.state`.** `get_session` yields an `AsyncSession` from `request.app.state.sessionmaker`; routers/repository commit explicitly (the context manager rolls back on error but never auto-commits). Tests override `get_session` (and `get_sessionmaker`) — ASGITransport skips the lifespan, so no real `DATABASE_URL` engine is built under test.
+3. **Pydantic v2 response models with `from_attributes`.** `ProspectOut`/`RunOut`/`GeoOut` validate straight off ORM rows; only scalar FKs (`run_id`/`geo_id`) are exposed — never the lazy `run`/`geo` relationships, so serialization never triggers async lazy-load I/O. Enums serialize to their lowercase `.value` (`TrustBand → "high"`); `SourceTag` keeps `"MHD"/"AH"` (matches the deliverable/Sheet). A generic `PageOf[T]` wrapper carries `items/total/limit/offset`; `total` is a separate COUNT (never `len()` of a paged slice).
+4. **Triggering a run is a BACKGROUND job tracked in the `runs` table (Option 1: trigger → run_id → poll).** `POST /runs` opens a `runs` row (`status=running`), commits it, and returns **202 + run_id immediately** — it never blocks on the pipeline. A **FastAPI BackgroundTask** then runs the pipeline and finalizes the row to `success`/`failed`; `GET /runs/{id}` reflects the live status (the UI polls it). Chosen over `asyncio.create_task` (GC-footgun, manual cancellation) and over Celery/a queue (full job infra is overkill for one customer, one process). The trade-off — uvicorn graceful-shutdown can cancel a long task — is covered by a **startup orphan-sweep** that flips any leftover `running` rows to `failed`.
+5. **The background task opens its OWN session.** A `Depends(get_session)` session is closed once the response is sent, so the task is handed the `async_sessionmaker` + the run_id (a plain int), never the request session or an ORM object. Success and failure are finalized in **separate fresh sessions** (a pipeline that raised mid-write leaves its own session poisoned, so it is never reused to record the failure).
+6. **API-triggered runs reuse the S11 cost-safe path and its rails.** `incremental` mode (default) runs `run_incremental` per site — process only newly-published geos, so a no-new-geos trigger spends **0** and writes 0; `full` mode re-runs every known geo. Both write to **BOTH** the Sheet (permanent output, unchanged) and Postgres (under the run_id), and both honor `max_new_geos_per_run` + the `max_billed` circuit breaker. An endpoint that can burn SerpAPI quota must respect the same breakers as the scheduler.
+7. **Endpoints are unauthenticated this phase.** Auth is Phase D — documented here so it isn't mistaken for an omission. CORS allows the React dev origin from a typed `cors_allow_origins` setting (with `allow_credentials`, so it must be explicit origins, never `*`).
+
+### Alternatives considered
+
+| Choice | Considered | Why not |
+|---|---|---|
+| Blocking trigger (run pipeline inside the request) | no | A pipeline run is minutes long; the client would time out. 202 + poll is the right shape. |
+| Fire-and-forget (`asyncio.create_task`) | yes | GC can collect the task mid-run; needs a manual task registry + shutdown wiring. BackgroundTasks is framework-native with no GC risk. |
+| Celery / RQ / a real queue | no | Full job infrastructure for one customer, one process is overkill. In-process BackgroundTasks + the runs table is enough; revisit at multi-worker scale. |
+| Reuse the request session in the background task | no | It is closed after the response — guaranteed `MissingGreenlet`/closed-session errors. Open a fresh session from the sessionmaker. |
+| Module-global engine | no | Import-time DB side effects + shared across app instances; breaks test isolation. Bind to `app.state` in the lifespan. |
+| Expose `run`/`geo` relationships on `ProspectOut` | no | Lazy-load under async serialization → I/O or errors. Expose scalar FKs; eager-load only if a nested shape is ever needed. |
+| Lowercase `SourceTag` on the wire | no | The deliverable/Sheet use `"MHD"/"AH"`; keep the API consistent with them. |
+| Make `--persist-db`/DB-write the default now | deferred | Still opt-in on the CLI; the API is the DB-first surface. CLI default flip is its own change. |
+
+### Live validation evidence (2026-06-30)
+
+(See `docs/progress.md` Session 14.) App boots under uvicorn; `/health` returns DB-ok against the dev Postgres; OpenAPI 3.1 + `/docs` generate. `GET /prospects` → **68** rows; `?contact_trust=high` → the **6** high-trust sites; `?source_tag=AH` → 23; pagination pages distinctly with a stable total; `/prospects/{id}` renders every column (enums + ISO dates), missing id → 404. `GET /runs` → the recorded runs, newest first; `/runs/{id}` detail; missing → 404. `POST /runs {site:both, mode:incremental}` returned **202 + run_id** immediately; polling showed `running → success`; on **0 new geos** (confirmed by a free sitemap diff first) it spent **billed=0**, wrote 0 rows, and left the 68 prospects untouched — the cost-safety holds on the API path. 318 tests green (291 + 27 db/api), pyright strict 0 errors, ruff clean; `run`/`schedule` CLI + the Sheet write unchanged.
+
+### Trigger to revisit
+
+- **Auth (Phase D):** protect every endpoint; the trigger endpoint especially (it can spend quota).
+- `full` mode is implemented + type-checked but live-unverified this session (it would spend quota); first real use should be watched against the circuit breaker.
+- BackgroundTasks die with the process; for runs that must survive a deploy/restart, move to a durable queue (the orphan-sweep currently marks such runs `failed` on restart).
+- Phase C (React) consumes these endpoints: prospects table ← `GET /prospects` (filters/paging), run history ← `GET /runs`, "trigger run" ← `POST /runs` then poll `GET /runs/{id}`.
