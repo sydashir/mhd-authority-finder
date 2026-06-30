@@ -592,3 +592,41 @@ A named volume starts **empty**, so a fresh container would see every geo as new
 - **Phase D (auth):** protect the API; then a same-origin proxy / cookie story may beat `VITE_API_URL` + CORS.
 - Deeper geo search (the API's `geo` filter is exact-match; a substring/typeahead would need backend support).
 - A production build/serve story (the dashboard is dev-server only this phase).
+
+## ADR-016 — Product identity (AuthorityScout), dark-first design system, and export
+
+**Date:** 2026-06-30
+**Status:** Accepted
+**Context:** The C1 prospects table worked but read like a generic admin panel. Phase C1-Redesign makes it feel like a real SaaS product — identity, hierarchy, craft — and adds the export the user asked for. Data is already correct (68 real rows via the API); this upgrades PRESENTATION and adds EXPORT. The pipeline/DB/API auto-write all stay untouched; the UI still talks only to the API.
+
+### Decisions
+
+1. **Product identity: "AuthorityScout" + a radar logomark.** A named tool, not "MHD Authority Finder". A single-color SVG radar/scope mark (concentric rings, crosshair ticks, a sweep to a blip) in the app shell's top-left. The shell — slim left sidebar (logo, nav: Prospects / Runs·soon / Settings·soon, health, theme toggle) + topbar (page title, domain search, export actions) — is built to last: Phase C2 (Runs) and Phase D (auth/user menu) slot into it.
+2. **Dark-first theming on a CSS-variable token system.** Dark is the default and the one made beautiful; light is a coherent toggle, persisted in `localStorage` with a no-flash `<head>` init. A confident **teal** brand (not default indigo). Tokens are semantic CSS variables (`--app/--surface/--raised/--border/--fg/--fg-muted/--fg-subtle/--brand` + trust/source/flag colors), defined per theme in `:root` / `.dark` and exposed to Tailwind v4 via `@theme inline` (utilities like `bg-surface`, `text-fg`, `text-brand`) + a `@custom-variant dark`. Everything themes through tokens — no hardcoded colors.
+3. **Dashboard overview cards from a new `GET /stats`.** Five crafted cards (Total Prospects, High-Trust, % With Email, Geos Covered, Last Run) give the screen hierarchy and the data's state at a glance. A dedicated endpoint (one FILTER-aggregate query + the latest run) is cleaner than deriving client-side and scales past one page; tested against real Postgres.
+4. **Table leveled up: client-side sort + column visibility.** Click any sortable header to sort the loaded page (trust/confidence by rank, population numeric, competitors by count, else locale); a Columns menu toggles visibility (Website stays frozen). Trust badges redesigned (pill + dot, emerald/amber/zinc, beautiful in both themes). Refined skeleton/empty/error states.
+5. **Export: CSV client-side, Sheet via the backend — to a NEW TAB, master untouched.** "Export CSV" pages through all matching rows (the API caps `limit` at 200) and downloads the deliverable columns client-side. "Export to Google Sheet" → `POST /export/sheet` on the active filters. **A plain service account cannot create standalone spreadsheets (Drive 403),** so the export adds a uniquely-named **new tab** to a workbook the SA can already edit (`EXPORT_SHEET_ID`, default the master) and returns its `#gid` URL — the auto-write tab (`Sheet1`) is never touched. A success toast links to the new tab. The endpoint mocks Google in tests (asserting the filtered rows reach the exporter + the addSheet/write calls); verified live once.
+6. **Richer, actionable detail drawer.** A trust panel explaining WHY a contact is trusted (band + provenance + page confidence), contact fields with copy-to-clipboard + mailto/tel buttons, a prominent resource-page link + org description, competitor chips — a considered layout, not flat label/value rows.
+
+### Alternatives considered
+
+| Choice | Considered | Why not |
+|---|---|---|
+| Keep the admin-panel look | no | The brief is a real product; identity + craft were the point of the phase. |
+| `prefers-color-scheme` only | no | The user wants an explicit, persisted dark-first choice with a toggle. |
+| Default indigo brand | no | Asked for a brand with a point of view; teal commits to one. |
+| Derive stats client-side from /prospects + /runs | no | Needs all rows loaded; a `GET /stats` aggregate is cleaner + scales. Endpoint tested. |
+| Export = create a fresh standalone spreadsheet | **blocked** | A plain service account has no Drive storage → `spreadsheets.create` returns 403. New tab in an editable workbook is the working surface ("or new tab" was allowed). |
+| Export tabs in the master workbook by default | acceptable fallback | Works now (Sheet1 untouched); `EXPORT_SHEET_ID` points exports at a dedicated workbook to keep the master clean. |
+| A heavy table/grid lib | no | A hand-built sortable table over the typed client hits the bespoke dense aesthetic; lighter. |
+
+### Live validation evidence (2026-06-30)
+
+(See `docs/progress.md` Session 16.) Dark theme reads as a designed product; the light toggle is coherent and persists. Stat cards show real numbers (Total **68**, High-Trust **6**, With Email **74%** = 50/68, Geos **5**, Last Run success). Table renders the 68 real rows; sort by Population asc puts Newport Beach (83,845) first; the Columns menu hides Phone; **Trust=high → 6** through the redesigned UI (filters intact). **CSV** downloaded all 68 rows with the deliverable columns. **Sheet export** (curl + UI) created a new tab with the filtered rows and returned a `#gid` URL — and the master **Sheet1 stayed 69 rows (untouched)**; the proof tabs were then deleted, leaving the master pristine. Drawer is actionable (copy + mailto/tel, trust rationale, competitor chips). 324 backend tests green (318 + 6 stats/export); frontend tsc + build + oxlint clean; the CLI + master auto-write are unchanged.
+
+### Trigger to revisit
+
+- **`EXPORT_SHEET_ID`:** set a dedicated export workbook (shared with the SA) in production to keep exports out of the master file entirely.
+- **Phase C2:** wire the Runs nav item — run history (`GET /runs`) + a "Run now" trigger (`POST /runs`) + status polling — into this shell.
+- **Phase D (auth):** the sidebar/topbar reserve space for a user menu; protect the API + the export/trigger endpoints.
+- Domain search is client-side over the loaded page; a server-side substring search would need API support.
