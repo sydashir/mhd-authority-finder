@@ -5,6 +5,7 @@ import type { Prospect } from './api/types'
 import { FilterBar, type ProspectQueryFilters } from './components/FilterBar'
 import { Header } from './components/Header'
 import { Pagination } from './components/Pagination'
+import { ProspectDrawer } from './components/ProspectDrawer'
 import { ProspectsTable } from './components/ProspectsTable'
 import { EmptyState, ErrorState, TableSkeleton } from './components/states'
 
@@ -66,6 +67,7 @@ function App() {
           />
         </div>
       </main>
+      <ProspectDrawer prospect={selected} onClose={() => setSelected(null)} />
     </div>
   )
 }
