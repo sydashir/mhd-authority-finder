@@ -51,13 +51,37 @@ docker compose run --rm scheduler uv run python -m authority_finder.cli schedule
 never baked into the image — and bind-mounts `./data` so the SerpAPI cache and monitor state survive
 restarts (so a restart never re-processes already-seen geos).
 
+### Web app (API + UI)
+
+The SaaS surface: a Postgres source-of-truth (ADR-013), a FastAPI backend that serves prospects +
+run history and triggers runs (ADR-014), and a React dashboard the outreach team works in (ADR-015).
+The pipeline + Sheet write are unchanged — the DB/API/UI are additive layers on top.
+
+Three local processes:
+
+```bash
+# 1. Postgres (source-of-truth) — docker-compose service on host :5433
+docker compose up -d postgres
+
+# 2. Backend API (reads .env: DATABASE_URL, etc.)
+uv run uvicorn backend.app:app --port 8000        # OpenAPI docs at http://localhost:8000/docs
+
+# 3. Frontend dashboard (dev server on :5173, in the backend's CORS allow-list)
+cd frontend && npm install && npm run dev         # http://localhost:5173
+```
+
+The frontend talks ONLY to the API (`VITE_API_URL`, default `http://localhost:8000`) — never to the
+DB or pipeline directly. The Prospects table reads live rows from Postgres via the API with
+trust/source/level filters, pagination, and a row-detail drawer. Migrations: `uv run alembic upgrade head`.
+
 ### Dev
 
 ```bash
-uv run pytest                 # tests
-uv run ruff check .           # lint
-uv run ruff format --check .  # format check
-uv run pyright                # strict type check
+uv run pytest                 # backend tests
+uv run ruff check .           # backend lint
+uv run pyright                # backend strict type check
+cd frontend && npm run build  # frontend: tsc type-check + production build
+cd frontend && npm run lint   # frontend lint (oxlint)
 ```
 
 ## Docs

@@ -776,3 +776,49 @@ SaaS build, Phase B (ADR-014). Built the FastAPI backend over the Phase A reposi
 ### What's next (Phase C — React UI)
 
 Consumes these endpoints: prospects table ← `GET /prospects` (the trust/source/geo/level filters + paging), run history ← `GET /runs`, trigger ← `POST /runs` then poll `GET /runs/{id}`. Then Phase D: auth over all of it. Run the API: `uv run uvicorn backend.app:app` (reads the same `.env`).
+
+---
+
+## 2026-06-30 — Session 15: Phase C1 — the Prospects dashboard (first real UI)
+
+### Done
+
+SaaS build, Phase C1 (ADR-015). The first real product screen: a dense, professional Prospects table the outreach team works in, reading LIVE data from the Phase B API over real Postgres. Pipeline / DB / API / Sheet write all untouched — the UI is purely additive and talks ONLY to the API. context7 confirmed the current frontend stack shapes (Tailwind v4 CSS-first, TanStack Query v5) before building.
+
+- `634d63c` **feat: scaffold react frontend** — Vite + React 19 + TS + Tailwind v4 + TanStack Query under `frontend/`. Typed API client (`src/api/`) mirroring the backend models (`Prospect`/`PageOf<T>`/`Run`, the trust/source/level unions); env-driven `VITE_API_URL`. App shell with a live `/health` "Backend connected" indicator. Two-process dev flow (uvicorn :8000 + vite :5173, in the CORS allow-list).
+- `25ab2af` **feat: add prospects table** — dense table over `GET /prospects`: Website (frozen first column), Specific Page (link), Email, Phone, Contact Trust (colored badge), Geo Served, Source (MHD/AH badge), Competitors (flagged count), Population (right-aligned tabular), Confidence. Sticky header, hover highlight, graceful horizontal scroll; loading skeleton / error / empty states.
+- `cb37913` **feat: add prospects filters and pagination** — filter bar wired to the API query params (Contact Trust / Source / Level) with active-state highlight + reset; live updates via TanStack Query (`keepPreviousData`, dim-while-fetching). Pagination footer (`limit`/`offset`, `total`) with "Showing X–Y of N".
+- `b320425` **feat: add prospect detail view** — right slide-over drawer on row click: full prospect in labelled sections (trust/confidence/source, contact email+phone links + Contact Source provenance, specific-page link, organization, geo + population, competitor links listed, record meta). Backdrop + Escape to close; content retained through the slide-out.
+
+Stack pinned: vite 8.1, react 19.2, typescript ~6.0, tailwindcss 4.3 + @tailwindcss/vite, @tanstack/react-query 5.10.
+
+### Live validation (2026-06-30, Playwright against the running stack — dev Postgres :5433, 68 prospects)
+
+- Shell connects: `/health` → **"Backend connected"** (green).
+- Table renders the **68** real rows from Postgres via the API (real domains/emails — NOT mocked); footer "Showing 1–50 of 68".
+- **Trust=high → exactly 6** ("Showing 1–6 of 6": unco/fmu/pinellas/howard/montgomery/ivc); **Source=AH → 23**. Pagination Next → "Showing 51–68 of 68". Active-filter highlight + Reset work.
+- Row click → drawer with full real data: Montgomery County incl. Contact Source provenance + the competitor link **samhsa.gov** listed; email/phone/page links clickable.
+- **Graceful failure:** stopped the backend → header flips to "Backend offline" (red), an error card "Couldn’t load prospects" + Retry, footer "0–0 of 0" — NOT a white screen. Restarted → reconnects.
+
+### Nothing broke
+
+Backend suite **318 passed**, pyright strict 0 errors, ruff clean (no Python changes this session). Frontend: `tsc -b` clean, `vite build` succeeds, oxlint clean. Backend API / CLI / Sheet write unchanged.
+
+### Decisions / why (ADR-015)
+
+- **TanStack Query for server state** (caching/dedup/keepPreviousData) over hand-rolled fetch+useEffect.
+- **Typed API client is the only seam** — UI never touches DB/pipeline; the contract is compile-time-enforced.
+- **`VITE_API_URL` + the Phase B CORS** (no dev-proxy) — fewer moving parts; revisit for Phase D auth cookies.
+- **Dense internal-tool aesthetic** — zinc/indigo, 13px tabular, frozen column, colored trust/source badges, slide-over drawer (keeps table context).
+
+### Gotchas
+
+- The TS 6 scaffold enables `erasableSyntaxOnly` → TS parameter-property shorthand (`constructor(readonly x)`) is disallowed; declare fields explicitly.
+- The scaffold uses **oxlint** (not eslint) and ships current versions (Vite 8 / TS 6 / React 19) — ahead of older muscle memory; trust context7 + the scaffold.
+- Tailwind v4 is CSS-first: `@import "tailwindcss"` + `@tailwindcss/vite` plugin + `@theme`; do NOT add a `tailwind.config.js`/PostCSS (v3 muscle memory).
+- Vite binds `localhost` (IPv6 `::1`); `curl 127.0.0.1:5173` can read as down while the browser is fine — verify the UI with Playwright, not curl.
+
+### What's next (Phase C2)
+
+Run-history view (`GET /runs`) + a "Run now" button (`POST /runs`, site/mode) + run-status polling (`GET /runs/{id}` → running → done, surfacing billed/rows/geos). Then Phase D: auth over the whole stack.
+Run the UI: `docker compose up -d postgres` + `uv run uvicorn backend.app:app` + `cd frontend && npm run dev`.
