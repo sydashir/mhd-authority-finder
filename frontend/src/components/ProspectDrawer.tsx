@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { X } from 'lucide-react'
 import type { Prospect } from '../api/types'
 import { competitorList, formatDate, formatPopulation, pagePath } from '../lib/format'
 import { ConfidenceTag, SourceBadge, TrustBadge } from './badges'
@@ -6,7 +7,7 @@ import { ConfidenceTag, SourceBadge, TrustBadge } from './badges'
 function Labeled({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-[10px] font-medium uppercase tracking-wide text-zinc-400">{label}</span>
+      <span className="text-[10px] font-medium uppercase tracking-wide text-fg-subtle">{label}</span>
       {children}
     </div>
   )
@@ -15,10 +16,10 @@ function Labeled({ label, children }: { label: string; children: ReactNode }) {
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section>
-      <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+      <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
         {title}
       </h3>
-      <dl className="divide-y divide-zinc-100 overflow-hidden rounded-md border border-zinc-200">
+      <dl className="divide-y divide-border overflow-hidden rounded-md border border-border">
         {children}
       </dl>
     </section>
@@ -28,8 +29,8 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="grid grid-cols-[110px_1fr] gap-3 px-3 py-2">
-      <dt className="text-[12px] text-zinc-400">{label}</dt>
-      <dd className="min-w-0 break-words text-[13px] text-zinc-700">{children}</dd>
+      <dt className="text-[12px] text-fg-subtle">{label}</dt>
+      <dd className="min-w-0 break-words text-[13px] text-fg">{children}</dd>
     </div>
   )
 }
@@ -38,20 +39,18 @@ function DrawerContent({ prospect: p, onClose }: { prospect: Prospect; onClose: 
   const competitors = competitorList(p.competitor_links)
   return (
     <>
-      <header className="flex items-start justify-between gap-3 border-b border-zinc-200 px-5 py-4">
+      <header className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
         <div className="min-w-0">
-          <div className="truncate text-[15px] font-semibold text-zinc-900">{p.website}</div>
-          <div className="mt-0.5 text-[12px] text-zinc-400">Prospect #{p.id}</div>
+          <div className="truncate text-[15px] font-semibold text-fg">{p.website}</div>
+          <div className="mt-0.5 text-[12px] text-fg-subtle">Prospect #{p.id}</div>
         </div>
         <button
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="-mr-1 rounded-md p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600"
+          className="-mr-1 rounded-md p-1.5 text-fg-subtle hover:bg-raised hover:text-fg"
         >
-          <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <path d="m4 4 8 8M12 4l-8 8" strokeLinecap="round" />
-          </svg>
+          <X size={16} strokeWidth={1.8} />
         </button>
       </header>
 
@@ -71,23 +70,23 @@ function DrawerContent({ prospect: p, onClose }: { prospect: Prospect; onClose: 
         <Section title="Contact">
           <Row label="Email">
             {p.email ? (
-              <a href={`mailto:${p.email}`} className="text-indigo-600 hover:underline">
+              <a href={`mailto:${p.email}`} className="text-brand hover:underline">
                 {p.email}
               </a>
             ) : (
-              <span className="text-zinc-300">—</span>
+              <span className="text-fg-subtle">—</span>
             )}
           </Row>
           <Row label="Phone">
             {p.phone ? (
-              <a href={`tel:${p.phone}`} className="tnum text-zinc-700 hover:underline">
+              <a href={`tel:${p.phone}`} className="tnum text-fg hover:underline">
                 {p.phone}
               </a>
             ) : (
-              <span className="text-zinc-300">—</span>
+              <span className="text-fg-subtle">—</span>
             )}
           </Row>
-          <Row label="Provenance">{p.contact_source || <span className="text-zinc-300">—</span>}</Row>
+          <Row label="Provenance">{p.contact_source || <span className="text-fg-subtle">—</span>}</Row>
         </Section>
 
         <Section title="Page">
@@ -96,13 +95,13 @@ function DrawerContent({ prospect: p, onClose }: { prospect: Prospect; onClose: 
               href={p.specific_page}
               target="_blank"
               rel="noreferrer"
-              className="text-indigo-600 hover:underline"
+              className="text-brand hover:underline"
             >
               {pagePath(p.specific_page)} ↗
             </a>
           </Row>
           <Row label="Organization">
-            {p.organization_description || <span className="text-zinc-300">—</span>}
+            {p.organization_description || <span className="text-fg-subtle">—</span>}
           </Row>
         </Section>
 
@@ -116,14 +115,11 @@ function DrawerContent({ prospect: p, onClose }: { prospect: Prospect; onClose: 
         <Section title="Competitor links">
           <div className="px-3 py-2">
             {competitors.length === 0 ? (
-              <span className="text-[13px] text-zinc-400">None detected</span>
+              <span className="text-[13px] text-fg-subtle">None detected</span>
             ) : (
               <ul className="flex flex-wrap gap-1.5">
                 {competitors.map((domain) => (
-                  <li
-                    key={domain}
-                    className="rounded bg-rose-50 px-1.5 py-0.5 text-[12px] font-medium text-rose-700 ring-1 ring-inset ring-rose-600/20"
-                  >
+                  <li key={domain} className="badge badge-flag">
                     {domain}
                   </li>
                 ))}
@@ -134,7 +130,7 @@ function DrawerContent({ prospect: p, onClose }: { prospect: Prospect; onClose: 
 
         <Section title="Record">
           <Row label="Added">{formatDate(p.date_added)}</Row>
-          <Row label="Run">{p.run_id ?? <span className="text-zinc-300">—</span>}</Row>
+          <Row label="Run">{p.run_id ?? <span className="text-fg-subtle">—</span>}</Row>
         </Section>
       </div>
     </>
@@ -149,7 +145,6 @@ export function ProspectDrawer({
   onClose: () => void
 }) {
   const open = prospect !== null
-  // Retain the last prospect so content stays visible through the slide-out.
   const [shown, setShown] = useState<Prospect | null>(prospect)
   useEffect(() => {
     if (prospect) setShown(prospect)
@@ -168,12 +163,12 @@ export function ProspectDrawer({
     <div className={`fixed inset-0 z-40 ${open ? '' : 'pointer-events-none'}`} aria-hidden={!open}>
       <div
         onClick={onClose}
-        className={`absolute inset-0 bg-zinc-900/20 transition-opacity duration-200 ${
+        className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${
           open ? 'opacity-100' : 'opacity-0'
         }`}
       />
       <aside
-        className={`absolute top-0 right-0 flex h-full w-full max-w-[440px] flex-col bg-white shadow-xl ring-1 ring-zinc-200 transition-transform duration-200 ${
+        className={`absolute top-0 right-0 flex h-full w-full max-w-[440px] flex-col border-l border-border bg-surface shadow-2xl transition-transform duration-200 ${
           open ? 'translate-x-0' : 'translate-x-full'
         }`}
         role="dialog"

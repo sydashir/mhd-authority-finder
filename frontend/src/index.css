@@ -1,10 +1,86 @@
 @import 'tailwindcss';
 
-/* Design tokens (Tailwind v4 CSS-first @theme). Internal-tool aesthetic:
-   refined zinc neutrals, a single indigo accent, dense typographic scale. */
-@theme {
+/* Theme toggle via a .dark class on <html> (not prefers-color-scheme). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ── Design tokens ───────────────────────────────────────────────────────────
+   Dark is the default and the one to make beautiful; light is a coherent toggle.
+   Brand is a confident teal (not default indigo). Everything themes through these. */
+:root {
+  --app: #f5f7fa;
+  --surface: #ffffff;
+  --raised: #eef1f6;
+  --border: #e3e7ee;
+  --border-strong: #d2d8e2;
+  --fg: #0f141b;
+  --fg-muted: #586273;
+  --fg-subtle: #98a1b1;
+  --brand: #0d9488;
+  --brand-strong: #0f766e;
+  --brand-fg: #ffffff;
+
+  --high-bg: #ecfdf5;
+  --high-fg: #047857;
+  --high-dot: #10b981;
+  --med-bg: #fffbeb;
+  --med-fg: #b45309;
+  --med-dot: #f59e0b;
+  --low-bg: #f1f5f9;
+  --low-fg: #516074;
+  --low-dot: #94a3b8;
+  --mhd-bg: #f5f3ff;
+  --mhd-fg: #6d28d9;
+  --ah-bg: #eff6ff;
+  --ah-fg: #1d4ed8;
+  --flag-bg: #fff1f2;
+  --flag-fg: #be123c;
+}
+
+.dark {
+  --app: #0a0c10;
+  --surface: #13171e;
+  --raised: #1b2129;
+  --border: #252b35;
+  --border-strong: #323a46;
+  --fg: #e7ecf3;
+  --fg-muted: #98a3b2;
+  --fg-subtle: #5c6675;
+  --brand: #2dd4bf;
+  --brand-strong: #14b8a6;
+  --brand-fg: #042925;
+
+  --high-bg: #0e2a22;
+  --high-fg: #4ade80;
+  --high-dot: #34d399;
+  --med-bg: #2a2210;
+  --med-fg: #fbbf24;
+  --med-dot: #f59e0b;
+  --low-bg: #1c222b;
+  --low-fg: #94a3b8;
+  --low-dot: #64748b;
+  --mhd-bg: #1e1b34;
+  --mhd-fg: #c4b5fd;
+  --ah-bg: #15233d;
+  --ah-fg: #7dd3fc;
+  --flag-bg: #2c1418;
+  --flag-fg: #fb7185;
+}
+
+@theme inline {
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+
+  --color-app: var(--app);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-fg: var(--brand-fg);
 }
 
 @layer base {
@@ -14,12 +90,51 @@
     height: 100%;
   }
   body {
-    @apply bg-zinc-100 text-zinc-800 antialiased;
+    @apply bg-app text-fg antialiased;
     font-family: var(--font-sans);
     font-feature-settings: 'cv02', 'cv03', 'cv11';
   }
-  /* Numbers line up in dense tables. */
   .tnum {
     font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  /* Trust + source + competitor badges, themed through the tokens above. */
+  .badge {
+    @apply inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] font-medium;
+  }
+  .badge-high {
+    background: var(--high-bg);
+    color: var(--high-fg);
+  }
+  .badge-medium {
+    background: var(--med-bg);
+    color: var(--med-fg);
+  }
+  .badge-low {
+    background: var(--low-bg);
+    color: var(--low-fg);
+  }
+  .badge-mhd {
+    background: var(--mhd-bg);
+    color: var(--mhd-fg);
+  }
+  .badge-ah {
+    background: var(--ah-bg);
+    color: var(--ah-fg);
+  }
+  .badge-flag {
+    background: var(--flag-bg);
+    color: var(--flag-fg);
+  }
+  .dot-high {
+    background: var(--high-dot);
+  }
+  .dot-medium {
+    background: var(--med-dot);
+  }
+  .dot-low {
+    background: var(--low-dot);
   }
 }

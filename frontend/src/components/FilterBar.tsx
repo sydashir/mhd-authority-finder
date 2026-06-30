@@ -35,14 +35,14 @@ function Select({
   const active = value !== undefined
   return (
     <label className="flex items-center gap-1.5 text-[12px]">
-      <span className="text-zinc-500">{label}</span>
+      <span className="text-fg-subtle">{label}</span>
       <select
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value || undefined)}
-        className={`cursor-pointer rounded-md border px-2 py-1 text-[12px] outline-none focus:ring-2 focus:ring-indigo-500/30 ${
+        className={`cursor-pointer rounded-md border px-2 py-1 text-[12px] outline-none focus:ring-2 focus:ring-brand/25 ${
           active
-            ? 'border-indigo-300 bg-indigo-50/60 font-medium text-indigo-700'
-            : 'border-zinc-200 bg-white text-zinc-600'
+            ? 'border-brand/40 bg-brand/10 font-medium text-brand'
+            : 'border-border bg-app text-fg-muted hover:border-border-strong'
         }`}
       >
         <option value="">All</option>
@@ -68,8 +68,8 @@ export function FilterBar({
   activeCount: number
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-3 border-b border-zinc-200 bg-white px-4 py-2.5">
-      <span className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">Filters</span>
+    <div className="flex flex-wrap items-center gap-3 border-b border-border bg-surface px-4 py-2.5">
+      <span className="text-[11px] font-medium uppercase tracking-wide text-fg-subtle">Filters</span>
       <Select
         label="Trust"
         value={filters.contact_trust}
@@ -92,7 +92,7 @@ export function FilterBar({
         <button
           type="button"
           onClick={onReset}
-          className="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700"
+          className="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-fg-subtle hover:bg-raised hover:text-fg"
         >
           Reset ({activeCount})
         </button>
