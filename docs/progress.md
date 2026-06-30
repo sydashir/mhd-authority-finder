@@ -822,3 +822,51 @@ Backend suite **318 passed**, pyright strict 0 errors, ruff clean (no Python cha
 
 Run-history view (`GET /runs`) + a "Run now" button (`POST /runs`, site/mode) + run-status polling (`GET /runs/{id}` → running → done, surfacing billed/rows/geos). Then Phase D: auth over the whole stack.
 Run the UI: `docker compose up -d postgres` + `uv run uvicorn backend.app:app` + `cd frontend && npm run dev`.
+
+---
+
+## 2026-06-30 — Session 16: Phase C1-Redesign — product identity + dashboard + export
+
+### Done
+
+SaaS build, Phase C1-Redesign (ADR-016). A deliberate visual + UX overhaul to make the dashboard feel like a real SaaS product (identity, hierarchy, craft), plus the EXPORT the user asked for. Data already correct; this upgrades PRESENTATION and adds export. Pipeline/DB/API auto-write untouched; UI talks only to the API. (frontend-design skill file absent on this machine — the art direction in the prompt was the spec.)
+
+- `332ec5a` **feat: add stats endpoint** — `GET /stats` (one FILTER-aggregate query + latest run) for the dashboard cards; `repository.get_prospect_stats`; tested vs real Postgres.
+- `5aa6c60` **feat: export to a new sheet tab** — a plain service account can't create standalone spreadsheets (Drive 403), so `POST /export/sheet` adds a uniquely-named NEW TAB to a workbook it can edit (`EXPORT_SHEET_ID`, default the master) and returns its `#gid` URL — the auto-write tab (`Sheet1`) is never touched. `SheetExporter` (addSheet + values), `prospect_to_output_row`, mocked-Google tests.
+- `99a2311` **feat: add design system and app shell** — AuthorityScout identity (radar logomark), dark-first CSS-variable token system (teal brand, semantic tokens via Tailwind v4 `@theme inline` + `@custom-variant dark`), theme toggle persisted (no-flash init), app shell (sidebar + topbar). Existing components re-themed to tokens. lucide-react icons.
+- `d3c94d3` **feat: add dashboard overview cards** — five crafted cards from `GET /stats`.
+- `acd51e8` **feat: redesign prospects table** — client-side sort (ranked trust/confidence, numeric population, competitor count) + a Columns visibility menu (Website frozen); polished badges + states.
+- `432ab3d` **feat: add export actions** — topbar Export CSV (client-side, pages all matching rows) + Export Sheet (toast with a link); Toast, `apiPost` + `getAllProspects`.
+- `6ff66b0` **feat: redesign prospect detail drawer** — actionable: trust rationale, copy-to-clipboard + mailto/tel, prominent resource link, competitor chips.
+
+Pinned: lucide-react ^1.22. New backend setting `EXPORT_SHEET_ID`.
+
+### Live validation (2026-06-30, Playwright against the running stack)
+
+- **Identity / dark theme:** reads as a designed product (radar logo + AuthorityScout, sidebar nav, teal brand, dark surfaces). Light toggle coherent + persisted.
+- **Stat cards (real):** Total **68** (across 5 geos), High-Trust **6** (9%), With Email **74%** (50/68), Geos **5**, Last Run success.
+- **Table:** 68 real rows; sort Population asc → Newport Beach (83,845) first; Columns menu hides Phone; **Trust=high → 6** (filters intact).
+- **Export CSV:** downloaded all **68** rows with the deliverable columns (verified header + 68 data rows).
+- **Export Sheet (live, rotation gate passed — key `d97fe38c…`):** curl + UI each created a new tab with the filtered rows and returned a `#gid` URL; master **Sheet1 stayed 69 rows — untouched**; the 2 proof tabs were deleted afterward, leaving the master pristine (just `Sheet1`).
+- **Drawer:** actionable — trust rationale ("a department/role inbox on its own domain — safe to reach out"), email/phone copy + mailto/tel buttons, resource link + org description, samhsa.gov competitor chip, details.
+
+### Nothing broke
+
+Backend suite **324 passed** (318 + 6 stats/export), pyright strict 0, ruff + format clean. Frontend tsc clean, vite build succeeds, oxlint clean. API additive only (`/stats`, `/export/sheet`); the `run`/`schedule` CLI and the master Sheet auto-write are unchanged.
+
+### Decisions / why (ADR-016)
+
+- **Export = new tab, not new spreadsheet** — a plain SA can't create standalone sheets (403); a new tab in an editable workbook works + leaves Sheet1 untouched. `EXPORT_SHEET_ID` for a dedicated export workbook.
+- **Dark-first token system** (teal brand) so both themes are coherent and everything themes through CSS variables.
+- **`GET /stats` endpoint** over client-side derivation — cleaner, scales, tested.
+
+### Gotchas
+
+- Service accounts have NO Drive storage → `spreadsheets.create` 403s. Use a new tab (`addSheet`) in a workbook the SA can already edit.
+- The `/prospects` `limit` caps at 200 — the CSV export must page through (a `limit=10000` call 422s).
+- A long-lived backend started before new routes were added serves the OLD app (no `--reload`) — restart uvicorn after adding endpoints (`/stats` 404'd until restart).
+- Vite picks the next free port if 5173 is held by a leftover dev server → the new origin isn't in CORS. Kill stale vite first; one server per background command.
+
+### What's next (Phase C2)
+
+Wire the Runs nav item into this shell: run history (`GET /runs`) + a "Run now" trigger (`POST /runs`, site/mode) + status polling (`GET /runs/{id}` → running → done). Then Phase D: auth over the stack. Set `EXPORT_SHEET_ID` to a dedicated export workbook for production.
