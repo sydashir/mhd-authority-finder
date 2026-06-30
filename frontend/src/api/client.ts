@@ -29,6 +29,16 @@ async function apiGet<T>(path: string, params?: Record<string, QueryValue>): Pro
   return (await res.json()) as T
 }
 
+async function apiPost<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(new URL(path, API_URL), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new ApiError(res.status, `${res.status} ${res.statusText}`)
+  return (await res.json()) as T
+}
+
 export interface ProspectFilters {
   contact_trust?: TrustBand
   source_tag?: SourceTag
@@ -45,4 +55,28 @@ export const getStats = () => apiGet<Stats>('/stats')
 export const getProspects = (filters: ProspectFilters) =>
   apiGet<PageOf<Prospect>>('/prospects', { ...filters })
 
+/** Every prospect matching the filters, paged through the API's 200-row cap. */
+export async function getAllProspects(filters: ProspectFilters): Promise<Prospect[]> {
+  const all: Prospect[] = []
+  const limit = 200
+  let offset = 0
+  for (;;) {
+    const page = await getProspects({ ...filters, limit, offset })
+    all.push(...page.items)
+    offset += limit
+    if (offset >= page.total || page.items.length === 0) break
+  }
+  return all
+}
+
 export const getProspect = (id: number) => apiGet<Prospect>(`/prospects/${id}`)
+
+export interface ExportResult {
+  url: string
+  spreadsheet_id: string
+  row_count: number
+}
+
+/** Export the current filtered view to a FRESH Google Sheet (never the master). */
+export const exportSheet = (filters: ProspectFilters) =>
+  apiPost<ExportResult>('/export/sheet', filters)

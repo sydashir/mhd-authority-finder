@@ -2,12 +2,14 @@ import { useState } from 'react'
 import { ApiError } from './api/client'
 import { useProspects } from './api/hooks'
 import type { Prospect } from './api/types'
+import { ExportActions } from './components/ExportActions'
 import { FilterBar, type ProspectQueryFilters } from './components/FilterBar'
 import { Pagination } from './components/Pagination'
 import { ProspectDrawer } from './components/ProspectDrawer'
 import { ProspectsTable } from './components/ProspectsTable'
 import { Sidebar } from './components/Sidebar'
 import { StatCards } from './components/StatCards'
+import { Toast, type ToastData } from './components/Toast'
 import { Topbar } from './components/Topbar'
 import { EmptyState, ErrorState, TableSkeleton } from './components/states'
 import { useTheme } from './lib/theme'
@@ -20,6 +22,7 @@ function App() {
   const [offset, setOffset] = useState(0)
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<Prospect | null>(null)
+  const [toast, setToast] = useState<ToastData | null>(null)
 
   const query = useProspects({ ...filters, limit: PAGE_SIZE, offset })
   const activeCount = Object.values(filters).filter(Boolean).length
@@ -49,6 +52,7 @@ function App() {
           subtitle={query.data ? `${query.data.total} total` : undefined}
           search={search}
           onSearch={setSearch}
+          actions={<ExportActions filters={filters} notify={setToast} />}
         />
         <main className="flex flex-1 flex-col gap-5 overflow-hidden p-6">
           <StatCards />
@@ -88,6 +92,7 @@ function App() {
         </main>
       </div>
       <ProspectDrawer prospect={selected} onClose={() => setSelected(null)} />
+      <Toast toast={toast} onClose={() => setToast(null)} />
     </div>
   )
 }
