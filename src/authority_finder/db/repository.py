@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
-from sqlalchemy import Select, select
+from sqlalchemy import ColumnElement, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import func
@@ -84,24 +84,24 @@ async def upsert_prospect(session: AsyncSession, data: ProspectIn) -> int:
     return (await session.execute(stmt)).scalar_one()
 
 
-def _filter_prospects[*Ts](
-    stmt: Select[*Ts],
+def _prospect_filters(
     *,
     trust: TrustBand | None,
     source: SourceTag | None,
     geo: str | None,
     level: GeoLevel | None,
-) -> Select[*Ts]:
-    """Apply the UI filter set to a prospect query (shared by list + count)."""
+) -> tuple[bool, list[ColumnElement[bool]]]:
+    """The UI filter set as (needs Geo join, WHERE conditions) — shared by list + count."""
+    conditions: list[ColumnElement[bool]] = []
     if level is not None:
-        stmt = stmt.join(Geo, Prospect.geo_id == Geo.id).where(Geo.level == level)
+        conditions.append(Geo.level == level)
     if trust is not None:
-        stmt = stmt.where(Prospect.contact_trust == trust)
+        conditions.append(Prospect.contact_trust == trust)
     if source is not None:
-        stmt = stmt.where(Prospect.source_tag == source)
+        conditions.append(Prospect.source_tag == source)
     if geo is not None:
-        stmt = stmt.where(Prospect.geo_served == geo)
-    return stmt
+        conditions.append(Prospect.geo_served == geo)
+    return level is not None, conditions
 
 
 async def get_prospects(
@@ -115,9 +115,11 @@ async def get_prospects(
     offset: int = 0,
 ) -> Sequence[Prospect]:
     """Filtered, paginated prospect read — the query the UI will issue."""
-    stmt = _filter_prospects(
-        select(Prospect), trust=trust, source=source, geo=geo, level=level
-    ).order_by(Prospect.geo_served, Prospect.website)
+    needs_join, conditions = _prospect_filters(trust=trust, source=source, geo=geo, level=level)
+    stmt = select(Prospect)
+    if needs_join:
+        stmt = stmt.join(Geo, Prospect.geo_id == Geo.id)
+    stmt = stmt.where(*conditions).order_by(Prospect.geo_served, Prospect.website)
     if offset:
         stmt = stmt.offset(offset)
     if limit is not None:
@@ -134,10 +136,11 @@ async def count_prospects(
     level: GeoLevel | None = None,
 ) -> int:
     """Total prospects matching the filters — pagination needs the unpaged count."""
-    stmt = _filter_prospects(
-        select(func.count(Prospect.id)), trust=trust, source=source, geo=geo, level=level
-    )
-    return (await session.execute(stmt)).scalar_one()
+    needs_join, conditions = _prospect_filters(trust=trust, source=source, geo=geo, level=level)
+    stmt = select(func.count(Prospect.id))
+    if needs_join:
+        stmt = stmt.join(Geo, Prospect.geo_id == Geo.id)
+    return (await session.execute(stmt.where(*conditions))).scalar_one()
 
 
 async def get_prospect(session: AsyncSession, prospect_id: int) -> Prospect | None:
