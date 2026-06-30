@@ -63,7 +63,7 @@ function App() {
               onReset={resetFilters}
               activeCount={activeCount}
             />
-            <div className="flex-1 overflow-auto">
+            <div className="flex flex-1 flex-col overflow-hidden">
               {query.isPending ? (
                 <TableSkeleton />
               ) : query.isError ? (
