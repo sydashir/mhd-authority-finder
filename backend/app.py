@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from authority_finder.config import Settings, get_settings
 from authority_finder.db.session import make_engine, make_session_factory
 from backend.deps import get_session
-from backend.routers import health, prospects
+from backend.routers import health, prospects, runs
 
 __all__ = ["app", "create_app", "get_session"]
 
@@ -42,6 +42,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.include_router(health.router)
     app.include_router(prospects.router)
+    app.include_router(runs.router)
     return app
 
 
