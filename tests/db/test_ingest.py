@@ -5,9 +5,9 @@ from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from authority_finder.db.ingest import persist_pipeline_run
+from authority_finder.db.ingest import persist_pipeline_run, persist_prospects
 from authority_finder.db.models import Run, RunStatus, SourceTag, TrustBand
-from authority_finder.db.repository import get_geos, get_prospects
+from authority_finder.db.repository import create_run, get_geos, get_prospects
 from authority_finder.geo_monitor.models import GeoPage
 from authority_finder.output.models import OutputRow
 
@@ -68,3 +68,20 @@ async def test_persist_pipeline_run(session: AsyncSession) -> None:
     assert run.rows_written == 2
     assert run.billed_searches == 0
     assert run.geos_processed == 1
+
+
+async def test_persist_prospects_under_existing_run(session: AsyncSession) -> None:
+    run = await create_run(session, site="mhd")  # the API's own run row
+    written = await persist_prospects(
+        session,
+        rows=[_row("ochealthinfo.gov"), _row("uci.edu", trust="low")],
+        geos=[_oc_geo()],
+        run_id=run.id,
+    )
+    await session.commit()
+
+    assert written == 2
+    prospects = await get_prospects(session)
+    assert {p.run_id for p in prospects} == {run.id}  # linked to the supplied run
+    assert all(p.geo_id is not None for p in prospects)
+    assert run.status == RunStatus.running  # persist_prospects does NOT finish the run

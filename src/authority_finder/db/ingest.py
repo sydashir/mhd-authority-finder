@@ -36,21 +36,19 @@ def _to_prospect_in(row: OutputRow, *, run_id: int, geo_id: int | None) -> repo.
     )
 
 
-async def persist_pipeline_run(
+async def persist_prospects(
     session: AsyncSession,
     *,
     rows: list[OutputRow],
     geos: list[GeoPage],
-    site: str,
-    billed_searches: int,
-) -> tuple[int, int]:
-    """Persist one run: record the run, upsert its geos, upsert its prospects.
+    run_id: int,
+) -> int:
+    """Upsert ``geos`` then ``rows`` (linked to ``run_id``); return rows written.
 
-    Returns ``(run_id, rows_written)``. The (website, geo_served) unique constraint
-    makes prospect writes idempotent. Caller commits.
+    The run row itself is the caller's concern — this only writes the geos and
+    prospects, so the API can persist under a run it opened (and finishes) itself.
+    The (website, geo_served) unique constraint makes prospect writes idempotent.
     """
-    run = await repo.create_run(session, site=site)
-
     geo_id_by_label: dict[str, int] = {}
     for geo in geos:
         geo_id = await repo.upsert_geo(
@@ -67,9 +65,26 @@ async def persist_pipeline_run(
 
     for row in rows:
         await repo.upsert_prospect(
-            session, _to_prospect_in(row, run_id=run.id, geo_id=geo_id_by_label.get(row.geo_served))
+            session, _to_prospect_in(row, run_id=run_id, geo_id=geo_id_by_label.get(row.geo_served))
         )
+    return len(rows)
 
+
+async def persist_pipeline_run(
+    session: AsyncSession,
+    *,
+    rows: list[OutputRow],
+    geos: list[GeoPage],
+    site: str,
+    billed_searches: int,
+) -> tuple[int, int]:
+    """Persist one run end-to-end: open the run, write geos+prospects, finish it.
+
+    Returns ``(run_id, rows_written)``. Caller commits. The API's background trigger
+    instead opens/finishes its own run around :func:`persist_prospects`.
+    """
+    run = await repo.create_run(session, site=site)
+    written = await persist_prospects(session, rows=rows, geos=geos, run_id=run.id)
     await repo.finish_run(
         session,
         run.id,
@@ -78,4 +93,4 @@ async def persist_pipeline_run(
         billed_searches=billed_searches,
         status=RunStatus.success,
     )
-    return run.id, len(rows)
+    return run.id, written
