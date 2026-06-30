@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import func
@@ -84,16 +84,15 @@ async def upsert_prospect(session: AsyncSession, data: ProspectIn) -> int:
     return (await session.execute(stmt)).scalar_one()
 
 
-async def get_prospects(
-    session: AsyncSession,
+def _filter_prospects[*Ts](
+    stmt: Select[*Ts],
     *,
-    trust: TrustBand | None = None,
-    source: SourceTag | None = None,
-    geo: str | None = None,
-    level: GeoLevel | None = None,
-) -> Sequence[Prospect]:
-    """Filtered prospect read — the query the UI will issue (filter by trust/source/geo/level)."""
-    stmt = select(Prospect)
+    trust: TrustBand | None,
+    source: SourceTag | None,
+    geo: str | None,
+    level: GeoLevel | None,
+) -> Select[*Ts]:
+    """Apply the UI filter set to a prospect query (shared by list + count)."""
     if level is not None:
         stmt = stmt.join(Geo, Prospect.geo_id == Geo.id).where(Geo.level == level)
     if trust is not None:
@@ -102,8 +101,48 @@ async def get_prospects(
         stmt = stmt.where(Prospect.source_tag == source)
     if geo is not None:
         stmt = stmt.where(Prospect.geo_served == geo)
-    stmt = stmt.order_by(Prospect.geo_served, Prospect.website)
+    return stmt
+
+
+async def get_prospects(
+    session: AsyncSession,
+    *,
+    trust: TrustBand | None = None,
+    source: SourceTag | None = None,
+    geo: str | None = None,
+    level: GeoLevel | None = None,
+    limit: int | None = None,
+    offset: int = 0,
+) -> Sequence[Prospect]:
+    """Filtered, paginated prospect read — the query the UI will issue."""
+    stmt = _filter_prospects(
+        select(Prospect), trust=trust, source=source, geo=geo, level=level
+    ).order_by(Prospect.geo_served, Prospect.website)
+    if offset:
+        stmt = stmt.offset(offset)
+    if limit is not None:
+        stmt = stmt.limit(limit)
     return (await session.scalars(stmt)).all()
+
+
+async def count_prospects(
+    session: AsyncSession,
+    *,
+    trust: TrustBand | None = None,
+    source: SourceTag | None = None,
+    geo: str | None = None,
+    level: GeoLevel | None = None,
+) -> int:
+    """Total prospects matching the filters — pagination needs the unpaged count."""
+    stmt = _filter_prospects(
+        select(func.count(Prospect.id)), trust=trust, source=source, geo=geo, level=level
+    )
+    return (await session.execute(stmt)).scalar_one()
+
+
+async def get_prospect(session: AsyncSession, prospect_id: int) -> Prospect | None:
+    """A single prospect by id, or None."""
+    return await session.get(Prospect, prospect_id)
 
 
 async def create_run(session: AsyncSession, *, site: str) -> Run:
@@ -136,6 +175,28 @@ async def finish_run(
     run.error_summary = error_summary
     await session.flush()
     return run
+
+
+async def get_runs(
+    session: AsyncSession, *, limit: int | None = None, offset: int = 0
+) -> Sequence[Run]:
+    """Run history, most recent first — powers the UI run log."""
+    stmt = select(Run).order_by(Run.started_at.desc(), Run.id.desc())
+    if offset:
+        stmt = stmt.offset(offset)
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    return (await session.scalars(stmt)).all()
+
+
+async def count_runs(session: AsyncSession) -> int:
+    """Total recorded runs."""
+    return (await session.execute(select(func.count(Run.id)))).scalar_one()
+
+
+async def get_run(session: AsyncSession, run_id: int) -> Run | None:
+    """A single run by id — what the UI polls after triggering."""
+    return await session.get(Run, run_id)
 
 
 async def upsert_geo(

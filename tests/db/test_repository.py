@@ -8,10 +8,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from authority_finder.db.models import GeoLevel, RunStatus, SourceTag, TrustBand
 from authority_finder.db.repository import (
     ProspectIn,
+    count_prospects,
+    count_runs,
     create_run,
     finish_run,
     get_geos,
+    get_prospect,
     get_prospects,
+    get_run,
+    get_runs,
     upsert_geo,
     upsert_prospect,
 )
@@ -139,3 +144,45 @@ async def test_get_prospects_level_filter_joins_geo(session: AsyncSession) -> No
 
     state_level = await get_prospects(session, level=GeoLevel.state)
     assert [p.website for p in state_level] == ["fl.gov"]
+
+
+async def test_get_prospects_pagination_and_count(session: AsyncSession) -> None:
+    await upsert_prospect(session, _prospect(website="a.gov", geo="G1", trust=TrustBand.high))
+    await upsert_prospect(session, _prospect(website="b.gov", geo="G2", trust=TrustBand.low))
+    await upsert_prospect(session, _prospect(website="c.gov", geo="G3", trust=TrustBand.high))
+    await session.commit()
+
+    assert await count_prospects(session) == 3
+    assert await count_prospects(session, trust=TrustBand.high) == 2
+
+    first = await get_prospects(session, limit=1, offset=0)
+    second = await get_prospects(session, limit=1, offset=1)
+    assert len(first) == 1
+    assert len(second) == 1
+    assert first[0].website != second[0].website  # distinct pages, stable order
+
+
+async def test_get_prospect_by_id(session: AsyncSession) -> None:
+    pid = await upsert_prospect(session, _prospect(website="x.gov"))
+    await session.commit()
+
+    found = await get_prospect(session, pid)
+    assert found is not None
+    assert found.website == "x.gov"
+    assert await get_prospect(session, 999_999) is None
+
+
+async def test_get_runs_listing_and_count(session: AsyncSession) -> None:
+    r1 = await create_run(session, site="mhd")
+    await session.commit()
+    r2 = await create_run(session, site="ah")
+    await session.commit()
+
+    assert await count_runs(session) == 2
+    runs = await get_runs(session)
+    assert [r.id for r in runs] == [r2.id, r1.id]  # most recent first
+
+    one = await get_run(session, r1.id)
+    assert one is not None
+    assert one.site == "mhd"
+    assert await get_run(session, 999_999) is None
