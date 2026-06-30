@@ -557,3 +557,38 @@ A named volume starts **empty**, so a fresh container would see every geo as new
 - `full` mode is implemented + type-checked but live-unverified this session (it would spend quota); first real use should be watched against the circuit breaker.
 - BackgroundTasks die with the process; for runs that must survive a deploy/restart, move to a durable queue (the orphan-sweep currently marks such runs `failed` on restart).
 - Phase C (React) consumes these endpoints: prospects table ← `GET /prospects` (filters/paging), run history ← `GET /runs`, "trigger run" ← `POST /runs` then poll `GET /runs/{id}`.
+
+## ADR-015 — Frontend: the Prospects dashboard (React + Vite + Tailwind v4 + TanStack Query)
+
+**Date:** 2026-06-30
+**Status:** Accepted
+**Context:** Phase C1 builds the first real screen of the product — a dense, professional Prospects table the outreach team works in daily, reading LIVE data from the Phase B API. The pipeline, DB, API, and Sheet write all stay untouched. The look is a "clean internal tool" (Linear/Retool — functional, dense, fast), not marketing-flashy.
+
+### Decisions
+
+1. **Stack: Vite + React + TypeScript + Tailwind v4 + TanStack Query, under top-level `frontend/`.** Vite for the dev server + build (fast HMR, first-class TS). **TanStack Query (v5) owns server state** — caching, request dedup, `keepPreviousData` so the table never flashes to empty while a page/filter loads, and a single place for loading/error status. **Tailwind v4** for styling: CSS-first config (`@import "tailwindcss"` + the `@tailwindcss/vite` plugin + `@theme` tokens) — no `tailwind.config.js`, no PostCSS. Versions confirmed current via context7 (not training data): vite 8.1, react 19.2, tailwindcss 4.3, @tanstack/react-query 5.10.
+2. **A typed API client is the only seam to the backend.** `frontend/src/api/` holds TS interfaces that mirror the backend Pydantic models (`Prospect`/`PageOf<T>`/`Run`, the `TrustBand`/`SourceTag`/`GeoLevel` unions) and a thin `fetch` wrapper. The UI talks ONLY to the API — never to the DB or pipeline — so the layers stay cleanly separable and the contract is enforced end to end at compile time.
+3. **Dev story: env-driven `VITE_API_URL` + the CORS already configured in Phase B (no proxy).** The Vite dev server runs on `:5173` (pinned, and in the backend's `CORS_ALLOW_ORIGINS`), the backend on `:8000`; the browser calls the API cross-origin and CORS allows it. Chosen over a Vite dev-proxy because Phase B already set CORS up — fewer moving parts. (Revisit a same-origin proxy if Phase D auth wants cookies.) Two-process dev flow documented in the README.
+4. **Design direction: dense internal-tool aesthetic.** Refined zinc neutrals + a single indigo accent + Inter; 13px type with tabular numerals for aligned numbers; sticky header, frozen first column (Website) for scannability under horizontal scroll, hover highlight, subtle borders. Contact Trust as a colored badge (high=emerald / medium=amber / low=zinc), Source as MHD/AH badges, competitor links as a flagged red count, population right-aligned. Row click → a right slide-over drawer with the full prospect (provenance, competitor links, links out) — a drawer keeps table context, the right pattern for an internal tool. Loading (skeleton) / error / empty states all handled.
+
+### Alternatives considered
+
+| Choice | Considered | Why not |
+|---|---|---|
+| Plain `fetch` + `useState`/`useEffect` for data | yes | Re-implements caching, dedup, stale-while-revalidate, loading/error status by hand. TanStack Query is the standard for server state. |
+| A heavy table lib (AG Grid / MUI DataTable) | no | Overkill + a generic look for one table; harder to hit the bespoke dense aesthetic. A hand-built table over the typed client is lighter and looks intentional. |
+| Tailwind v3 (config-file + PostCSS) | no | v4 is current; CSS-first `@theme` + the Vite plugin is simpler (no config/PostCSS wiring). |
+| Vite dev-proxy (`/api` → backend) | deferred | CORS is already configured in Phase B; a proxy adds config for no gain now. Reconsider for same-origin auth cookies in Phase D. |
+| Modal dialog for row detail | no | A modal blocks the table; a slide-over keeps the list in view — better for an outreach workflow. |
+| Server-driven pagination via cursor | no | The API already returns `total` + `limit`/`offset`; offset paging is simplest and matches it. |
+
+### Live validation evidence (2026-06-30)
+
+(See `docs/progress.md` Session 15.) With the backend (`uvicorn backend.app:app`, dev Postgres on `:5433`, 68 prospects) and the Vite dev server both running, verified in a real browser via Playwright: the shell connects (`/health` → "Backend connected"); the table renders the **68** real rows from Postgres via the API (real domains/emails — not mocked); **Trust=high → exactly 6** ("Showing 1–6 of 6", the 6 high-trust sites), **Source=AH → 23**; pagination pages 1–50 / 51–68 of 68; the row-detail drawer shows the full prospect incl. Contact Source provenance + the competitor link (`samhsa.gov`) listed; stopping the backend degrades gracefully ("Backend offline" + an error card with Retry, not a white screen). Backend suite stayed green (318); frontend `tsc` + build + oxlint clean.
+
+### Trigger to revisit
+
+- **Phase C2:** run-history view (`GET /runs`) + a "Run now" button (`POST /runs`) with run-status polling (`GET /runs/{id}` → running → done).
+- **Phase D (auth):** protect the API; then a same-origin proxy / cookie story may beat `VITE_API_URL` + CORS.
+- Deeper geo search (the API's `geo` filter is exact-match; a substring/typeahead would need backend support).
+- A production build/serve story (the dashboard is dev-server only this phase).
