@@ -731,3 +731,48 @@ Nothing broke: full suite 297 green; `write_csv` (the `run --dry-run` output pat
 A FastAPI app that imports `authority_finder.db.repository` to serve `GET /prospects` (with the
 trust/source/geo/level filters already implemented) + run history from `runs`, behind auth — reading
 the Postgres source-of-truth this phase established.
+
+---
+
+## 2026-06-30 — Session 14: Phase B — backend API (FastAPI)
+
+### Done
+
+SaaS build, Phase B (ADR-014). Built the FastAPI backend over the Phase A repository + pipeline. Standalone, verified by HTTP + tests; the pipeline and the Google Sheet write are untouched. Same layer-by-layer + TDD discipline. Research workflow (context7) confirmed current FastAPI/uvicorn/pydantic-v2 shapes first.
+
+- `acf5fa2` **feat: add repository read functions for api** — `get_prospects` gains `limit/offset`; new `count_prospects`, `get_prospect`, `get_runs`, `get_run`, `count_runs`. (Later `9eb0776` re-typed the shared filter helper — see below.)
+- `8873d9c` **refactor: extract persist_prospects from persist_pipeline_run** — a core that writes geos+prospects under an *existing* run_id, so the API's background task can persist under the run row it opened/finishes itself.
+- `335cc16` **feat: add fastapi backend skeleton** — `backend/` package: app factory + lifespan (async engine/sessionmaker on `app.state`, disposed on shutdown), request-scoped `get_session`, env-driven CORS, `GET /health` (DB-connectivity probe). Testcontainer fixtures moved to a top-level `tests/conftest.py` (shared by db + api tests). `src/authority_finder/py.typed` marks the package typed for the backend's strict checks. `cors_allow_origins` setting added. fastapi 0.138.2 + uvicorn[standard] 0.49.0 pinned; `backend` wired into ruff/pyright/pytest.
+- `e4515e6` **feat: add prospects api endpoints** — `GET /prospects` (trust/source/geo/level filters + limit/offset paging + total count) + `GET /prospects/{id}` (404 on miss). Pydantic `from_attributes` models (`ProspectOut`, generic `PageOf[T]`) expose only scalar FKs so serialization never lazy-loads.
+- `6971e77` **feat: add runs api endpoints** — `GET /runs` (history, newest first, paged) + `GET /runs/{id}` (the status the UI polls).
+- `2b15e72` **feat: add run trigger with background execution** — `POST /runs` opens a run (running), returns the id at **202**, runs the pipeline in a FastAPI BackgroundTask that opens its **own** session (the request session is closed by then), writes **BOTH** Postgres and the Sheet, and finalizes the row to success/failed. Reuses the S11 cost-safe `run_incremental` (no-new-geos → 0 spend) + the `max_new_geos`/`max_billed` caps; `full` mode re-runs all known geos (circuit-broken). Startup orphan-sweep flips stuck `running` rows to `failed`.
+- `b9eae6c` **test: backend api cors and docs coverage** — CORS (configured origin echoed + credentials, preflight) + Swagger `/docs` served.
+- `9eb0776` **fix: type prospect filter without typevartuple** — pyright 1.1.409 rejects `Select[*Ts]`; share the typed WHERE conditions (`list[ColumnElement[bool]]`) instead. (A single-file pyright check earlier masked this; whole-project caught it.)
+
+318 tests green (291 existing + 27 db/api: 8 repository, 2 ingest, 17 api). pyright strict 0 errors (4 pre-existing `reportMissingTypeStubs` warnings on untyped libs). ruff + format clean.
+
+### Live validation (2026-06-30, dev Postgres on :5433, 68 prospects / runs / 5 geos from S13)
+
+- App boots under uvicorn; `/health` → `{"status":"ok","database":"ok"}` (200); OpenAPI 3.1 + `/docs` generate; paths: `/health`, `/prospects`, `/prospects/{id}`, `/runs`, `/runs/{id}`.
+- `GET /prospects` → total **68**; `?contact_trust=high` → **6** (unco/fmu/pinellas/howard/montgomery/ivc); `?source_tag=AH` → 23; pagination (limit 5, offset 0 vs 5) pages distinctly, total stays 68; `/prospects/{id}` renders every column; missing → 404.
+- `GET /runs` → 2 runs newest-first (both success/68/billed=0/5 geos); `/runs/{id}` detail; missing → 404.
+- `POST /runs {site:both, mode:incremental}` → **202 + run_id=3, running** immediately; polling `GET /runs/3` showed `running` for ~10s then **`success`**; **billed_searches=0**, 0 rows, prospects **68→68** (Sheet/DB untouched). Free sitemap diff confirmed **0 new geos** for both sites first, guaranteeing the no-op. Run history 2→3.
+
+### Decisions / why
+
+- **Background runs via the runs table (202 + poll), FastAPI BackgroundTasks** over fire-and-forget / Celery; the task opens its own session; success/failure finalized in separate clean sessions; startup orphan-sweep. (ADR-014.)
+- **API runs reuse the S11 cost rails** — an endpoint that can spend SerpAPI must honor `max_billed` + `max_new_geos`.
+- **Sheet stays a permanent output**; the DB write is additive (under the run_id).
+- **Endpoints unauthenticated this phase** — auth is Phase D (documented, not omitted).
+
+### Gotchas
+
+- Whole-project pyright catches what a single-file check can miss — `Select[*Ts]` (PEP 695 TypeVarTuple) passed my `pyright <file>` (mis-grepped) but failed `pyright .`. Always run the project-wide strict check before committing.
+- ASGITransport does NOT run the lifespan, so tests set `app.state.sessionmaker` (or override the deps) themselves; it DOES await BackgroundTasks, so a triggered run is already finalized when `client.post` returns — deterministic lifecycle tests.
+- testcontainers can transiently `ConnectionError` on container start under load (full-suite first run); a re-run is clean — not a code issue.
+- The `run --dry-run` verification discovered an **uncached** geo and so spent **4 billed searches** (the `run` CLI bills for uncached geos even in dry-run). Minor unintended spend; target a cached geo next time.
+- Docker daemon was down at session start (new day) — started it; dev Postgres came back healthy on :5433 with the S13 data intact (named volume).
+
+### What's next (Phase C — React UI)
+
+Consumes these endpoints: prospects table ← `GET /prospects` (the trust/source/geo/level filters + paging), run history ← `GET /runs`, trigger ← `POST /runs` then poll `GET /runs/{id}`. Then Phase D: auth over all of it. Run the API: `uv run uvicorn backend.app:app` (reads the same `.env`).
