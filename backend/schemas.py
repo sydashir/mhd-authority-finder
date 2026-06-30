@@ -103,3 +103,21 @@ class RunAccepted(BaseModel):
 
     run_id: int
     status: RunStatus
+
+
+class ExportRequest(BaseModel):
+    """Export the current filtered view (same filters as GET /prospects) to a fresh sheet."""
+
+    contact_trust: TrustBand | None = None
+    source_tag: SourceTag | None = None
+    level: GeoLevel | None = None
+    geo: str | None = None
+    title: str | None = None
+
+
+class ExportOut(BaseModel):
+    """The freshly-created export sheet — the UI opens this URL."""
+
+    url: str
+    spreadsheet_id: str
+    row_count: int

@@ -11,9 +11,29 @@ from datetime import date
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from authority_finder.db import repository as repo
-from authority_finder.db.models import GeoLevel, RunStatus, SourceTag, TrustBand
+from authority_finder.db.models import GeoLevel, Prospect, RunStatus, SourceTag, TrustBand
 from authority_finder.geo_monitor.models import GeoPage
 from authority_finder.output.models import OutputRow, geo_served_label
+
+
+def prospect_to_output_row(p: Prospect) -> OutputRow:
+    """Reverse of the ingest mapping: a persisted prospect back to the deliverable
+    row shape, so an export produces the same columns as the master sheet."""
+    return OutputRow(
+        website=p.website,
+        specific_page=p.specific_page,
+        email=p.email,
+        phone=p.phone,
+        contact_source=p.contact_source,
+        contact_trust=p.contact_trust.value,
+        organization_description=p.organization_description,
+        geo_served=p.geo_served,
+        population=p.population,
+        competitor_links=p.competitor_links,
+        source_tag=p.source_tag.value,
+        date_added=p.date_added.isoformat(),
+        confidence=p.confidence.value,
+    )
 
 
 def _to_prospect_in(row: OutputRow, *, run_id: int, geo_id: int | None) -> repo.ProspectIn:
