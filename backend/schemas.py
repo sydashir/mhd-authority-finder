@@ -6,6 +6,7 @@ scalar foreign keys (``run_id``/``geo_id``) are exposed, never the lazy ``run``/
 """
 
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -77,3 +78,18 @@ class PageOf[T](BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class RunCreate(BaseModel):
+    """Trigger body. ``incremental`` (default) processes only newly-published geos
+    (cost-safe, S11); ``full`` re-runs every known geo (spends quota, circuit-broken)."""
+
+    site: Literal["mhd", "ah", "both"]
+    mode: Literal["incremental", "full"] = "incremental"
+
+
+class RunAccepted(BaseModel):
+    """202 response — the run_id the UI polls via GET /runs/{id}."""
+
+    run_id: int
+    status: RunStatus

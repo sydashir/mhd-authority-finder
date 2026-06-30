@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from authority_finder.config import Settings, get_settings
 from authority_finder.db.session import make_engine, make_session_factory
 from backend.deps import get_session
+from backend.jobs import sweep_orphan_runs
 from backend.routers import health, prospects, runs
 
 __all__ = ["app", "create_app", "get_session"]
@@ -27,6 +28,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine = make_engine(settings.database_url)
         app.state.engine = engine
         app.state.sessionmaker = make_session_factory(engine)
+        # A prior crash can't leave a ghost 'running' row in the history.
+        await sweep_orphan_runs(app.state.sessionmaker)
         try:
             yield
         finally:

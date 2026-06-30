@@ -82,7 +82,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["authority_finder"]
+known-first-party = ["authority_finder", "backend"]
 
 [tool.ruff.lint.flake8-type-checking]
 # SQLAlchemy resolves Mapped[...] annotations at runtime, so date/datetime/etc. used only in

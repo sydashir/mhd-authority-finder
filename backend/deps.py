@@ -12,14 +12,22 @@ from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 
+def get_sessionmaker(request: Request) -> async_sessionmaker[AsyncSession]:
+    """The app-level session factory itself — for code that opens its OWN session
+    outside the request scope (the background run task, whose request session is
+    already closed by the time it runs)."""
+    factory: async_sessionmaker[AsyncSession] = request.app.state.sessionmaker
+    return factory
+
+
 async def get_session(request: Request) -> AsyncGenerator[AsyncSession]:
     """Yield a session from the app-level factory; it rolls back on error and always closes.
 
     Routers/repository must commit explicitly — the context manager does not auto-commit.
     """
-    factory: async_sessionmaker[AsyncSession] = request.app.state.sessionmaker
-    async with factory() as session:
+    async with get_sessionmaker(request)() as session:
         yield session
 
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
+SessionmakerDep = Annotated[async_sessionmaker[AsyncSession], Depends(get_sessionmaker)]
