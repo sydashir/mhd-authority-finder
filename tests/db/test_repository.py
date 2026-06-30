@@ -14,6 +14,7 @@ from authority_finder.db.repository import (
     finish_run,
     get_geos,
     get_prospect,
+    get_prospect_stats,
     get_prospects,
     get_run,
     get_runs,
@@ -170,6 +171,25 @@ async def test_get_prospect_by_id(session: AsyncSession) -> None:
     assert found is not None
     assert found.website == "x.gov"
     assert await get_prospect(session, 999_999) is None
+
+
+async def test_get_prospect_stats(session: AsyncSession) -> None:
+    await upsert_prospect(
+        session, _prospect(website="a.gov", geo="G1", trust=TrustBand.high, email="a@a.gov")
+    )
+    await upsert_prospect(
+        session, _prospect(website="b.gov", geo="G2", trust=TrustBand.low, email="")
+    )
+    await upsert_prospect(
+        session, _prospect(website="c.gov", geo="G1", trust=TrustBand.medium, email="c@c.gov")
+    )
+    await session.commit()
+
+    stats = await get_prospect_stats(session)
+    assert stats.total == 3
+    assert stats.high_trust == 1
+    assert stats.with_email == 2  # b.gov has no email
+    assert stats.geos_covered == 2  # G1 (x2) + G2 distinct
 
 
 async def test_get_runs_listing_and_count(session: AsyncSession) -> None:

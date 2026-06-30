@@ -80,6 +80,16 @@ class PageOf[T](BaseModel):
     offset: int
 
 
+class StatsOut(BaseModel):
+    """Dataset-wide overview for the dashboard cards (unfiltered)."""
+
+    total_prospects: int
+    high_trust: int
+    with_email: int
+    geos_covered: int
+    last_run: RunOut | None
+
+
 class RunCreate(BaseModel):
     """Trigger body. ``incremental`` (default) processes only newly-published geos
     (cost-safe, S11); ``full`` re-runs every known geo (spends quota, circuit-broken)."""

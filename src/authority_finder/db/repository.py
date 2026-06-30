@@ -148,6 +148,28 @@ async def get_prospect(session: AsyncSession, prospect_id: int) -> Prospect | No
     return await session.get(Prospect, prospect_id)
 
 
+@dataclass(frozen=True, slots=True)
+class ProspectStats:
+    """Dataset-wide aggregates for the dashboard overview cards."""
+
+    total: int
+    high_trust: int
+    with_email: int
+    geos_covered: int
+
+
+async def get_prospect_stats(session: AsyncSession) -> ProspectStats:
+    """One round-trip of FILTER aggregates over the whole prospects table."""
+    stmt = select(
+        func.count(Prospect.id),
+        func.count(Prospect.id).filter(Prospect.contact_trust == TrustBand.high),
+        func.count(Prospect.id).filter(Prospect.email != ""),
+        func.count(func.distinct(Prospect.geo_served)),
+    )
+    total, high, email, geos = (await session.execute(stmt)).one()
+    return ProspectStats(total=total, high_trust=high, with_email=email, geos_covered=geos)
+
+
 async def create_run(session: AsyncSession, *, site: str) -> Run:
     """Open a run row (status=running). Caller finishes it with :func:`finish_run`."""
     run = Run(site=site, status=RunStatus.running)

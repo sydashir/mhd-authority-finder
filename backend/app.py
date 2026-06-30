@@ -15,7 +15,7 @@ from authority_finder.config import Settings, get_settings
 from authority_finder.db.session import make_engine, make_session_factory
 from backend.deps import get_session
 from backend.jobs import sweep_orphan_runs
-from backend.routers import health, prospects, runs
+from backend.routers import health, prospects, runs, stats
 
 __all__ = ["app", "create_app", "get_session"]
 
@@ -44,6 +44,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(health.router)
+    app.include_router(stats.router)
     app.include_router(prospects.router)
     app.include_router(runs.router)
     return app
