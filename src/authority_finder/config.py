@@ -89,6 +89,15 @@ class Settings(BaseSettings):
         ),
     )
 
+    cors_allow_origins: list[str] = Field(
+        default=["http://localhost:5173", "http://localhost:3000"],
+        description=(
+            "Browser origins the backend API allows (CORS_ALLOW_ORIGINS, JSON list). The Phase C "
+            "React dev server (Vite 5173 / CRA 3000) by default; set the deployed origin in prod. "
+            "allow_credentials is on, so this must be explicit origins, never '*'."
+        ),
+    )
+
     playwright_no_sandbox: bool = Field(
         default=False,
         description=(

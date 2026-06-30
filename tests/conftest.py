@@ -1,8 +1,10 @@
-"""Real-Postgres test fixtures (ADR-013) — testcontainers, not mocks.
+"""Shared real-Postgres test fixtures (ADR-013) — testcontainers, not mocks.
 
 A persistence layer is only proven against a real database, so these spin an
 ephemeral Postgres via testcontainers (one container per session) and give each
-test a clean schema. Skipped cleanly when Docker is unavailable.
+test a clean schema. Lives at the top level so both the repository tests
+(``tests/db``) and the backend API tests (``tests/api``) share one container.
+Skipped cleanly when Docker is unavailable.
 """
 
 from collections.abc import AsyncGenerator, Iterator
@@ -27,7 +29,7 @@ def _docker_available() -> bool:
 @pytest.fixture(scope="session")
 def pg_url() -> Iterator[str]:
     if not _docker_available():
-        pytest.skip("Docker not available — real-Postgres repository tests need it")
+        pytest.skip("Docker not available — real-Postgres tests need it")
     with PostgresContainer("postgres:16") as pg:
         # get_connection_url() returns a psycopg2 URL; drive it async with psycopg 3.
         yield pg.get_connection_url().replace("+psycopg2", "+psycopg")
