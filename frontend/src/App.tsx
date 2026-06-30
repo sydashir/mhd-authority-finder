@@ -7,6 +7,7 @@ import { Pagination } from './components/Pagination'
 import { ProspectDrawer } from './components/ProspectDrawer'
 import { ProspectsTable } from './components/ProspectsTable'
 import { Sidebar } from './components/Sidebar'
+import { StatCards } from './components/StatCards'
 import { Topbar } from './components/Topbar'
 import { EmptyState, ErrorState, TableSkeleton } from './components/states'
 import { useTheme } from './lib/theme'
@@ -50,6 +51,7 @@ function App() {
           onSearch={setSearch}
         />
         <main className="flex flex-1 flex-col gap-5 overflow-hidden p-6">
+          <StatCards />
           <div
             className={`flex flex-1 flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-sm transition-opacity ${
               query.isPlaceholderData ? 'opacity-60' : ''

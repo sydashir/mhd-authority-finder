@@ -3,7 +3,7 @@
 
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 
-import { getHealth, getProspects, type ProspectFilters } from './client'
+import { getHealth, getProspects, getStats, type ProspectFilters } from './client'
 
 export function useHealth() {
   return useQuery({
@@ -12,6 +12,10 @@ export function useHealth() {
     refetchInterval: 15_000,
     retry: false,
   })
+}
+
+export function useStats() {
+  return useQuery({ queryKey: ['stats'], queryFn: getStats })
 }
 
 export function useProspects(filters: ProspectFilters) {

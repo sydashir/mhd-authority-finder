@@ -50,3 +50,11 @@ export interface Health {
   status: string
   database: string
 }
+
+export interface Stats {
+  total_prospects: number
+  high_trust: number
+  with_email: number
+  geos_covered: number
+  last_run: Run | null
+}

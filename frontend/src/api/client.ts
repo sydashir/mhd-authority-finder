@@ -1,7 +1,7 @@
 // Typed API client — the single seam between the UI and the Phase B backend.
 // The UI talks ONLY to this (never to the DB/pipeline). Base URL is env-driven.
 
-import type { GeoLevel, Health, PageOf, Prospect, SourceTag, TrustBand } from './types'
+import type { GeoLevel, Health, PageOf, Prospect, SourceTag, Stats, TrustBand } from './types'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
@@ -39,6 +39,8 @@ export interface ProspectFilters {
 }
 
 export const getHealth = () => apiGet<Health>('/health')
+
+export const getStats = () => apiGet<Stats>('/stats')
 
 export const getProspects = (filters: ProspectFilters) =>
   apiGet<PageOf<Prospect>>('/prospects', { ...filters })
