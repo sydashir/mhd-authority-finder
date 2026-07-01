@@ -630,3 +630,37 @@ A named volume starts **empty**, so a fresh container would see every geo as new
 - **Phase C2:** wire the Runs nav item — run history (`GET /runs`) + a "Run now" trigger (`POST /runs`) + status polling — into this shell.
 - **Phase D (auth):** the sidebar/topbar reserve space for a user menu; protect the API + the export/trigger endpoints.
 - Domain search is client-side over the loaded page; a server-side substring search would need API support.
+
+## ADR-017 — Runs screen: history, "Run now" trigger, live status polling
+
+**Date:** 2026-07-01
+**Status:** Accepted
+**Context:** Phase C2 — the last UI screen. The backend (ADR-014) already exposes `GET /runs`, `GET /runs/{id}`, and `POST /runs` (a cost-safe background job that respects the S11 caps). This builds the frontend Runs view + a "Run now" trigger + live status polling, into the "Runs" nav slot the C1-redesign shell (ADR-016) reserved. Engine/DB/API/Sheet/dashboard stay untouched; the UI talks only to the API. With this, the UI is complete (prospects + runs + trigger).
+
+### Decisions
+
+1. **View switching in the shell (no router).** The Sidebar nav is now clickable; App holds a `view` state and renders `ProspectsScreen` or `RunsScreen`. The prospects UI was extracted from `App` into `ProspectsScreen`; App is now the shell + view switch + shared toast. A full router is overkill for two screens (+ Settings·soon); this keeps the shell the single composition point Phase D (auth/user menu) slots into.
+2. **Runs list = the same table craft as prospects.** `RunsScreen` renders `GET /runs` (newest first) as a dense, themed table: Site tag, a **RunStatusBadge** (running = amber + spinner, success = emerald, failed = rose — matching the trust-badge treatment), relative timestamps (`timeAgo`), duration, geos/rows/billed, and the error summary in a Notes column. Loading skeleton / empty ("no runs yet — start one") / error states, all designed. Billed>0 is tinted amber (cost signal); billed=0 reads as the safe default.
+3. **"Run now" surfaces the cost-safety.** A popover picks site (MHD/AH/Both) and mode: **"New geos only" is the default**, labelled "Cost-safe — spends nothing if nothing is new" (the S11 incremental path); **"Full re-scan" is clearly warned** ("re-scans every known geo — may use search credits"). Confirm → `POST /runs` (via a TanStack mutation) → 202 + run_id → a "Run started" toast; never blocks the UI. The S11 caps are enforced backend-side; the UI makes the safe path the obvious one.
+4. **Live status polling via `refetchInterval` as a function.** `useRuns` sets `refetchInterval: (query) => query.state.data?.items.some(r => r.status === 'running') ? 2000 : false` — polls every 2s while any run is running, stops once all are terminal (the current TanStack Query v5 idiom, confirmed via context7). The triggered run appears (the mutation invalidates `['runs']`), then the list flips running → success/failed live, no refresh.
+5. **Post-run refresh via cache invalidation.** `RunsScreen` tracks running run ids across polls; when a previously-running run turns terminal it invalidates `['prospects']` + `['stats']`, so the dashboard's rows + Last Run card update automatically (TanStack Query invalidation, per context7). A successful run with new prospects surfaces them without a manual refresh.
+
+### Alternatives considered
+
+| Choice | Considered | Why not |
+|---|---|---|
+| Add a client router (react-router) | no | Two screens + a soon-tab; view state in App is simpler and the shell stays the one composition point. |
+| Poll `GET /runs/{id}` per running run | considered | Polling the list (one query) updates the whole table live and is simpler; the list already carries every run's status. |
+| `setInterval` + manual refetch | no | `refetchInterval`-as-a-function is the built-in idiom — self-stopping, no leak, pauses when the tab is hidden. |
+| Block the UI / spinner overlay on trigger | no | 202 + a toast + a live-updating row is the right non-blocking UX; the user keeps working. |
+| Hide the full-run option | no | Power users may want it; surfacing it *with a credit warning* (and defaulting to cost-safe) is more honest than hiding it. |
+
+### Live validation evidence (2026-07-01)
+
+(See `docs/progress.md` Session 17.) Runs page rendered the 3 real runs from Postgres (the S14 no-op + two S13 runs) with correct details, themed in **dark and light**. "Run now" → Both, incremental → a "Run started" toast + a new run row; polling flipped it running → **success** without a manual refresh (the total went 3 → 6 across triggers, each resolving live). Every triggered run was the **cost-safe no-op** — `billed=0`, `rows=0`, `geos=0` — shown correctly (Billed —, Rows 0), proving the safe path is visible to the user (0 new geos confirmed by a free sitemap diff first; no quota spent). After the runs, the Prospects **Last Run** card updated to "Jul 1, 2026" (stats invalidation fired), Total stayed 68 (no-ops add nothing). 324 backend tests green; frontend tsc + build + oxlint clean; the API/CLI/master Sheet are unchanged. (The no-op completes in ~5s — faster than a screenshot round-trip — so the transient running spinner wasn't freeze-framed, but the live count increment + auto-resolution prove the polling.)
+
+### Trigger to revisit
+
+- **UI COMPLETE** (prospects + runs + trigger). Remaining: **Phase D** (auth over the stack — the shell reserves the user-menu/Settings slots) and **Phase E** (hosting/deploy).
+- A run detail view (`GET /runs/{id}`) could show the full funnel; the list currently carries the headline counts.
+- For a real (non-no-op) run, the running spinner + a longer duration would be visible; the no-op is intentionally instant.
