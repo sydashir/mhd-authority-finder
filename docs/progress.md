@@ -870,3 +870,44 @@ Backend suite **324 passed** (318 + 6 stats/export), pyright strict 0, ruff + fo
 ### What's next (Phase C2)
 
 Wire the Runs nav item into this shell: run history (`GET /runs`) + a "Run now" trigger (`POST /runs`, site/mode) + status polling (`GET /runs/{id}` → running → done). Then Phase D: auth over the stack. Set `EXPORT_SHEET_ID` to a dedicated export workbook for production.
+
+---
+
+## 2026-07-01 — Session 17: Phase C2 — Runs screen + "Run now" + live status
+
+### Done
+
+SaaS build, Phase C2 (ADR-017) — the last UI screen. Built the frontend Runs view + a "Run now" trigger + live status polling into the "Runs" nav slot the C1-redesign shell reserved. Backend (GET/POST /runs from Phase B) untouched; engine/DB/API/Sheet/dashboard unchanged; UI talks only to the API. **With this the UI is complete** (prospects + runs + trigger). context7 confirmed the TanStack Query v5 polling idiom.
+
+- `6a0ad3c` **feat: add runs api, trigger, and status badge** — client `getRuns` + `triggerRun`; `useRuns` (polls every 2s while any run is running, stops when terminal) + `useTriggerRun` mutation; `RunStatusBadge` (spinner while running); `timeAgo`/`duration` helpers; the Run now control (site + cost-safe/full mode picker, full-run credit warning).
+- `fafd22f` **feat: add runs history view** — activated the Runs nav (view switching in the shell; extracted `ProspectsScreen` from App); `RunsScreen` lists `GET /runs` (site/status/relative-times/geos/rows/billed/notes) with the dashboard's table craft + loading/empty/error states; live-updates via polling; on a run turning terminal it invalidates prospects + stats so the dashboard refreshes. Topbar search made optional.
+
+### Live validation (2026-07-01, Playwright against the running stack)
+
+- **Runs list:** rendered the 3 real runs from Postgres (S14 no-op + two S13 runs) with correct details — themed coherently in **dark and light**.
+- **Run now:** popover surfaces the cost-safety (New geos only = default, "Cost-safe"; Full re-scan = "may use search credits"). Both/incremental → "Run started" toast + a new run row.
+- **Cost-safe no-op:** 0 new geos (confirmed by a free sitemap diff first), so each triggered run completed **billed=0, rows=0, geos=0** — shown correctly in the UI (Billed —, Rows 0). No quota spent.
+- **Live polling:** the new run appeared and flipped running → **success without a manual refresh**; the total incremented 3 → 6 across triggers, each resolving live.
+- **Post-run refresh:** the Prospects **Last Run** card updated to "Jul 1, 2026" after the run (stats invalidation fired); Total stayed 68 (no-ops add nothing).
+- Design: the Runs screen matches the dashboard's product quality (same shell, table, badges, theming). (The no-op finishes in ~5s — faster than a screenshot round-trip — so the transient running spinner wasn't freeze-framed; the live count increment + auto-resolution prove the polling.)
+
+### Nothing broke
+
+Backend suite **324 passed** (no backend changes this session), pyright strict 0, ruff clean. Frontend tsc clean, vite build succeeds, oxlint clean. API / CLI / master Sheet auto-write unchanged.
+
+### Decisions / why (ADR-017)
+
+- **View switching in the shell (no router)** — two screens + a soon-tab; App is the single composition point Phase D slots into.
+- **Poll the list via `refetchInterval`-as-a-function** — self-stopping when all runs terminal; simpler than per-run polling.
+- **Surface the cost-safety in the UI** — cost-safe default + full-run credit warning; caps enforced backend-side.
+- **Cache invalidation on run completion** — prospects + stats refresh automatically.
+
+### Gotchas
+
+- The no-op run completes in ~5s — faster than a Playwright screenshot round-trip — so freeze-framing the running spinner is impractical; verify polling by the live count increment + auto-resolution instead.
+- Stale vite from a prior session holds :5173 → new vite drifts to :5174 (off the CORS list). Kill stale vite first.
+- A backend started before new routes (no `--reload`) serves the old app — but this session added no backend routes, so the S16 backend served fine.
+
+### What's next — UI COMPLETE
+
+Prospects + Runs + trigger are all shipped. Remaining: **Phase D** (auth over the stack — the shell reserves user-menu/Settings slots) and **Phase E** (hosting/deploy). Run the stack: `docker compose up -d postgres` + `uv run uvicorn backend.app:app` + `cd frontend && npm run dev`.

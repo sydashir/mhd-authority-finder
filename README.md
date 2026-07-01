@@ -55,8 +55,9 @@ restarts (so a restart never re-processes already-seen geos).
 
 The SaaS surface: a Postgres source-of-truth (ADR-013), a FastAPI backend that serves prospects +
 run history and triggers runs (ADR-014), and **AuthorityScout** — a dark-first React dashboard the
-outreach team works in (ADR-015/016) with stat cards, a sortable/filterable prospects table, a
-detail drawer, and **export** (CSV + a new Google Sheet tab). The pipeline + master Sheet auto-write
+outreach team works in (ADR-015/016/017) with stat cards, a sortable/filterable prospects table, a
+detail drawer, **export** (CSV + a new Google Sheet tab), and a **Runs** screen — run history plus a
+cost-safe "Run now" trigger with live status polling. The pipeline + master Sheet auto-write
 are unchanged — the DB/API/UI are additive layers on top; the UI talks only to the API.
 
 Three local processes:
