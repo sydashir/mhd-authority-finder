@@ -1,7 +1,19 @@
 // Typed API client — the single seam between the UI and the Phase B backend.
 // The UI talks ONLY to this (never to the DB/pipeline). Base URL is env-driven.
 
-import type { GeoLevel, Health, PageOf, Prospect, SourceTag, Stats, TrustBand } from './types'
+import type {
+  GeoLevel,
+  Health,
+  PageOf,
+  Prospect,
+  Run,
+  RunAccepted,
+  RunMode,
+  RunSite,
+  SourceTag,
+  Stats,
+  TrustBand,
+} from './types'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
@@ -80,3 +92,14 @@ export interface ExportResult {
 /** Export the current filtered view to a FRESH Google Sheet (never the master). */
 export const exportSheet = (filters: ProspectFilters) =>
   apiPost<ExportResult>('/export/sheet', filters)
+
+export const getRuns = (params: { limit?: number; offset?: number } = {}) =>
+  apiGet<PageOf<Run>>('/runs', { ...params })
+
+export interface RunTrigger {
+  site: RunSite
+  mode: RunMode
+}
+
+/** Start a pipeline run — returns immediately (202) with the run_id to poll. */
+export const triggerRun = (body: RunTrigger) => apiPost<RunAccepted>('/runs', body)

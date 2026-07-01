@@ -1,4 +1,5 @@
-import type { SourceTag, TrustBand } from '../api/types'
+import { CheckCircle2, Loader2, XCircle } from 'lucide-react'
+import type { RunStatus, SourceTag, TrustBand } from '../api/types'
 
 export function TrustBadge({ band }: { band: TrustBand }) {
   return (
@@ -13,6 +14,26 @@ export function SourceBadge({ source }: { source: SourceTag }) {
   return (
     <span className={`badge font-semibold ${source === 'MHD' ? 'badge-mhd' : 'badge-ah'}`}>
       {source}
+    </span>
+  )
+}
+
+export function RunStatusBadge({ status }: { status: RunStatus }) {
+  if (status === 'running')
+    return (
+      <span className="badge badge-medium">
+        <Loader2 size={11} className="animate-spin" /> Running
+      </span>
+    )
+  if (status === 'success')
+    return (
+      <span className="badge badge-high">
+        <CheckCircle2 size={11} /> Success
+      </span>
+    )
+  return (
+    <span className="badge badge-flag">
+      <XCircle size={11} /> Failed
     </span>
   )
 }

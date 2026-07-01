@@ -46,6 +46,14 @@ export interface Run {
   error_summary: string | null
 }
 
+export type RunSite = 'mhd' | 'ah' | 'both'
+export type RunMode = 'incremental' | 'full'
+
+export interface RunAccepted {
+  run_id: number
+  status: RunStatus
+}
+
 export interface Health {
   status: string
   database: string
