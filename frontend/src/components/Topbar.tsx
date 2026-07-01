@@ -10,8 +10,8 @@ export function Topbar({
 }: {
   title: string
   subtitle?: string
-  search: string
-  onSearch: (value: string) => void
+  search?: string
+  onSearch?: (value: string) => void
   actions?: ReactNode
 }) {
   return (
@@ -21,21 +21,25 @@ export function Topbar({
         {subtitle && <span className="text-[12px] text-fg-subtle">{subtitle}</span>}
       </div>
 
-      <div className="relative ml-auto w-64">
-        <Search
-          size={14}
-          className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-subtle"
-        />
-        <input
-          type="search"
-          value={search}
-          onChange={(e) => onSearch(e.target.value)}
-          placeholder="Search domain or email…"
-          className="w-full rounded-md border border-border bg-app py-1.5 pl-8 pr-3 text-[13px] text-fg outline-none placeholder:text-fg-subtle focus:border-brand focus:ring-2 focus:ring-brand/25"
-        />
-      </div>
+      {onSearch && (
+        <div className="relative ml-auto w-64">
+          <Search
+            size={14}
+            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-subtle"
+          />
+          <input
+            type="search"
+            value={search ?? ''}
+            onChange={(e) => onSearch(e.target.value)}
+            placeholder="Search domain or email…"
+            className="w-full rounded-md border border-border bg-app py-1.5 pl-8 pr-3 text-[13px] text-fg outline-none placeholder:text-fg-subtle focus:border-brand focus:ring-2 focus:ring-brand/25"
+          />
+        </div>
+      )}
 
-      {actions && <div className="flex items-center gap-2">{actions}</div>}
+      {actions && (
+        <div className={`flex items-center gap-2 ${onSearch ? '' : 'ml-auto'}`}>{actions}</div>
+      )}
     </header>
   )
 }

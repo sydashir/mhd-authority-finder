@@ -3,37 +3,57 @@ import { useHealth } from '../api/hooks'
 import type { Theme } from '../lib/theme'
 import { Logo } from './Logo'
 
+export type View = 'prospects' | 'runs'
+
 function NavItem({
   icon: Icon,
   label,
   active = false,
   soon = false,
+  onClick,
 }: {
   icon: LucideIcon
   label: string
   active?: boolean
   soon?: boolean
+  onClick?: () => void
 }) {
-  const base = 'flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium'
+  const base = 'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium'
   const state = active
     ? 'bg-brand/10 text-brand'
     : soon
       ? 'text-fg-subtle cursor-default'
-      : 'text-fg-muted hover:bg-raised hover:text-fg cursor-pointer'
-  return (
-    <div className={`${base} ${state}`}>
+      : 'text-fg-muted hover:bg-raised hover:text-fg'
+  const content = (
+    <>
       <Icon size={16} strokeWidth={active ? 2.2 : 1.8} />
-      <span className="flex-1">{label}</span>
+      <span className="flex-1 text-left">{label}</span>
       {soon && (
         <span className="rounded bg-raised px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-fg-subtle">
           Soon
         </span>
       )}
-    </div>
+    </>
+  )
+  if (soon) return <div className={`${base} ${state}`}>{content}</div>
+  return (
+    <button type="button" onClick={onClick} className={`${base} ${state}`}>
+      {content}
+    </button>
   )
 }
 
-export function Sidebar({ theme, onToggleTheme }: { theme: Theme; onToggleTheme: () => void }) {
+export function Sidebar({
+  active,
+  onNavigate,
+  theme,
+  onToggleTheme,
+}: {
+  active: View
+  onNavigate: (view: View) => void
+  theme: Theme
+  onToggleTheme: () => void
+}) {
   const { data, isError, isLoading } = useHealth()
   const connected = !isError && data?.database === 'ok'
 
@@ -50,8 +70,18 @@ export function Sidebar({ theme, onToggleTheme }: { theme: Theme; onToggleTheme:
         <div className="px-2.5 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-fg-subtle">
           Workspace
         </div>
-        <NavItem icon={Target} label="Prospects" active />
-        <NavItem icon={History} label="Runs" soon />
+        <NavItem
+          icon={Target}
+          label="Prospects"
+          active={active === 'prospects'}
+          onClick={() => onNavigate('prospects')}
+        />
+        <NavItem
+          icon={History}
+          label="Runs"
+          active={active === 'runs'}
+          onClick={() => onNavigate('runs')}
+        />
         <NavItem icon={Settings} label="Settings" soon />
       </nav>
 
