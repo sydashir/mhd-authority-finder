@@ -9,10 +9,10 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import Field, SecretStr
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, SecretStr, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
@@ -119,6 +119,53 @@ class Settings(BaseSettings):
         default="INFO",
         description="Root log level for structlog and the stdlib logging shim.",
     )
+
+    google_oauth_client_id: str = Field(
+        default="",
+        description=(
+            "Google OAuth Web client ID (GOOGLE_OAUTH_CLIENT_ID). Public — also the frontend's "
+            "VITE_GOOGLE_CLIENT_ID. The audience the backend verifies Google ID tokens against."
+        ),
+    )
+    google_oauth_client_secret: SecretStr = Field(
+        default=SecretStr(""),
+        description=(
+            "Google OAuth client secret (GOOGLE_OAUTH_CLIENT_SECRET). Not needed to VERIFY ID "
+            "tokens (the flow used here); stored for a possible future auth-code exchange."
+        ),
+    )
+    allowed_emails: Annotated[list[str], NoDecode] = Field(
+        default_factory=list,
+        description=(
+            "Allowlist of Google emails permitted to sign in (ALLOWED_EMAILS, comma-separated). "
+            "Enforced server-side after Google verification; a non-listed email gets 403 (ADR-018)."
+        ),
+    )
+    jwt_secret: SecretStr = Field(
+        default=SecretStr(""),
+        description="Secret that signs app-session JWTs (JWT_SECRET). A long random string.",
+    )
+    auth_session_hours: int = Field(
+        default=12,
+        ge=1,
+        description="App session (JWT + cookie) lifetime in hours.",
+    )
+    auth_cookie_secure: bool = Field(
+        default=False,
+        description=(
+            "Set the session cookie's Secure flag (AUTH_COOKIE_SECURE). True in prod over HTTPS; "
+            "False for localhost-http (a Secure cookie over http is dropped)."
+        ),
+    )
+
+    @field_validator("allowed_emails", mode="before")
+    @classmethod
+    def _split_allowed_emails(cls, value: object) -> object:
+        # ALLOWED_EMAILS is a comma-separated string in the env, not JSON; NoDecode hands it
+        # here raw so we split + normalise (lowercased, stripped, blanks dropped).
+        if isinstance(value, str):
+            return [e.strip().lower() for e in value.split(",") if e.strip()]
+        return value
 
 
 @lru_cache(maxsize=1)
