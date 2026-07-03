@@ -24,6 +24,7 @@ from authority_finder.output import sheet_export as se
 from authority_finder.output.models import OUTPUT_HEADER, OutputRow
 from authority_finder.output.sheet_export import ExportResult, SheetExporter
 from backend.app import create_app
+from backend.auth import AuthUser, get_current_user
 from backend.deps import get_session
 from backend.routers.export import get_exporter
 
@@ -56,6 +57,7 @@ async def export_setup(
 
     app.dependency_overrides[get_session] = _override_session
     app.dependency_overrides[get_exporter] = lambda: fake
+    app.dependency_overrides[get_current_user] = lambda: AuthUser(email="test@authorityscout.dev")
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac, app, fake

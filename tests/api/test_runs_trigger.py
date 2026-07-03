@@ -17,6 +17,7 @@ from authority_finder.config import Settings
 from authority_finder.db.models import Base, RunStatus
 from authority_finder.db.repository import create_run, get_run
 from backend.app import create_app
+from backend.auth import AuthUser, get_current_user
 from backend.jobs import RunSummary, sweep_orphan_runs
 from backend.routers.runs import get_run_job
 
@@ -34,6 +35,7 @@ async def trigger(pg_url: str) -> AsyncGenerator[Trigger]:
     # get_session/get_sessionmaker then yield fresh sessions per request (no staleness),
     # so polling GET /runs/{id} reflects what the background task committed.
     app.state.sessionmaker = sm
+    app.dependency_overrides[get_current_user] = lambda: AuthUser(email="test@authorityscout.dev")
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac, app, sm
