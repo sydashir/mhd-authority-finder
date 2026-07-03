@@ -1,5 +1,8 @@
-import { History, Moon, Settings, Sun, Target, type LucideIcon } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
+import { History, LogOut, Moon, Settings, Sun, Target, type LucideIcon } from 'lucide-react'
+import { postLogout } from '../api/client'
 import { useHealth } from '../api/hooks'
+import type { AuthUser } from '../api/types'
 import type { Theme } from '../lib/theme'
 import { Logo } from './Logo'
 
@@ -23,7 +26,7 @@ function NavItem({
     ? 'bg-brand/10 text-brand'
     : soon
       ? 'text-fg-subtle cursor-default'
-      : 'text-fg-muted hover:bg-raised hover:text-fg'
+      : 'text-fg-muted hover:bg-raised hover:text-fg cursor-pointer'
   const content = (
     <>
       <Icon size={16} strokeWidth={active ? 2.2 : 1.8} />
@@ -43,19 +46,35 @@ function NavItem({
   )
 }
 
+function initials(user: AuthUser): string {
+  const source = user.name || user.email
+  return source.slice(0, 1).toUpperCase()
+}
+
 export function Sidebar({
   active,
   onNavigate,
   theme,
   onToggleTheme,
+  user,
 }: {
   active: View
   onNavigate: (view: View) => void
   theme: Theme
   onToggleTheme: () => void
+  user: AuthUser
 }) {
   const { data, isError, isLoading } = useHealth()
   const connected = !isError && data?.database === 'ok'
+  const queryClient = useQueryClient()
+
+  async function onLogout() {
+    try {
+      await postLogout()
+    } finally {
+      await queryClient.invalidateQueries({ queryKey: ['me'] }) // flips the gate to login
+    }
+  }
 
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r border-border bg-surface">
@@ -86,6 +105,25 @@ export function Sidebar({
       </nav>
 
       <div className="space-y-1 border-t border-border p-3">
+        <div className="flex items-center gap-2.5 rounded-md px-1.5 py-1.5">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand/15 text-[12px] font-semibold text-brand">
+            {initials(user)}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[12px] font-medium text-fg">{user.name || user.email}</div>
+            <div className="truncate text-[11px] text-fg-subtle">{user.email}</div>
+          </div>
+          <button
+            type="button"
+            onClick={onLogout}
+            title="Sign out"
+            aria-label="Sign out"
+            className="shrink-0 rounded p-1 text-fg-subtle hover:bg-raised hover:text-fg"
+          >
+            <LogOut size={15} />
+          </button>
+        </div>
+
         <div className="flex items-center gap-2 px-2.5 py-1 text-[11px] text-fg-subtle">
           <span
             className={`h-1.5 w-1.5 rounded-full ${
