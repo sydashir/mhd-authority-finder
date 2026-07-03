@@ -59,6 +59,13 @@ export interface Health {
   database: string
 }
 
+export interface AuthUser {
+  email: string
+  name: string
+  picture: string
+  sub: string
+}
+
 export interface Stats {
   total_prospects: number
   high_trust: number

@@ -2,6 +2,7 @@
 // The UI talks ONLY to this (never to the DB/pipeline). Base URL is env-driven.
 
 import type {
+  AuthUser,
   GeoLevel,
   Health,
   PageOf,
@@ -36,7 +37,8 @@ async function apiGet<T>(path: string, params?: Record<string, QueryValue>): Pro
       if (value !== undefined && value !== '') url.searchParams.set(key, String(value))
     }
   }
-  const res = await fetch(url, { headers: { Accept: 'application/json' } })
+  // credentials:'include' sends the session cookie (backend CORS allows credentials).
+  const res = await fetch(url, { headers: { Accept: 'application/json' }, credentials: 'include' })
   if (!res.ok) throw new ApiError(res.status, `${res.status} ${res.statusText}`)
   return (await res.json()) as T
 }
@@ -46,6 +48,7 @@ async function apiPost<T>(path: string, body: unknown): Promise<T> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(body),
+    credentials: 'include',
   })
   if (!res.ok) throw new ApiError(res.status, `${res.status} ${res.statusText}`)
   return (await res.json()) as T
@@ -61,6 +64,12 @@ export interface ProspectFilters {
 }
 
 export const getHealth = () => apiGet<Health>('/health')
+
+// --- auth (ADR-018) ---
+export const getMe = () => apiGet<AuthUser>('/auth/me')
+export const postGoogleLogin = (credential: string) =>
+  apiPost<AuthUser>('/auth/google', { credential })
+export const postLogout = () => apiPost<{ ok: boolean }>('/auth/logout', {})
 
 export const getStats = () => apiGet<Stats>('/stats')
 

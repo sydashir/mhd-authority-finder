@@ -3,7 +3,20 @@
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { getHealth, getProspects, getRuns, getStats, triggerRun, type ProspectFilters } from './client'
+import {
+  getHealth,
+  getMe,
+  getProspects,
+  getRuns,
+  getStats,
+  triggerRun,
+  type ProspectFilters,
+} from './client'
+
+export function useMe() {
+  // 401 -> not signed in (isError, no retry). Drives the auth gate.
+  return useQuery({ queryKey: ['me'], queryFn: getMe, retry: false, staleTime: 5 * 60_000 })
+}
 
 export function useHealth() {
   return useQuery({
