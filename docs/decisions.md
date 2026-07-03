@@ -664,3 +664,39 @@ A named volume starts **empty**, so a fresh container would see every geo as new
 - **UI COMPLETE** (prospects + runs + trigger). Remaining: **Phase D** (auth over the stack — the shell reserves the user-menu/Settings slots) and **Phase E** (hosting/deploy).
 - A run detail view (`GET /runs/{id}`) could show the full funnel; the list currently carries the headline counts.
 - For a real (non-no-op) run, the running spinner + a longer duration would be visible; the no-op is intentionally instant.
+
+## ADR-018 — Authentication: Google sign-in, server-side verify, email allowlist, app session
+
+**Date:** 2026-07-03
+**Status:** Accepted
+**Context:** Phase D makes the app private. It's a single-org internal tool (District Behavioral Health), so a handful of trusted people need in and no one else. We want zero password management and no user-admin UI. Google sign-in + a hard-coded email allowlist fits: the team already has Google accounts; access is a config value, not a database. The pipeline/CLI/scheduler are separate headless entry points that never touch the HTTP API and must keep working without login.
+
+### Decisions
+
+1. **Google sign-in, verified SERVER-SIDE.** The frontend renders `@react-oauth/google`'s `<GoogleLogin>`, which returns a Google ID token (`credential`). The backend verifies it with `google-auth` (`id_token.verify_oauth2_token`, audience = our client id) — never trusting a client-side decode. We additionally enforce a trusted issuer and `email_verified`. Both failure classes (`ValueError` and `GoogleAuthError`) map to 401.
+2. **Email allowlist over user management.** For one org, a database of users + roles is overkill. `ALLOWED_EMAILS` (a comma-separated env value, parsed to a lowercased list) is the entire authorization model: a verified email not on the list gets **403** with a clear "This account isn't authorized — contact your admin." message. Adding a teammate is an env change, not a migration.
+3. **App session = a signed JWT in an httpOnly cookie (not Google's token).** After verify + allowlist, the backend mints its OWN HS256 JWT (`JWT_SECRET`, 12h) and sets it as an httpOnly, `SameSite=Lax` cookie — the app's session, decoupled from Google. `SameSite=Lax` is correct for dev because `localhost:5173` ↔ `localhost:8000` is **same-site** (port isn't part of a site), so the cookie flows; `Secure` is off for localhost-http and flips on for prod-https (`AUTH_COOKIE_SECURE`). The frontend sends `credentials:'include'`; CORS keeps `allow_credentials=True` with explicit origins (never `*`).
+4. **Guard the data routers, keep two routes public.** `stats`/`prospects`/`runs`/`export` are included with `dependencies=[Depends(get_current_user)]` — no session ⇒ 401. `/health` and `POST /auth/google` stay public; `GET /auth/me` requires a session (it's how the SPA learns whether it's logged in). The frontend gates the whole app on `/auth/me`, shows an on-brand login screen otherwise, and a global 401 handler flips back to login on session loss.
+5. **The pipeline/CLI/scheduler are untouched.** Auth lives entirely in `backend/`; `run`/`schedule` import the pipeline, not the API, so headless runs never hit a login. Verified: 338 tests green, CLI + scheduler load, the master Sheet auto-write is unchanged.
+6. **Google project in Testing mode with explicit test users** is the intended private setup (no public-app verification needed for a handful of users). Prod adds the deployed origin to the OAuth client's Authorized JavaScript origins (Phase E).
+
+### Alternatives considered
+
+| Choice | Considered | Why not |
+|---|---|---|
+| Passwords + a users table | no | Password storage/reset + a user-admin UI for a 2–3 person org is overkill and a liability. Google sign-in has none of that. |
+| Verify the Google token client-side | no | A client-side JWT decode is unverified — trivially forgeable. Verification MUST be server-side against Google's keys. |
+| Keep using Google's ID token as the session | no | It expires in ~1h and re-verifying every request adds a Google dependency per call. Mint our own short session instead. |
+| JWT in `localStorage` + `Authorization` header | no | XSS-readable. An httpOnly cookie can't be read by JS; `SameSite=Lax` covers CSRF here. (A Bearer fallback exists for non-browser clients.) |
+| `SameSite=None; Secure` cookie | no | Requires HTTPS; breaks on localhost-http. Lax works because the two dev origins are same-site. |
+| A real user database + roles | deferred | Not needed for one org. If multi-tenant/roles ever arrive, revisit — the allowlist is the seam. |
+
+### Live validation evidence (2026-07-03)
+
+(See `docs/progress.md` Session 18.) **Live-browser:** unauthenticated → the on-brand login screen (logo + "Sign in with Google"); with a valid session the full dashboard loads, the sidebar shows the signed-in user (name + email + avatar), features work (Trust=high→6, Source=AH→23, runs), and logout clears the cookie and returns to the login screen. **Backend-verified (curl + tests):** `/prospects`,`/stats`,`/runs`,`/auth/me` all 401 unauthenticated; a bad Google token → 401; a validly-verified-but-not-allowlisted email → **403** (test, with a mocked verified token — Step 6.4); a minted session → `/auth/me` 200 + `/prospects` 200. **NOT live-browser:** the real Google popup can't complete headless, so the logged-in state was verified by injecting a real backend-minted session (a legitimate app session, standing in for a completed Google login) — the Google *verification* path is covered by the backend tests, not fabricated. 14 auth tests; 338 backend total; frontend tsc/build/oxlint clean; CLI + scheduler + master Sheet unchanged. Two bugs were caught in live verification and fixed: a 401 self-loop on `/auth/me`, and the logout gate (TanStack Query retains data on error → also gate on `isError`).
+
+### Trigger to revisit
+
+- **Phase E (hosting):** deploy the stack; add the production URL to the OAuth client's Authorized JavaScript origins; set env on the host (`ALLOWED_EMAILS`, `JWT_SECRET`, OAuth creds, `AUTH_COOKIE_SECURE=true`, prod `CORS_ALLOW_ORIGINS`/`VITE_API_URL`). If frontend + API share an origin in prod, the cookie is simply same-origin.
+- `ALLOWED_EMAILS` in `.env` currently lists one `districtbehavioralhealth.com` address — add each teammate (and `meetashirr@gmail.com` if that account should sign in) there and as an OAuth test user.
+- If the app ever needs roles or >~10 users, replace the allowlist with a users table.
