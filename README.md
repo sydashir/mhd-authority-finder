@@ -57,8 +57,19 @@ The SaaS surface: a Postgres source-of-truth (ADR-013), a FastAPI backend that s
 run history and triggers runs (ADR-014), and **AuthorityScout** — a dark-first React dashboard the
 outreach team works in (ADR-015/016/017) with stat cards, a sortable/filterable prospects table, a
 detail drawer, **export** (CSV + a new Google Sheet tab), and a **Runs** screen — run history plus a
-cost-safe "Run now" trigger with live status polling. The pipeline + master Sheet auto-write
-are unchanged — the DB/API/UI are additive layers on top; the UI talks only to the API.
+cost-safe "Run now" trigger with live status polling. It is **private — Google sign-in + an email
+allowlist** (ADR-018). The pipeline + master Sheet auto-write are unchanged — the DB/API/UI are
+additive layers on top; the UI talks only to the API. The CLI/scheduler are headless and need no login.
+
+### Sign-in setup (Google OAuth)
+
+In Google Cloud Console → APIs & Services → Credentials, create an **OAuth 2.0 Web client**; under
+**Authorized JavaScript origins** add `http://localhost:5173` (and your prod origin). On the OAuth
+consent screen, keep the app in **Testing** and add each teammate as a **Test user**. Then in `.env`:
+`GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `ALLOWED_EMAILS` (comma-separated), a long
+`JWT_SECRET`; in `frontend/.env`, `VITE_GOOGLE_CLIENT_ID` (the same client id). Only allowlisted +
+test-user emails can sign in; a verified-but-not-allowlisted account gets a 403. In prod set
+`AUTH_COOKIE_SECURE=true` (HTTPS).
 
 Three local processes:
 

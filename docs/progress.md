@@ -911,3 +911,46 @@ Backend suite **324 passed** (no backend changes this session), pyright strict 0
 ### What's next — UI COMPLETE
 
 Prospects + Runs + trigger are all shipped. Remaining: **Phase D** (auth over the stack — the shell reserves user-menu/Settings slots) and **Phase E** (hosting/deploy). Run the stack: `docker compose up -d postgres` + `uv run uvicorn backend.app:app` + `cd frontend && npm run dev`.
+
+---
+
+## 2026-07-03 — Session 18: Phase D — authentication (Google sign-in + allowlist)
+
+### Done
+
+SaaS build, Phase D (ADR-018) — makes the app private. **Note:** the phase was requested as "resume from Step 6", but the auth implementation did NOT exist in the repo (no auth router/config/login) — so this session built Phase D from scratch (Steps 1–5) then verified (6–9). The pipeline/CLI/scheduler (headless, no API auth) stay untouched. Research workflow (context7) confirmed the current google-auth / @react-oauth/google / PyJWT-cookie / pydantic-settings shapes first.
+
+- `1dd317e` **feat: add auth config and token/session core** — Settings: `GOOGLE_OAUTH_CLIENT_ID/SECRET`, `ALLOWED_EMAILS` (CSV→list validator via NoDecode), `JWT_SECRET`, session hours + cookie-secure. `backend/auth.py`: server-side Google verify (`google-auth`, aud+issuer+`email_verified`, `ValueError|GoogleAuthError`→401), allowlist, HS256 session mint/decode, `get_current_user` (cookie/Bearer→401). PyJWT 2.13.
+- `b0e59f5` **feat: add auth routes and guard data routers** — `POST /auth/google` (verify→allowlist 403→JWT→httpOnly SameSite=Lax cookie→user), `GET /auth/me` (401), `POST /auth/logout`. Verifier is a dependency (tests inject a fake). Data routers guarded; health + `/auth/google` public. 14 auth tests; existing api fixtures bypass auth with a test user.
+- `7416b62` **feat: add auth api client and login screen** — typed auth client (`credentials:'include'`), `useMe` hook, on-brand Login (logo + `@react-oauth/google`, 403 not-authorized state).
+- `68576a0` **feat: gate app on sign-in with user menu and logout** — App gates on `useMe`; GoogleOAuthProvider + a global 401 handler; sidebar user menu (avatar/name/email) + logout.
+- `390a830` **fix: auth gate loop and logout** — two bugs caught live: the global 401 handler looped on `/auth/me`'s own 401 (scope to non-`me`); the gate kept showing the app after logout (TanStack retains data on error → also gate on `isError`).
+
+### Live validation (2026-07-03) — noting live-browser vs backend-verified
+
+- **Live browser:** unauthenticated → on-brand login screen (logo + "Sign in with Google", "access is limited to authorized team members"). With a valid session → the dashboard loads; sidebar shows the signed-in user (Intake Team / integrations@districtbehavioralhealth.com / avatar); features work (Trust=high→**6**, Source=AH→**23**, runs 6); **logout → cookie cleared + back to login**.
+- **Backend (curl + tests):** `/prospects`,`/stats`,`/runs`,`/auth/me` → **401** unauthenticated; bad Google token → **401**; validly-verified-but-not-allowlisted email → **403** (test, mocked verified token); minted session → `/auth/me` 200 + `/prospects` 200.
+- **NOT live-browser:** the real Google popup can't complete headless — the logged-in state was verified by injecting a real backend-minted session (a legitimate app session standing in for a completed login); Google *verification* is covered by the backend tests, not fabricated.
+- `.env` confirmed **NOT** tracked (git ls-files empty) and never committed; the OAuth client id is public (also the frontend var).
+
+### Nothing broke
+
+Backend suite **338 passed** (324 + 14 auth), pyright strict 0, ruff clean. **CLI (`run`/`schedule`) + scheduler load and are unaffected** (auth lives only in `backend/`; they never hit the API). Master Sheet auto-write unchanged. Frontend tsc clean, vite build succeeds, oxlint clean.
+
+### Decisions / why (ADR-018)
+
+- **Google sign-in verified server-side + email allowlist** — no passwords, no user-admin UI for a single org; access is a config value.
+- **App's own JWT in an httpOnly SameSite=Lax cookie** (not Google's token) — XSS-safe, decoupled; Lax works because localhost:5173↔8000 is same-site.
+- **Guard the data routers, keep /health + /auth/google public.**
+
+### Gotchas
+
+- pydantic-settings JSON-decodes list env vars — a CSV `ALLOWED_EMAILS` needs `Annotated[list[str], NoDecode]` + a splitting validator.
+- A global "401 → re-check auth" must EXCLUDE the auth-check query itself, or its 401 loops forever.
+- TanStack Query retains the last `data` on a refetch error — the logout gate must check `isError`, not just `!data`.
+- Cookies are host-scoped (ignore port), so a `localhost` cookie set on :5173 reaches the API on :8000 — that's why SameSite=Lax + same-site works cross-port.
+- The Google button is a GSI iframe (can't be CSS-styled); brand around it. Its origin must be in the OAuth client's Authorized JavaScript origins.
+
+### What's next — Phase E (hosting)
+
+Deploy the stack; add the production URL to the OAuth client's Authorized JavaScript origins; set env on the host (`ALLOWED_EMAILS`, `JWT_SECRET`, OAuth creds, `AUTH_COOKIE_SECURE=true`, prod `CORS_ALLOW_ORIGINS` / `VITE_API_URL`). Add each teammate (and `meetashirr@gmail.com` if it should sign in) to `ALLOWED_EMAILS` + as OAuth test users.
