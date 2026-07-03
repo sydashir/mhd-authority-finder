@@ -10,10 +10,11 @@ const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? ''
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, refetchOnWindowFocus: false } },
-  // A 401 from any data call means the session is gone -> re-check auth (flips to Login).
+  // A 401 from a DATA call means the session is gone -> re-check auth (flips to Login).
+  // Skip the ['me'] query itself, or its own 401 would loop forever.
   queryCache: new QueryCache({
-    onError: (error) => {
-      if (error instanceof ApiError && error.status === 401) {
+    onError: (error, query) => {
+      if (error instanceof ApiError && error.status === 401 && query.queryKey[0] !== 'me') {
         void queryClient.invalidateQueries({ queryKey: ['me'] })
       }
     },

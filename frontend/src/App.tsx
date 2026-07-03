@@ -24,8 +24,10 @@ function App() {
     )
   }
 
-  // No session (401 / error) -> the login screen. The auth gate.
-  if (!me.data) return <Login />
+  // No session (401 / error) -> the login screen. The auth gate. We check isError
+  // too: TanStack Query retains the last user on a refetch error, so after logout
+  // the 401 refetch must still flip us back to Login.
+  if (me.isError || !me.data) return <Login />
 
   return (
     <div className="flex h-full">
