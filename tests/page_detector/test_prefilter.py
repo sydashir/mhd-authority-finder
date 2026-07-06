@@ -26,6 +26,16 @@ def test_federal_matches_deep_subdomains() -> None:
     assert verdict.domain_rejection == "federal"
 
 
+def test_national_portals_rejected_as_federal() -> None:
+    # Live S19 leak: geo-less national portals published as per-geo authorities
+    # (govinfo.gov -> Long Beach; data.gov -> Texas + Wyoming).
+    for url in (
+        "https://www.govinfo.gov/content/pkg/FR-2020-01-01/html/x.htm",
+        "https://catalog.data.gov/dataset/mental-health",
+    ):
+        assert prefilter_candidate(make_candidate(url)).domain_rejection == "federal"
+
+
 def test_state_gov_is_not_federal() -> None:
     verdict = prefilter_candidate(make_candidate("https://health.maryland.gov/bha/"))
     assert verdict.domain_rejection is None

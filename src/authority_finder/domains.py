@@ -55,6 +55,14 @@ FEDERAL_DOMAINS: frozenset[str] = frozenset(
         "uscourts.gov",
         "ussc.gov",
         "va.gov",
+        # geo-less national publishing / data / legislative portals (S19: govinfo.gov and
+        # data.gov leaked in as per-geo authorities; the rest are the same class)
+        "congress.gov",
+        "data.gov",
+        "federalregister.gov",
+        "govinfo.gov",
+        "gpo.gov",
+        "regulations.gov",
         # likely to rank for health / treatment / justice queries
         "acf.gov",
         "ahrq.gov",
