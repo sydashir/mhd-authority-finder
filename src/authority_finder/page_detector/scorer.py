@@ -21,6 +21,7 @@ from authority_finder.discovery.models import GeoRef
 from authority_finder.discovery.queries import county_display, slug_to_display
 from authority_finder.fetching import PageContent
 from authority_finder.geo_monitor.states import US_STATE_SLUGS
+from authority_finder.page_detector.geography import candidate_state
 from authority_finder.page_detector.models import Confidence, DetectedPage, PageSignal
 
 TOPIC_KEYWORDS = (
@@ -123,7 +124,14 @@ def score_page(content: PageContent, *, geo: GeoRef) -> DetectedPage | WrongStat
 
     state_counts = count_state_mentions(searchable)
     target_count = state_counts.get(geo.state, 0)
-    if target_count == 0 and state_counts:
+    # The candidate DOMAIN's state (where reliably derivable) is authoritative — it beats page
+    # text, which can be actively misleading (wyomingcountyny.gov's page is full of "Wyoming",
+    # but the domain proves it's a New York county). ADR-020.
+    cand_state = candidate_state(content.final_url)
+    domain_confirms = cand_state == geo.state
+    if cand_state is not None and not domain_confirms:
+        return WrongState(dominant_state=cand_state, mentions=0)
+    if not domain_confirms and target_count == 0 and state_counts:
         dominant, mentions = max(state_counts.items(), key=lambda kv: kv[1])
         if mentions >= WRONG_STATE_MIN_COUNT:
             return WrongState(dominant_state=dominant, mentions=mentions)
@@ -194,12 +202,27 @@ def score_page(content: PageContent, *, geo: GeoRef) -> DetectedPage | WrongStat
     # health.maryland.gov/bha titled just "Get Help") escapes the cap.
     if not topic_title and not topic_path and not topic_body:
         confidence = "low"
+    # Geo-confirmation gate (ADR-020): a candidate whose target geo is confirmed by NEITHER the
+    # domain, NOR strong text (target state present AND not out-mentioned by another state — a
+    # national/multi-state page naming the target once is weak), NOR (county/city) the locality is
+    # unverifiable — cap it to low / flag it rather than ship a possibly out-of-state prospect.
+    other_state_max = max((c for s, c in state_counts.items() if s != geo.state), default=0)
+    text_confirms = target_count > 0 and target_count >= other_state_max
+    if not (domain_confirms or text_confirms or matched_locality):
+        confidence = "low"
+        signals.append(
+            PageSignal(
+                name="geo_unconfirmed",
+                weight_contribution=0.0,
+                detail="target state/locality not confirmed by domain or page text",
+            )
+        )
     return DetectedPage(
         url=content.final_url,
         score=score,
         confidence=confidence,
         signals=signals,
-        state_validated=target_count > 0,
+        state_validated=target_count > 0 or domain_confirms,
     )
 
 

@@ -101,6 +101,86 @@ def test_target_state_present_prevents_wrong_state_reject() -> None:
     assert page.state_validated
 
 
+WYOMING_GEO = GeoRef(
+    site_id="ah",
+    url="https://addictionhotline.com/wyoming/",
+    level="state",
+    state="wyoming",
+)
+
+
+def test_domain_contradicts_target_is_hard_rejected() -> None:
+    # The killer S19 case: wyomingcountyny.gov is Wyoming COUNTY, New York. Its page says
+    # "Wyoming" constantly (the county's name), so text-only passed it — the domain (…ny.gov)
+    # is the only truth. Domain contradiction must hard-reject regardless of text.
+    content = make_content(
+        final_url="https://wyomingcountyny.gov/health/",
+        title="Wyoming County Health Department",
+        text="Wyoming County services for Wyoming County residents. " + LONG_BODY,
+    )
+    verdict = score_page(content, geo=WYOMING_GEO)
+    assert isinstance(verdict, WrongState)
+    assert verdict.dominant_state == "new-york"
+
+
+def test_unconfirmable_target_state_demoted_to_low() -> None:
+    # cornell.edu is New York, not Wyoming; the .edu domain can't prove it, and the page never
+    # names Wyoming — neither domain nor text confirms the target, so it must not ship as verified.
+    content = make_content(
+        final_url="https://cornell.edu/student-health/",
+        title="Student Mental Health and Counseling Services",
+        text="Counseling and psychological services for students. Crisis support. " + LONG_BODY,
+        has_mailto=True,
+        has_tel=True,
+    )
+    page = score_page(content, geo=WYOMING_GEO)
+    assert isinstance(page, DetectedPage)
+    assert page.confidence == "low"
+    assert "geo_unconfirmed" in {s.name for s in page.signals}
+
+
+def test_domain_confirmed_candidate_not_demoted() -> None:
+    # cdph.ca.gov confirms California by domain even without the word "California" on the page —
+    # a state agency must not be demoted just because its page doesn't spell out the state.
+    content = make_content(
+        final_url="https://cdph.ca.gov/programs/behavioral-health/",
+        title="Behavioral Health Services",
+        text="Mental health and substance use treatment programs. Crisis support. " + LONG_BODY,
+        has_mailto=True,
+        has_tel=True,
+    )
+    page = score_page(content, geo=CALIFORNIA_GEO)
+    assert isinstance(page, DetectedPage)
+    assert page.confidence != "low"
+    assert page.state_validated
+
+
+def test_target_named_but_not_dominant_is_demoted() -> None:
+    # A page that names the target once but is dominated by another state (a national/multi-state
+    # org) is weak evidence — it must not pass as confirmed just for mentioning the target.
+    content = make_content(
+        final_url="https://nationalcounseling.edu/programs/",
+        title="Counseling and Mental Health Programs",
+        text="Serving Wyoming, plus California, California, California residents. " + LONG_BODY,
+        has_mailto=True,
+    )
+    page = score_page(content, geo=WYOMING_GEO)
+    assert isinstance(page, DetectedPage)
+    assert page.confidence == "low"
+
+
+def test_domain_confirmed_survives_other_state_in_text() -> None:
+    # A confirmed-California domain is a California org even if its page discusses another state —
+    # the domain is authoritative, so the text-based wrong-state reject must be suppressed.
+    content = make_content(
+        final_url="https://cdph.ca.gov/programs/",
+        title="Behavioral Health Services",
+        text="Comparing programs with North Carolina and North Carolina again. " + LONG_BODY,
+    )
+    page = score_page(content, geo=CALIFORNIA_GEO)
+    assert isinstance(page, DetectedPage)
+
+
 def test_single_foreign_state_mention_is_not_a_reject() -> None:
     content = make_content(
         title="Behavioral Health Services",
