@@ -4,7 +4,30 @@ candidate_state derives a .gov/.us domain's US state slug ONLY where it's reliab
 (state portals + county{abbr}); everything ambiguous returns None (text fallback).
 """
 
+import pytest
+
 from authority_finder.page_detector.geography import candidate_state
+
+
+@pytest.mark.parametrize(
+    ("domain", "expected"),
+    [
+        # S19 regression cases (data/output/s19-sample-v2.csv):
+        ("wyomingcountyny.gov", "new-york"),  # served to Wyoming — the killer wrong-state case
+        ("steubencountyny.gov", "new-york"),  # correctly a NY county
+        ("tarrantcountytx.gov", "texas"),
+        ("tetoncountywy.gov", "wyoming"),
+        ("oasas.ny.gov", "new-york"),  # state-portal subdomain
+        ("edu.wyoming.gov", "wyoming"),  # full-name portal
+        ("cornell.edu", None),  # NY university — not domain-derivable
+        ("memphis.edu", None),  # TN university
+        ("cuanschutz.edu", None),  # CO campus
+        ("dconc.gov", None),  # Durham County NC — cryptic, not derivable
+        ("oc.gov", None),  # Orange County CA — 'oc' is not a state abbr, falls to locality
+    ],
+)
+def test_s19_real_domains(domain: str, expected: str | None) -> None:
+    assert candidate_state(f"https://{domain}/") == expected
 
 
 def test_state_portal_subdomain_resolves_to_state() -> None:

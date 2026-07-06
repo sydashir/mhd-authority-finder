@@ -181,6 +181,44 @@ def test_domain_confirmed_survives_other_state_in_text() -> None:
     assert isinstance(page, DetectedPage)
 
 
+def test_cryptic_out_of_state_gov_demoted() -> None:
+    # Bucket 3: dconc.gov is Durham County NC; 'dconc' can't be derived, and a topical page with
+    # no California/Orange-County context must be demoted, not shipped for an Orange County geo.
+    content = make_content(
+        final_url="https://dconc.gov/behavioral-health/",
+        title="Behavioral Health Services",
+        text="Mental health and substance use programs. Crisis and recovery support. " + LONG_BODY,
+        has_tel=True,
+    )
+    page = score_page(content, geo=ORANGE_COUNTY_GEO)
+    assert isinstance(page, DetectedPage)
+    assert page.confidence == "low"
+    assert "geo_unconfirmed" in {s.name for s in page.signals}
+
+
+def test_locality_in_text_confirms_out_of_domain_edu() -> None:
+    # A .edu that names the target locality IS geo-confirmed — CSU Long Beach naming "Long Beach"
+    # must not be demoted just because the domain carries no state.
+    long_beach = GeoRef(
+        site_id="mhd",
+        url="https://inpatientmentalhealthfinder.com/serving/california/los-angeles/long-beach/",
+        level="city",
+        state="california",
+        county="los-angeles",
+        city="long-beach",
+    )
+    content = make_content(
+        final_url="https://csulb.edu/counseling/",
+        title="Counseling and Psychological Services",
+        text="Serving students in Long Beach. Mental health and crisis support. " + LONG_BODY,
+        has_mailto=True,
+        has_tel=True,
+    )
+    page = score_page(content, geo=long_beach)
+    assert isinstance(page, DetectedPage)
+    assert page.confidence != "low"
+
+
 def test_single_foreign_state_mention_is_not_a_reject() -> None:
     content = make_content(
         title="Behavioral Health Services",
