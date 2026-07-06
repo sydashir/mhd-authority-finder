@@ -283,6 +283,8 @@ def deobfuscate(text: str) -> str:
 def _is_junk_email(address: str) -> bool:
     if len(address) > _MAX_EMAIL_LEN:
         return True
+    if any(ch.isspace() for ch in address):  # interior whitespace → never a deliverable address
+        return True
     local, _, domain = address.partition("@")
     if not domain:
         return True

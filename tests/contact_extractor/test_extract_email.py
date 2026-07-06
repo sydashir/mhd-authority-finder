@@ -84,6 +84,19 @@ def test_separated_phone_glued_into_local_part_rejected() -> None:
     )
 
 
+def test_email_with_interior_space_rejected() -> None:
+    # Live S19 defect (pba.edu): a mailto with an interior space is undeliverable, yet was
+    # published at HIGH trust and out-ranked the valid same-domain dept inbox on the page.
+    hits = extract_emails(
+        page(
+            final_url="https://pba.edu/counseling",
+            mailto=["counseling_wellness@pba.edu", "counseling _center@pba.edu"],
+        )
+    )
+    got = [h.address for h in rank_emails(hits)]
+    assert got == ["counseling_wellness@pba.edu"]
+
+
 def test_clean_dept_email_without_glued_phone_survives() -> None:
     assert addrs({"final_url": "https://regis.edu/x", "text": "Email counseling@regis.edu."}) == [
         "counseling@regis.edu"
