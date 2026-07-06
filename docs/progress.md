@@ -1007,3 +1007,61 @@ the pipeline is ready for a full **64-geo run ≈ 253 billed (~$3.80)**, subject
   crawl guard or agencies bleed into each other.
 - testcontainers DB tests error transiently right after Docker starts (port/resource contention) — pass
   when Docker is warm; re-run the suite.
+
+## 2026-07-06 — Session 20: Phase F2 — wrong-state validation
+
+Hardening. Session 19 flagged ~9% wrong-state / out-of-geo candidates as the top quality risk for the full
+64-geo run (concentrated on the 24 state-level AH geos). The scorer's wrong-state check was **text-only** —
+it never inspected the candidate DOMAIN's real location. A wrong-state row is not "low quality", it is
+**wrong** (emails a different region's org). Fixed so wrong-state prospects are rejected or flagged. ~0 billed
+(all cached). ADR-020; audit `docs/wrong-state-audit.md`.
+
+### What was done
+
+- **Diagnosis** (`docs/wrong-state-audit.md`): 8 of 83 S19 rows are wrong-state, in 3 buckets — (1) a domain
+  that encodes a contradicting state (`wyomingcountyny.gov` = Wyoming County, **New York** — its page is full
+  of "Wyoming", so text-only passed it *with the target-state bonus*; only the domain reveals NY); (2)
+  out-of-state universities (`cornell/memphis/cuanschutz/franklin/pitt/divinemercy.edu`) — no state in a
+  `.edu` domain; (3) cryptic out-of-state `.gov` (`dconc.gov` = Durham County NC).
+- **`page_detector/geography.py::candidate_state(url)`** (`e15693a`... committed as feat): derive a
+  `.gov`/`.us` domain's state ONLY where reliable — state-portal domains + `county{abbr}` suffix. Bare
+  `{city}{abbr}.gov` (napa→pa), full-name suffix (portwashington→washington), `.edu`, and cryptic acronyms
+  return `None` (they'd misfire). 
+- **Scorer enforcement** (`feat: enforce geography in scoring`): domain contradicts target → **hard reject**
+  (`wrong_state`); domain-confirmed suppresses the text reject; a **geo-confirmation gate** caps confidence
+  to **low** (+`geo_unconfirmed` signal) when NEITHER the domain, NOR strong text (target present and not
+  out-mentioned by another state), NOR (county/city) the locality confirms the target.
+- **Commits (all sydashir):** `fbaf704` docs: wrong-state diagnosis · `e15693a` feat: add domain geography
+  validation · `39f875d` feat: enforce geography in scoring · `81b70e5` test: wrong-state validation coverage
+  · `600a919` docs: adr wrong-state validation.
+
+### Verification (billed 0, cached)
+
+- **8 S19 geos re-run:** `wyomingcountyny.gov` → **hard-rejected**; `divinemercy.edu` (VA), was **high** for
+  Wyoming → **low**; other `.edu` cases already low. **7 of 8 wrong-state now rejected-or-low** (the worst,
+  actively-misleading high-confidence case eliminated). Residual: `cuanschutz.edu` (CO) still medium — its
+  page incidentally names California/Los Angeles (text confirmation can be fooled; not domain-derivable, so
+  not hard-rejectable without a university→state dataset). False positive: `plano.gov` (a correct Texas
+  city) medium→low — demoted (flagged), not removed; the accepted precision cost.
+- **5-geo baseline re-check:** contact-trust **high still 6, medium still 18 — no legitimate row lost or
+  demoted** (low-trust 44→42); the gate additionally rejected two genuine wrong-state candidates for the
+  Orange County *California* geo — `orangecountync.gov` (NC) + `orangecountyva.gov` (VA), both
+  high-confidence. Net: it improved the baseline, not degraded it.
+- **370 tests** (344 + 26 new), pyright 0, ruff+format clean; CLI/scheduler load; master Sheet untouched;
+  frontend builds.
+
+### Verdict
+
+Wrong-state is **materially controlled**: the highest-value class (a place named after a state, in a
+different state — high confidence, actively misleading) is now hard-rejected, and out-of-state candidates
+that can't confirm the target are demoted/flagged. Precision preserved (rejection needs domain proof; the
+unconfirmable is flagged, never wrongly killed). Ready for the full **64-geo run (~253 billed / ~$3.80)**.
+
+### Gotchas
+
+- A wrong-state place can be NAMED after the target state (`wyomingcountyny.gov`) — text is actively
+  misleading; the domain is the only truth.
+- Only assert domain geography where genuinely derivable (portal + `county{abbr}`); bare `{city}{abbr}` and
+  full-name suffixes misfire (napa→pa, portwashington→washington).
+- `.edu` carries no state — an out-of-state university whose page mentions the target incidentally can still
+  slip at reduced confidence; that's a known limit, not a bug.
