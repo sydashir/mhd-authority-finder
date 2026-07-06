@@ -954,3 +954,56 @@ Backend suite **338 passed** (324 + 14 auth), pyright strict 0, ruff clean. **CL
 ### What's next — Phase E (hosting)
 
 Deploy the stack; add the production URL to the OAuth client's Authorized JavaScript origins; set env on the host (`ALLOWED_EMAILS`, `JWT_SECRET`, OAuth creds, `AUTH_COOKIE_SECURE=true`, prod `CORS_ALLOW_ORIGINS` / `VITE_API_URL`). Add each teammate (and `meetashirr@gmail.com` if it should sign in) to `ALLOWED_EMAILS` + as OAuth test users.
+
+## 2026-07-06 — Session 19: Phase F1 — scale-test the pipeline at real volume (cost-capped)
+
+First run of the pipeline over **unseen** geos at real volume, hard-capped at **40 billed SerpAPI
+searches**. Goal: find what breaks beyond the 5 cached geos, fix the real defects, and give an honest
+production-readiness verdict + full-run cost — without spending the shared budget.
+
+### What was done
+
+- **Free recon (no spend):** both live sitemaps → **72 live geo pages** (MHD 23: 2 state/4 county/17 city;
+  AH 49: all state), 8 already cached, **64 new**; projected full-run ≈ **253 billed** (~$3.80). AH is
+  state-only — county/city depth is MHD-only.
+- **Capped 8-geo sample** (3 AH state incl. rural Wyoming, 2 MHD county, 3 MHD city incl. the Palos Verdes
+  fuzzy-match trap), projected 30 billed, `max_billed=38` backstop. **First run: 29 billed**, 8 geos →
+  167 candidates → 87 rows; no crashes, no whole-geo failures, DB idempotent (run #7, 87 prospects),
+  population 74/87 exact. **Session billed total: 30 of 40.**
+- **Adversarial analysis (multi-agent) → 6 confirmed precision defects**, each fixed via TDD, atomic commit:
+  `e4caf0c` reject interior-whitespace emails (HIGH — an undeliverable spaced address was published at HIGH
+  trust, out-ranking the valid inbox); `ff4b56f` reject glued-label junk emails; `c46edf7` exclude national
+  federal portals (govinfo.gov/data.gov) as candidates; `2fb5fc8` wrap transport errors so the crawl
+  fallback runs; `29ede7f` scope the crawl to the per-agency dedupe key (dol.ny.gov no longer hops into
+  omh.ny.gov); `c29ec44` treat an empty SerpAPI result as valid (not a hard error → no miscount, now cached).
+- **Cached re-run verified every fix on real data** (billed 1 — one previously-uncached Wyoming query that
+  now returns results): 0 federal-portal rows; pba.edu → `counseling_wellness@pba.edu`; oc.gov →
+  `carecoordination@ceo.oc.gov`; dol.ny.gov → `dol.ny.gov/about-us`; Wyoming errors=0; **0 junk emails**.
+  Corrected: 83 rows, 44 email (53%), 73 phone (88%), population 70/83 (84%).
+- **344 tests** (338 + 6), pyright 0, ruff clean; CLI + scheduler load; master Sheet untouched; dev DB
+  restored to canonical 68/6/5 (the pre-fix scale rows were throwaway test data).
+
+### Decisions / why (ADR-019)
+
+- **Report the free live-geo count before spending** — cost transparency; the cache makes the 5 old geos free.
+- **Controlled sample script, not the bare `run` CLI** (which loads all geos) + a hard `max_billed` backstop.
+- **Fix only adversarially-confirmed defects** — the 403/DNS/robots failures are expected external noise
+  (~23% of candidates), per-candidate isolated, not bugs.
+- **Deferred the ~9% wrong-state risk** (scorer's wrong-state reject is text-only, no domain geolocation) —
+  unconfirmed + a bigger change; flagged as the top scale risk for a spot-check before the full run.
+
+### Verdict
+
+Infrastructure **scales safely** (cost-bounded, idempotent, honest, per-geo isolated). With the 6 fixes,
+the pipeline is ready for a full **64-geo run ≈ 253 billed (~$3.80)**, subject to the wrong-state spot-check.
+
+### Gotchas
+
+- The local `.env` had `SERPAPI_KEY` but the code expects `SERPAPI_API_KEY` (per `.env.example`) — the key
+  silently loaded as empty (zero results, no error). Renamed the local var; not a code change.
+- SerpAPI signals a genuinely-empty result with HTTP 200 + an `error` string ("hasn't returned any results")
+  — distinct from real errors; must be treated as empty, not raised.
+- State `.gov` portals share one registrable domain (`ny.gov`) — use the per-agency `dedupe_key` for the
+  crawl guard or agencies bleed into each other.
+- testcontainers DB tests error transiently right after Docker starts (port/resource contention) — pass
+  when Docker is warm; re-run the suite.

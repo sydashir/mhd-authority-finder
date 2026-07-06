@@ -700,3 +700,35 @@ A named volume starts **empty**, so a fresh container would see every geo as new
 - **Phase E (hosting):** deploy the stack; add the production URL to the OAuth client's Authorized JavaScript origins; set env on the host (`ALLOWED_EMAILS`, `JWT_SECRET`, OAuth creds, `AUTH_COOKIE_SECURE=true`, prod `CORS_ALLOW_ORIGINS`/`VITE_API_URL`). If frontend + API share an origin in prod, the cookie is simply same-origin.
 - `ALLOWED_EMAILS` in `.env` currently lists one `districtbehavioralhealth.com` address — add each teammate (and `meetashirr@gmail.com` if that account should sign in) there and as an OAuth test user.
 - If the app ever needs roles or >~10 users, replace the allowlist with a users table.
+
+## ADR-019 — Phase F1: scale-test at real volume, cost-capped, then fix the precision defects it surfaced
+
+**Date:** 2026-07-06
+**Status:** Accepted
+**Context:** The pipeline had only ever run over 5 cached geos. Before a full outreach push we needed to know how it behaves on *unseen* geos at real volume — without spending the shared SerpAPI budget. Hard rule: **≤40 billed searches for the whole session**, count every billed call, report the free live-geo count before spending.
+
+### Decisions
+
+1. **Free reconnaissance before any spend.** The geo monitor reads both live sitemaps for $0: **72 live geo pages** (MHD 23 — 2 state / 4 county / 17 city; AH 49 — all state), **8 already cached** (free to re-run), **64 new**. Projected full-run cost of everything new ≈ **253 billed searches** (~$3.80 at SerpAPI's rate). Reported before spending a cent. Structural finding: **AH publishes only state-level geos** — county/city depth is MHD-only, so unseen county/city coverage must come from MHD.
+2. **A controlled, capped sample — not the bare `run` CLI.** `run` loads *all* known geos; a scale test needs an explicit target list under the cap. An 8-geo, level- and site-mixed sample (3 AH state incl. rural Wyoming, 2 MHD county, 3 MHD city incl. the S12 fuzzy-match trap Palos Verdes) projected to **30 billed**. Enforced with `SerpApiClient(max_billed=38)` — a hard backstop below 40; discovery concurrency is 2 with sequential per-geo queries, so worst-case overshoot at the cap is ≤1. **Actual first run: 29 billed** (Wyoming's `site:.gov` substance-abuse query returned zero results that hour).
+3. **Adversarial multi-agent analysis, then fix only what was confirmed.** The run completed cleanly — **no crashes, no whole-geo failures, cost fully accounted, DB idempotency flawless, population exact and honest** (74/87, all correct ACS; Palos Verdes `not_found` is right). A parallel dimension analysis + adversarial verification confirmed **6 data-precision defects** (out of more candidates — expected 403/DNS/robots noise was correctly rejected as external, not bugs). Each fixed via TDD, one atomic commit:
+   - **Reject emails with interior whitespace** (HIGH). A malformed mailto `counseling _center@pba.edu` was published at HIGH trust and out-ranked the valid same-domain dept inbox. Mailto bypasses the body regex, so `_is_junk_email` gained a whitespace guard.
+   - **Reject glued-label junk emails.** lxml `text_content()` glued a phone tail + doubled `Email` labels onto an inbox (`5000EmailEmailcarecoordination@…`); the `\d{5,}` guard missed the 4-digit prefix. Added a leading-4-digit / doubled-label guard.
+   - **Exclude national federal portals as candidates.** `govinfo.gov` and `data.gov` (geo-less national portals) were published as per-geo authorities; added them + peers (gpo/congress/regulations/federalregister) to `FEDERAL_DOMAINS`.
+   - **Scope the crawl fallback to the per-agency dedupe key.** The crawl used the coarse registrable domain (`ny.gov`), so a `dol.ny.gov` candidate whose page 403'd hopped into a sibling agency `omh.ny.gov` and recorded its homepage under the DOL row. Switched the crawl + redirect-shell guard to `dedupe_key`.
+   - **Wrap transport errors so the crawl fallback runs.** A raw `httpx.TransportError` (DNS/timeout) escaped `fetch()` unwrapped, so the detector's `except FetchError` missed it and the whole candidate aborted instead of falling back. Wrapped it as `FetchFailedError`.
+   - **Treat an empty SerpAPI result as valid, not an error.** SerpAPI returns HTTP 200 + `{"error":"…hasn't returned any results…"}` for a genuinely empty `site:.gov` search (rural geos); the client raised it as a hard error, miscounting it as a query failure and never caching it (so it re-issued live every run). Now returned empty (unbilled — SerpAPI doesn't bill no-results — but cached).
+4. **Deferred, NOT fixed: the wrong-state candidate risk.** ~9% of rows were out-of-geo candidates whose root cause is that the scorer's wrong-state reject is *text-only* and never validates the candidate domain's real location. This was **not** adversarially confirmed as a discrete defect and the fix is a larger change (domain geolocation), so it is deliberately excluded — but flagged as the single biggest quality risk at 64-geo scale (24 of those are state-level AH runs, the exact trigger) and recommended for a spot-check before/during the full run.
+
+### Verification evidence (2026-07-06)
+
+Cached re-run of the same 8 geos after the fixes (**billed = 1** — 29 cache hits + the one previously-uncached Wyoming query, which this hour returned real results and is now cached; **session total 30 of 40**). Every defect fixed on real data: **0** `govinfo.gov`/`data.gov` rows; `pba.edu` now publishes `counseling_wellness@pba.edu` (the valid inbox); `oc.gov` now `carecoordination@ceo.oc.gov`; `dol.ny.gov` now points to `dol.ny.gov/about-us`, not `omh.ny.gov/`; Wyoming `errors=0`, `query_failed=0`; **0 junk emails** in the Email column. Corrected funnel: 83 rows, 44 with email (53%), 73 with phone (88%), population 70/83 (84%). **344 tests pass** (338 + 6 new), pyright 0, ruff clean; CLI + scheduler load; master Sheet untouched; dev DB restored to its canonical 68/6/5 baseline (the pre-fix scale rows were throwaway test data on unseen geos).
+
+### Verdict
+
+Infrastructure **scales safely** (cost-bounded, idempotent, honest, per-geo isolated). With the 6 precision fixes landed, the pipeline is ready for a full **64-geo run at ≈253 billed searches (~$3.80)** — subject to a spot-check of the deferred wrong-state risk on the state-level AH geos.
+
+### Trigger to revisit
+
+- Before the full 64-geo push: spot-check wrong-state/out-of-geo candidates on the AH state geos; if material, add candidate-domain geolocation validation to the scorer.
+- Expected external noise scales ~linearly (~23% of candidates 403/DNS/robots) — non-fatal, per-candidate isolated.
