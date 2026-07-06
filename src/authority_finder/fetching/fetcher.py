@@ -99,6 +99,11 @@ class PageFetcher:
             except FetchForbiddenError as browser_exc:
                 raise FetchFailedError(f"403 after playwright escalation: {url}") from browser_exc
             return body, final_url, "playwright"
+        except httpx.TransportError as exc:
+            # DNS / connect-timeout / read-timeout survived the retries. Wrap it as a
+            # FetchError so the detector's crawl fallback treats it as a fetch failure
+            # rather than an unhandled crash that aborts the whole candidate.
+            raise FetchFailedError(f"transport error at {url}: {exc}") from exc
 
     async def _get(self, url: str) -> tuple[bytes, str]:
         async for attempt in AsyncRetrying(

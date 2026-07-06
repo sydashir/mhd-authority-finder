@@ -115,6 +115,24 @@ async def test_hard_403_after_browser_degrades_to_failure() -> None:
     assert browser.calls == ["https://walled.gov/page"]
 
 
+async def test_transport_error_wrapped_as_fetch_failure() -> None:
+    # Live S19 defect: a DNS/connect failure (httpx.TransportError) escaped fetch()
+    # unwrapped, so the detector's `except FetchError` missed it and the candidate
+    # crashed instead of falling back to the bounded crawl. It must not escalate to
+    # the browser (a dead host won't render either).
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(404)
+        raise httpx.ConnectError("[Errno 8] nodename nor servname provided, or not known")
+
+    browser = FakeBrowser()
+    fetcher = _fetcher(httpx.MockTransport(handler), browser)
+    with pytest.raises(FetchFailedError):
+        await fetcher.fetch("https://dead-domain.gov/page")
+    assert browser.calls == []
+    assert fetcher.fetch_count == 1
+
+
 async def test_non_html_does_not_escalate() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/robots.txt":
