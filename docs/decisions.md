@@ -732,3 +732,66 @@ Infrastructure **scales safely** (cost-bounded, idempotent, honest, per-geo isol
 
 - Before the full 64-geo push: spot-check wrong-state/out-of-geo candidates on the AH state geos; if material, add candidate-domain geolocation validation to the scorer.
 - Expected external noise scales ~linearly (~23% of candidates 403/DNS/robots) — non-fatal, per-candidate isolated.
+
+## ADR-020 — Wrong-state validation: domain geography beats page text
+
+**Date:** 2026-07-06
+**Status:** Accepted
+**Context:** Session 19 (ADR-019) flagged ~9% of scale-test rows as wrong-state / out-of-geo — the top
+quality risk for the full 64-geo run (24 of those are state-level AH geos, the exact trigger). The scorer's
+wrong-state check was **text-only**: it rejected a page only when *another* state's name dominated the text
+and the target was absent. It never inspected the candidate **domain's** real location. A wrong-state row is
+not "low quality" — it is **wrong** (it would email a different region's org), the same class as the
+redirect-shell / off-domain defects already killed. The audit is `docs/wrong-state-audit.md`.
+
+### Decisions
+
+1. **The candidate domain's geography is authoritative, where reliably derivable.** New
+   `page_detector/geography.py::candidate_state(url)` derives a `.gov`/`.us` domain's state slug ONLY from
+   reliable signals: a state-portal registrable domain/subdomain (`dol.ny.gov` → NY; `hhs.texas.gov` → TX)
+   and a `county{2-letter-abbr}` suffix (`wyomingcounty**ny**.gov` → NY — a county domain always encodes its
+   own state, and the "county" anchor makes the abbr safe). Everything ambiguous returns `None`.
+2. **Domain contradiction → hard reject** (`wrong_state`), regardless of page text. This is the essential
+   catch: `wyomingcountyny.gov` is Wyoming *County, New York*, and its page is full of the word "Wyoming"
+   (the county's name), so the text check not only passed it but *awarded the target-state bonus*. Only the
+   domain reveals the truth. Domain-confirmed candidates additionally **suppress** the text-based reject (a
+   confirmed-California agency is a California org even if its page discusses another state).
+3. **Geo-confirmation gate → demote, not delete, the unconfirmable.** A candidate is *geo-confirmed* iff the
+   domain confirms the target state, OR the target state is present **and not out-mentioned** by another
+   state in the text (a national/multi-state page naming the target once is weak evidence), OR (county/city)
+   the locality name appears. A candidate confirmed by none of these is capped to **low** confidence and
+   flagged with a `geo_unconfirmed` signal — never silently shipped as verified.
+4. **Precision over recall — and only assert what's genuinely derivable.** Hard-rejection requires domain
+   proof; everything unconfirmable is demoted (flagged for a human), never wrongly killed. Deliberately NOT
+   derived, because they misfire: bare `{city}{abbr}.gov` (`napa.gov` ends in `pa` = Pennsylvania but is
+   California), full-state-name suffix (`portwashington.gov` is NY/WI, not Washington state), any `.edu`,
+   cryptic acronyms (`dconc.gov` = Durham County NC). These fall back to the text/locality gate honestly.
+
+### Honest limits
+
+- **`.edu` universities carry no state in the domain.** An out-of-state university whose page *incidentally*
+  names the target state or a nearby big city can still pass the text gate at reduced confidence (live: CU
+  Anschutz `cuanschutz.edu`, Colorado, stayed **medium** for a Palos Verdes geo because its page mentions
+  Los Angeles / California). Hard-rejecting these would need a university→state dataset (out of scope) and
+  would risk false-rejecting legitimate in-state schools — so they are left demoted/flagged, not deleted.
+- **False positives are demotions, never rejections.** A correct in-state candidate whose page does not
+  strongly name its state (live: `plano.gov`, a Texas city, medium→low) is demoted to a flagged low, not
+  removed. That is the accepted precision-over-recall cost.
+
+### Live validation (2026-07-06, billed 0 — cached)
+
+Re-ran detection over the 8 S19 cached geos. `wyomingcountyny.gov` → **hard-rejected** (`detect.wrong_state
+dominant=new-york`); `divinemercy.edu` (Virginia), previously **high** for Wyoming → **low**; the other
+out-of-state `.edu` cases already low, unchanged. Residual: `cuanschutz.edu` still medium (incidental-text
+limit above). **7 of 8 wrong-state cases now rejected-or-low** (the worst, actively-misleading high-confidence
+case eliminated). The 5-geo known-good baseline was re-checked (billed 0): **contact-trust high still 6 and
+medium still 18 — no legitimate row lost or demoted** (low-trust dropped 44→42), and the gate additionally
+rejected two genuine wrong-state candidates for the Orange County *California* geo — `orangecountync.gov`
+(North Carolina) and `orangecountyva.gov` (Virginia) — both high-*confidence*, exactly the dangerous
+"looks verified but wrong region" class. New tests: 12 geography unit + parametrized S19 regressions, 5
+scorer-gate tests.
+
+### Trigger to revisit
+
+- If out-of-state `.edu` slips prove material at full scale, add a university→state reference dataset (then
+  `.edu` domains become derivable and their contradictions hard-rejectable).
