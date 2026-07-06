@@ -97,6 +97,22 @@ def test_email_with_interior_space_rejected() -> None:
     assert got == ["counseling_wellness@pba.edu"]
 
 
+def test_glued_label_digit_email_rejected_clean_survives() -> None:
+    # Live S19 defect (oc.gov): lxml glued a phone tail + doubled 'Email' labels onto the
+    # real inbox with no whitespace; the \d{5,} guard misses the 4-digit '5000' prefix, so
+    # the corrupted run was published instead of the clean same-domain address.
+    hits = extract_emails(
+        page(
+            final_url="https://ceo.oc.gov/care",
+            text="Care Coordination 5000EmailEmailcarecoordination@ceo.oc.gov",
+            mailto=["carecoordination@ceo.oc.gov"],
+        )
+    )
+    got = [h.address for h in rank_emails(hits)]
+    assert "5000emailemailcarecoordination@ceo.oc.gov" not in got
+    assert got == ["carecoordination@ceo.oc.gov"]
+
+
 def test_clean_dept_email_without_glued_phone_survives() -> None:
     assert addrs({"final_url": "https://regis.edu/x", "text": "Email counseling@regis.edu."}) == [
         "counseling@regis.edu"
