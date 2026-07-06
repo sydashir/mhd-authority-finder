@@ -1065,3 +1065,49 @@ unconfirmable is flagged, never wrongly killed). Ready for the full **64-geo run
   full-name suffixes misfire (napa→pa, portwashington→washington).
 - `.edu` carries no state — an out-of-state university whose page mentions the target incidentally can still
   slip at reduced confidence; that's a known limit, not a bug.
+
+## 2026-07-06 — Session 21: full production run — the real dataset
+
+The real build. Pipeline is scale-tested (S19) + wrong-state-hardened (S20); this ran the FULL live geo
+corpus to create the client's production dataset in Postgres + the master Google Sheet. Deliberate, approved,
+one-time spend, capped so a bug couldn't overspend.
+
+### Numbers
+
+- Pre-flight recon (billed 0): 72 live geos, 56 new-billable, projected **223** (below the ~253 S19 estimate).
+- **Cost: 223 billed** (~$3.35), hard cap 320 never threatened.
+- Funnel: 72 geos → **1,754 candidates → 637 detected → 622 unique prospects** (deduped website+geo);
+  5,114 fetches (3,320 httpx / 533 Playwright); **0 whole-geo failures** (per-geo isolation held).
+- Quality (622 rows): trust **high 77 / med 146 / low 399**; conf high 298 / med 179 / low 145;
+  **email 62% / phone 90% / population 88%**; 82 competitor-linked; AH 393 / MHD 229.
+- **Wrong-state gate (S20) fired 21× on real data** — 21 out-of-state candidates hard-rejected.
+- Rejections: 497 (incl. 21 wrong_state), 632 fetch-failed (external WAF/DNS noise ~36%).
+- **Playwright spot-check 8/8 geo-correct**; 3 high-trust = real university counseling centers with
+  same-domain emails; uwyo.edu (the legit WY school S20 kept) present; weak picks (scuhs news page,
+  edd labor-market) honestly ranked medium/low.
+- Idempotency: re-write appended **0** to the Sheet; DB stayed 622.
+
+### Written to (production)
+
+- Postgres: clean rebuild → **622 prospects (run #8), 72 geos** (was 68/6/5 dev baseline).
+- master Google Sheet: **replaced → 622 rows** (was 68 baseline rows).
+
+### Incident + recovery (honest)
+
+The ~2-hour run outlasted the host: Docker/Postgres stopped mid-run, so the DB + Sheet writes failed AFTER
+the pipeline completed. The DB write is one atomic delete-then-persist transaction (never committed → DB
+safe); the Sheet write is sequenced after it (never ran → Sheet untouched); the pipeline had already written
+a **CSV backup**. Recovery: restart Docker, then `finalize_production_s21.py` re-wrote the 622 already-
+computed rows from the CSV to DB + Sheet with **zero re-spend**. The atomic transaction + CSV-first backup
+saved it. Lesson: keep the host awake (or persist incrementally) for multi-hour runs.
+
+### Nothing broke
+
+No `src/` changes this session (only scratch scripts + the run). **370 tests** green, CLI/scheduler load,
+frontend unchanged. Commits (sydashir): `45bab24` docs adr, plus this progress log.
+
+### Verdict
+
+Production dataset is **demo-ready**: 622 real, geo-correct, quality-ranked prospects across all 72 geos, live
+in the DB (SaaS app) + master Sheet (outreach). Remaining is operational hardening: frontend tests, run
+monitoring/alerting, outreach-status tracking.
