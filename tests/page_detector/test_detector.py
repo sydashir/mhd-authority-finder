@@ -161,6 +161,23 @@ async def test_crawl_never_leaves_registrable_domain() -> None:
     assert all("elsewhere.org" not in url for url in counter)
 
 
+async def test_crawl_stays_within_agency_not_state_portal() -> None:
+    # Live S19 defect: dol.ny.gov's landing failed and the crawl followed a link into
+    # omh.ny.gov — a DIFFERENT agency sharing the ny.gov registrable domain — recording
+    # OMH's homepage under the DOL row. The crawl must stay within the per-agency key.
+    landing = "https://dol.ny.gov/landing"
+    home = "https://dol.ny.gov/"
+    dol_home = html_page(
+        title="NY Department of Labor",
+        body="Welcome to the Department of Labor.",
+        links=(("Mental Health Services", "https://omh.ny.gov/"),),
+    )
+    counter: list[str] = []
+    fetcher = fetcher_for({home: _html(dol_home)}, counter)
+    await process_candidate(make_candidate(landing), geo=CALIFORNIA_GEO, fetcher=fetcher)
+    assert all("omh.ny.gov" not in url for url in counter)
+
+
 async def test_all_fetches_failed() -> None:
     counter: list[str] = []
     fetcher = fetcher_for({}, counter)

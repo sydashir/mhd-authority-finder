@@ -6,7 +6,8 @@ rank its internal links by keyword affinity, follow the top
 :data:`CRAWL_LINKS` same-domain links, and keep the best page seen anywhere.
 Hard budget: :data:`MAX_FETCHES_PER_CANDIDATE` fetches per candidate
 including the original attempt. The crawl never leaves the candidate's
-registrable domain.
+per-agency dedupe key — so a state-portal agency (``dol.ny.gov``) never
+hops into a sibling agency (``omh.ny.gov``) that shares ``ny.gov``.
 
 Wrong-state semantics: a wrong-state verdict on the surfaced page or the
 homepage condemns the whole candidate (the domain is about the wrong place);
@@ -18,7 +19,7 @@ from urllib.parse import urlparse
 
 import structlog
 
-from authority_finder.discovery.classify import registrable_domain
+from authority_finder.discovery.classify import dedupe_key
 from authority_finder.discovery.models import CandidateSite, GeoRef
 from authority_finder.fetching import FetchError, PageContent, PageFetcher
 from authority_finder.page_detector.models import CandidateOutcome, DetectedPage
@@ -47,7 +48,7 @@ def rank_internal_links(content: PageContent, *, domain: str) -> list[str]:
         href = link.href.split("#", 1)[0]
         if not href.startswith(("http://", "https://")) or href in seen:
             continue
-        if registrable_domain(href) != domain or junk_url_reason(href) is not None:
+        if dedupe_key(href) != domain or junk_url_reason(href) is not None:
             continue
         blob = f"{link.text} {href}".lower()
         affinity = sum(2.0 for k in TOPIC_KEYWORDS if k in blob or k.replace(" ", "-") in blob)
@@ -110,7 +111,7 @@ async def process_candidate(
     original_url = str(candidate.url)
     parsed = urlparse(original_url)
     homepage = f"{parsed.scheme}://{parsed.netloc}/"
-    domain = registrable_domain(original_url)
+    domain = dedupe_key(original_url)
 
     fetches = 0
     failures = 0
@@ -129,9 +130,10 @@ async def process_candidate(
             failures += 1
             _log.debug("detect.fetch_failed", url=url, error=str(exc))
             return None
-        if registrable_domain(content.final_url) != domain:
+        if dedupe_key(content.final_url) != domain:
             # Redirect shell: a .gov URL 301ing to a third party (observed live:
-            # greenfieldca.gov → palmerlakerecovery.com). Never score foreign content.
+            # greenfieldca.gov → palmerlakerecovery.com), or a state-portal agency
+            # hopping to a sibling agency. Never score off-agency content.
             _log.info(
                 "detect.offdomain_redirect",
                 candidate=candidate.registrable_domain,
