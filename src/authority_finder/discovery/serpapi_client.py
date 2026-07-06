@@ -32,6 +32,11 @@ SEARCH_URL = "https://serpapi.com/search.json"
 DEFAULT_CACHE_DIR = Path("data/cache/serpapi")
 DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0)
 
+# SerpAPI signals a genuinely-empty result set with HTTP 200 + this error message
+# (rural geos + tight ``site:`` filters). It is a valid empty response, not a failure,
+# and SerpAPI does not bill it — so we return it empty rather than raising (ADR-019).
+_NO_RESULTS_MARKER = "hasn't returned any results"
+
 _log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 
@@ -98,10 +103,12 @@ class SerpApiClient:
             raise QuotaExceededError(f"billed-search cap reached ({self._max_billed})")
 
         data = await self._fetch(params)
-        self.billed_search_count += 1
-        _log.info("serpapi.billed_search", query=query, session_total=self.billed_search_count)
-        self._cache_write(params, data)
-        return RawSearch(data=data, billed=True)
+        billed = _NO_RESULTS_MARKER not in str(data.get("error") or "")
+        if billed:
+            self.billed_search_count += 1
+            _log.info("serpapi.billed_search", query=query, session_total=self.billed_search_count)
+        self._cache_write(params, data)  # cache even the empty result — re-runs skip the live call
+        return RawSearch(data=data, billed=billed)
 
     async def _fetch(self, params: dict[str, str]) -> dict[str, Any]:
         full_params = {**params, "api_key": self._api_key.get_secret_value()}
@@ -127,8 +134,9 @@ class SerpApiClient:
                 if resp.status_code != HTTPStatus.OK:
                     raise SerpApiError(f"serpapi {resp.status_code}: {resp.text[:200]}")
                 data: dict[str, Any] = resp.json()
-                if "error" in data:
-                    raise SerpApiError(f"serpapi error: {data['error']}")
+                error = data.get("error")
+                if error and _NO_RESULTS_MARKER not in str(error):
+                    raise SerpApiError(f"serpapi error: {error}")
                 return data
         raise RuntimeError("unreachable: AsyncRetrying yielded no attempts")
 

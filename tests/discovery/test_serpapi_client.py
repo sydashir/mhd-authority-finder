@@ -127,6 +127,24 @@ async def test_serpapi_error_payload_raises(tmp_path: Path) -> None:
     assert list(tmp_path.glob("*.json")) == []
 
 
+async def test_no_results_payload_is_empty_not_error(tmp_path: Path) -> None:
+    # Live S19: a genuinely-empty search (rural geo + site:.gov filter) returns HTTP 200
+    # with SerpAPI's "hasn't returned any results" message — a valid empty set, not a
+    # failure. It must NOT raise, must NOT bill (SerpAPI doesn't bill no-results), and
+    # must be cached so re-runs of the geo don't re-issue the live call.
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={"error": "Google Light hasn't returned any results for this query."}
+        )
+
+    client = _client(httpx.MockTransport(handler), tmp_path)
+    result = await client.search("wyoming substance abuse site:.gov")
+    assert result.billed is False
+    assert client.billed_search_count == 0
+    assert result.data.get("organic_results", []) == []
+    assert list(tmp_path.glob("*.json"))  # cached → future runs skip the live call
+
+
 async def test_bad_request_raises_without_retry(tmp_path: Path) -> None:
     calls = 0
 
