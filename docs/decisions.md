@@ -795,3 +795,58 @@ scorer-gate tests.
 
 - If out-of-state `.edu` slips prove material at full scale, add a university→state reference dataset (then
   `.edu` domains become derivable and their contradictions hard-rejectable).
+
+## ADR-021 — Full production run: the real dataset (72 geos → 622 prospects)
+
+**Date:** 2026-07-06
+**Status:** Accepted
+**Context:** With the pipeline scale-tested (ADR-019) and wrong-state-hardened (ADR-020), this is the real
+build: run the FULL live geo corpus to create the client's production dataset in Postgres + the master
+Google Sheet. A deliberate, approved, one-time SerpAPI spend, capped so a bug couldn't overspend.
+
+### What ran
+
+Free pre-flight recon (billed 0): 72 live geos (MHD 23, AH 49), 56 new-billable, projected **223** — below
+the ~253 S19 estimate (the 8 S19 sample geos were already cached). Ran the full pipeline over all 72 geos
+with `SerpApiClient(max_billed=320)` (hard backstop), per-geo isolation on.
+
+### Results
+
+- **Cost: 223 billed** — exactly the projection, well under the 320 cap (~$3.35).
+- Funnel: 72 geos → **1,754 candidates → 637 detected → 622 unique prospects** (deduped by website+geo),
+  5,114 fetches (3,320 httpx / 533 Playwright). **0 whole-geo failures** — per-geo isolation held across all 72.
+- Quality (622 rows): contact-trust **high 77 / medium 146 / low 399**; confidence high 298 / med 179 / low
+  145; **email 62% (386), phone 90% (562), population 88% (548)**; 82 rows link a competitor; source AH 393 /
+  MHD 229.
+- **Wrong-state gate (ADR-020) fired 21 times on real data** — 21 out-of-state candidates hard-rejected that
+  the old text-only check would have shipped. Rejections: 497 (incl. the 21 wrong_state); 632 fetch-failed
+  (expected external WAF/DNS/robots noise, ~36% of candidates — non-fatal, isolated).
+- **Playwright spot-check (8 rows, mixed sites/levels/trust): 8/8 geo-correct.** The 3 high-trust rows are
+  real university counseling centers with same-domain dept emails (cmich.edu MI, louisiana.edu LA, une.edu
+  ME); bergencountynj.gov is a textbook county behavioral-health page; uwyo.edu is the *legit* Wyoming
+  counseling center the wrong-state gate correctly KEPT. Weak picks were honestly ranked down: scuhs.edu (right
+  org/CA but a news-archive page, medium), edd.ca.gov (CA labor-market, off-topic, correctly low).
+- Idempotency: re-writing appended **0** to the Sheet and left the DB at 622.
+
+### Incident + recovery (honest)
+
+The run took ~2 hours (detection-bound); partway through, the **Docker daemon stopped** (host sleep), so
+Postgres was gone when the pipeline finished and tried to write. The DB write is a single delete-then-persist
+transaction that only commits at the end, so it **never committed** (DB safe at its baseline), and the Sheet
+write is sequenced after it, so it **never ran** (Sheet untouched). The pipeline had already written a **CSV
+backup** of all rows. Recovery: restart Docker/Postgres, then a `finalize` script re-wrote the 622 already-
+computed rows from the CSV to Postgres + the Sheet with **zero re-spend**. Two things saved it: the atomic DB
+transaction (no partial/corrupt write) and the CSV-first backup. **Lesson:** for multi-hour runs, either keep
+the host awake or persist incrementally; the CSV backup is the safety net either way.
+
+### Verdict
+
+The production dataset is **demo-ready**: 622 real, geo-correct, quality-ranked prospects across all 72 geos,
+live in Postgres (the SaaS app) and the master Sheet (outreach). Remaining hardening is operational, not
+correctness: frontend tests, run monitoring/alerting, and outreach-status tracking on top of the dataset.
+
+### Trigger to revisit
+
+- Re-run periodically (the scheduler already does new-geos-only, cost-safe) as MHD/AH add geo pages.
+- The weak-page picks (news archives, licensing boards) are the next precision target if the client wants
+  higher medium-tier quality.
