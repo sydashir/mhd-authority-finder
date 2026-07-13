@@ -1163,3 +1163,16 @@ builds + lints clean. Dataset left pristine (622/622 not_contacted).
 - The Docker Python SDK can't reach Docker Desktop's socket in this sandbox → testcontainer tests skip/error
   here (they pass in isolation + groups + CI); verified the logic against the real dev Postgres instead.
 - Docker daemon drops during long idle/sleep in this environment — restart + `docker compose up -d postgres`.
+
+### Addendum — UI elevation pass (design polish)
+
+On request ("improve the UI/UX to the extreme"), did a cohesive visual-elevation pass on AuthorityScout —
+no logic touched, pure presentation. Grounded via the ui-ux-pro-max skill (confirmed the existing direction:
+data-dense dashboard, dark-OLED, teal accent). Elevated the SHARED token/primitive layer so every screen
+lifts at once: an elevation system (soft layered shadows + `.card`/`.card-interactive` hover-lift), deeper
+OLED dark surfaces so panels float, an ambient brand aurora on the app bg, a brand focus-ring, thin themed
+scrollbars, `prefers-reduced-motion` respect, and pill-shaped badges. Hero upgrades: stat cards now float
+with teal icon-chips + tighter numerals + hover lift; the sidebar active item gets a teal accent bar; the
+table panel + rows gain elevation + smooth hover; and the **login is now a premium dark screen** (OLED bg +
+teal aurora glow + branded logo chip + floating card). Frontend builds + lints clean (0 warnings); all Phase
+F3 functionality intact. Commit (sydashir): `a7b45ac`.
