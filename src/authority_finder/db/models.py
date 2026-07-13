@@ -57,11 +57,27 @@ class GeoLevel(enum.Enum):
     city = "city"
 
 
+class OutreachStatus(enum.Enum):
+    """The team's workflow state for a prospect — USER-owned (ADR-022).
+
+    The pipeline's upsert never touches this; only the outreach API mutates it.
+    """
+
+    not_contacted = "not_contacted"
+    contacted = "contacted"
+    responded = "responded"
+    interested = "interested"
+    not_interested = "not_interested"
+    linked = "linked"  # they published the backlink — the goal
+    bounced = "bounced"  # the contact bounced / is invalid
+
+
 # One Enum instance per PG type, reused across columns → one CREATE TYPE each.
 _trust_band = Enum(TrustBand, name="trust_band")
 _source_tag = Enum(SourceTag, name="source_tag")
 _run_status = Enum(RunStatus, name="run_status")
 _geo_level = Enum(GeoLevel, name="geo_level")
+_outreach_status = Enum(OutreachStatus, name="outreach_status")
 
 
 class Run(Base):
@@ -120,6 +136,18 @@ class Prospect(Base):
     source_tag: Mapped[SourceTag] = mapped_column(_source_tag)
     confidence: Mapped[TrustBand] = mapped_column(_trust_band)
     date_added: Mapped[date] = mapped_column(Date)
+
+    # USER-owned outreach fields (ADR-022) — the pipeline's upsert never touches these.
+    outreach_status: Mapped[OutreachStatus] = mapped_column(
+        _outreach_status,
+        default=OutreachStatus.not_contacted,
+        server_default=OutreachStatus.not_contacted.value,
+    )
+    outreach_notes: Mapped[str] = mapped_column(Text, default="", server_default="")
+    contacted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    outreach_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    outreach_updated_by: Mapped[str | None] = mapped_column(String(320))
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
