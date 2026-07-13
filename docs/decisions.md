@@ -850,3 +850,70 @@ correctness: frontend tests, run monitoring/alerting, and outreach-status tracki
 - Re-run periodically (the scheduler already does new-geos-only, cost-safe) as MHD/AH add geo pages.
 - The weak-page picks (news archives, licensing boards) are the next precision target if the client wants
   higher medium-tier quality.
+
+## ADR-022 — Outreach status tracking: user-owned data alongside pipeline-owned data
+
+**Date:** 2026-07-07
+**Status:** Accepted
+**Context:** The dataset is complete (622 prospects) but AuthorityScout could only *find* prospects, not
+track what the team *does* with them. Phase F3 adds outreach tracking — mark a prospect
+contacted/responded/interested/etc. + notes — turning the app into a workflow tool. Touches DB → API → UI.
+0 billed (pure feature work on existing data).
+
+### The make-or-break constraint
+
+Outreach status is **user-entered** data living in the same `prospects` row as **pipeline-generated**
+discovery data. When the pipeline re-runs and upserts a prospect, it must **not** overwrite the team's
+status/notes. Get this wrong and a re-run erases their work. So: the pipeline owns the discovery fields
+(website, page, email, trust, …); the user owns the outreach fields; the upsert preserves user fields.
+
+### Decisions
+
+1. **Separate ownership on one row, preserved by the upsert's shape.** New user-owned columns:
+   `outreach_status` (enum, default `not_contacted`), `outreach_notes`, `contacted_at`,
+   `outreach_updated_at`, `outreach_updated_by`. The pipeline's `upsert_prospect` lists ONLY discovery
+   fields in both its INSERT `.values()` and its `on_conflict_do_update(set_=…)`. Because the outreach
+   columns are absent from both, a re-run **can't** touch them: a brand-new prospect gets the column
+   defaults; an existing one keeps exactly what the team entered. The preservation is structural, not a
+   special case — and it's pinned by a real-Postgres test (mark contacted+notes → re-upsert with fresh
+   discovery data → assert discovery updated AND status/notes survived).
+2. **Status set = the outreach funnel.** `not_contacted` (default) / `contacted` / `responded` /
+   `interested` / `not_interested` / `linked` (they published the backlink — the goal) / `bounced`.
+   `contacted_at` is stamped the first time a prospect leaves `not_contacted`.
+3. **`PATCH /prospects/{id}/outreach`** (auth-required) writes via a dedicated `update_outreach_status`
+   repository method and records the signed-in user's email as `outreach_updated_by` — the API never
+   trusts the client for who-did-it. `GET /prospects` gains an `outreach_status` filter; `GET /stats`
+   gains a per-status breakdown for the dashboard.
+4. **UI: status is first-class + editable.** A colored status pill column (sortable by the funnel order) +
+   a status filter; the detail drawer has an editable dropdown + notes + save (→ PATCH, optimistic pill +
+   toast, shows who/when); a dashboard card ("N worked · M responded · K to go"). Matches the existing
+   design tokens (pills reuse the `.badge` system).
+5. **The Sheet stays discovery-only.** The master auto-write and the on-demand export are NOT extended with
+   outreach columns: the DB (via the app) is the outreach source-of-truth, and folding user data into the
+   pipeline's `OutputRow` would blur the exact ownership boundary this feature depends on. `OutputRow` is
+   untouched, so the master write is byte-identical. (Future option: export could append outreach columns
+   read from the DB.)
+
+### Bug caught in live verification
+
+The PATCH persisted correctly but first returned **500**: `updated_at` has `onupdate=func.now()`, so after
+the UPDATE its value is server-computed + expired, and the sync `ProspectOut.model_validate(row)` attempted
+an async-illegal lazy refresh (`MissingGreenlet`). Fixed by `await session.refresh(row)` after commit before
+serializing. (The API tests assert the response body, so CI would have caught it; live verification caught it
+first.)
+
+### Verification (0 billed)
+
+Migration: all **622** rows default to `not_contacted`, discovery data 100% intact. Live (real 622-row DB,
+minted session): drawer status change → persists, pill flips to Contacted, dashboard card updates live to
+"1 · 621 to go", `outreach_updated_by` = the signed-in user; filter by status works; unauthorized PATCH →
+**401**. **Make-or-break proven twice** — at the repository level and end-to-end through the pipeline's actual
+`upsert_prospect` write path on a real production prospect (status + notes survived, discovery updated).
+**381 tests** (370 + 11 outreach), pyright 0, ruff clean; CLI/scheduler + master Sheet write unchanged;
+frontend builds + lints clean. Dataset left pristine (622/622 `not_contacted`).
+
+### Trigger to revisit
+
+- If the team wants outreach in the exported sheet, add DB-sourced outreach columns to the on-demand export
+  (never to the master auto-write).
+- If >1 person edits concurrently, add optimistic-concurrency (the `outreach_updated_at` is the seam).
