@@ -1111,3 +1111,55 @@ frontend unchanged. Commits (sydashir): `45bab24` docs adr, plus this progress l
 Production dataset is **demo-ready**: 622 real, geo-correct, quality-ranked prospects across all 72 geos, live
 in the DB (SaaS app) + master Sheet (outreach). Remaining is operational hardening: frontend tests, run
 monitoring/alerting, outreach-status tracking.
+
+## 2026-07-07 — Session 22: Phase F3 — outreach status tracking
+
+Made AuthorityScout a tool the team WORKS IN, not just a prospect list: mark a prospect
+contacted/responded/interested/etc. + notes. DB → API → UI. 0 billed (feature work on the existing 622-row
+dataset). ADR-022.
+
+### The make-or-break (ADR-022)
+
+Outreach status is USER-entered data on the same row as PIPELINE-generated discovery data. A pipeline re-run
+upserts prospects and must NOT overwrite the team's status/notes. Solution: the outreach columns are absent
+from `upsert_prospect`'s INSERT values AND its `on_conflict set_`, so a re-run structurally can't touch them
+(defaults on insert, preserved on conflict). Pinned by a real-Postgres test + proven end-to-end.
+
+### What shipped (commits, all sydashir)
+
+- `b8ae75c` feat: add outreach status schema — `OutreachStatus` enum + 5 user-owned columns
+  (outreach_status default not_contacted / notes / contacted_at / updated_at / updated_by) + Alembic
+  migration (622 rows backfilled to not_contacted, discovery intact).
+- `c610c2f` feat: preserve outreach fields on pipeline upsert — explicit preservation + `update_outreach_status`
+  (records the user, stamps contacted_at on first action) + outreach filter + stats breakdown; the make-or-break test.
+- `f14146d` feat: add outreach status api — `PATCH /prospects/{id}/outreach` (auth email = updated_by),
+  `?outreach_status=` filter, ProspectOut + StatsOut extended.
+- `b68434c` fix: reload prospect after outreach update — live-caught 500 (updated_at onupdate → expired attr →
+  async-illegal lazy load in model_validate); `session.refresh` after commit.
+- `f33b5b1` feat: add outreach status to table — status pill column (sortable), status filter, dashboard card,
+  typed client (`patchOutreach`) + `useSetOutreach` mutation + badge CSS.
+- `0886461` feat: add outreach controls to detail drawer — editable status dropdown + notes + save
+  (→ PATCH, pill/toast, who+when).
+- `8d354a6` docs: adr outreach tracking + this progress log.
+
+### Verification (0 billed)
+
+Migration: 622 rows default not_contacted, discovery 100% intact. Live (real DB, minted session, Playwright):
+drawer status change → persists, pill → Contacted, dashboard card live "1 · 621 to go", updated_by = the
+signed-in user; filter works; unauthorized PATCH → 401. Make-or-break proven at the repository level AND
+end-to-end through the pipeline's real `upsert_prospect` (status + notes survived, discovery updated).
+**381 tests** (370 + 11), pyright 0, ruff clean; CLI/scheduler + master Sheet write unchanged; frontend
+builds + lints clean. Dataset left pristine (622/622 not_contacted).
+
+### Decisions
+
+- **Sheet stays discovery-only** — the DB/app is the outreach source-of-truth; folding user data into the
+  pipeline's OutputRow would blur the ownership boundary. OutputRow untouched → master write byte-identical.
+
+### Gotchas
+
+- After an UPDATE, a server-side `onupdate=func.now()` column is expired; serializing the ORM row with a sync
+  `model_validate` triggers an async-illegal lazy load → 500. `await session.refresh(row)` after commit.
+- The Docker Python SDK can't reach Docker Desktop's socket in this sandbox → testcontainer tests skip/error
+  here (they pass in isolation + groups + CI); verified the logic against the real dev Postgres instead.
+- Docker daemon drops during long idle/sleep in this environment — restart + `docker compose up -d postgres`.
