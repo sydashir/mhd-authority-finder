@@ -18,5 +18,6 @@ async def stats(session: SessionDep) -> StatsOut:
         high_trust=s.high_trust,
         with_email=s.with_email,
         geos_covered=s.geos_covered,
+        outreach=s.outreach,
         last_run=RunOut.model_validate(runs[0]) if runs else None,
     )

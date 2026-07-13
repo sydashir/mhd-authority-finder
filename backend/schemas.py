@@ -10,7 +10,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from authority_finder.db.models import GeoLevel, RunStatus, SourceTag, TrustBand
+from authority_finder.db.models import GeoLevel, OutreachStatus, RunStatus, SourceTag, TrustBand
 
 
 class ProspectOut(BaseModel):
@@ -37,6 +37,19 @@ class ProspectOut(BaseModel):
     updated_at: datetime
     run_id: int | None
     geo_id: int | None
+    # USER-owned outreach fields (ADR-022)
+    outreach_status: OutreachStatus
+    outreach_notes: str
+    contacted_at: datetime | None
+    outreach_updated_at: datetime | None
+    outreach_updated_by: str | None
+
+
+class OutreachUpdate(BaseModel):
+    """PATCH body — the team sets a prospect's status (notes optional; ``None`` keeps existing)."""
+
+    status: OutreachStatus
+    notes: str | None = None
 
 
 class RunOut(BaseModel):
@@ -87,6 +100,7 @@ class StatsOut(BaseModel):
     high_trust: int
     with_email: int
     geos_covered: int
+    outreach: dict[str, int]  # outreach_status value → count (every status, zero-filled)
     last_run: RunOut | None
 
 

@@ -229,6 +229,10 @@ async def test_data_route_guarded(
     await session.commit()
 
     assert (await client.get("/prospects")).status_code == 401  # no session
+    # the outreach write is guarded too — no session, no mutating the team's data
+    assert (
+        await client.patch("/prospects/1/outreach", json={"status": "contacted"})
+    ).status_code == 401
 
     _use_verifier(app, AuthUser(email="allowed@example.com"))
     await client.post("/auth/google", json={"credential": "tok"})

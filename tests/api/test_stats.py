@@ -55,6 +55,10 @@ async def test_stats_reflects_real_data(client: AsyncClient, session: AsyncSessi
     assert body["geos_covered"] == 2
     assert body["last_run"]["status"] == "success"
     assert body["last_run"]["rows_written"] == 3
+    # outreach breakdown present, every status zero-filled, all 3 seeded rows not_contacted
+    assert body["outreach"]["not_contacted"] == 3
+    assert body["outreach"]["contacted"] == 0
+    assert len(body["outreach"]) == 7
 
 
 async def test_stats_empty_dataset(client: AsyncClient) -> None:

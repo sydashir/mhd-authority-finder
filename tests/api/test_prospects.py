@@ -102,3 +102,46 @@ async def test_get_one_and_404(client: AsyncClient, session: AsyncSession) -> No
 
     missing = await client.get("/prospects/999999")
     assert missing.status_code == 404
+
+
+async def test_prospect_defaults_to_not_contacted(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    pid = await _seed(session, website="x.gov")
+    row = (await client.get(f"/prospects/{pid}")).json()
+    assert row["outreach_status"] == "not_contacted"
+    assert row["outreach_notes"] == ""
+    assert row["contacted_at"] is None
+
+
+async def test_patch_outreach_updates_and_records_user(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    pid = await _seed(session, website="x.gov")
+    resp = await client.patch(
+        f"/prospects/{pid}/outreach", json={"status": "contacted", "notes": "called the director"}
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["outreach_status"] == "contacted"
+    assert body["outreach_notes"] == "called the director"
+    assert body["outreach_updated_by"] == "test@authorityscout.dev"  # the fixture's signed-in user
+    assert body["contacted_at"] is not None
+    # persisted
+    assert (await client.get(f"/prospects/{pid}")).json()["outreach_status"] == "contacted"
+
+
+async def test_filter_by_outreach_status(client: AsyncClient, session: AsyncSession) -> None:
+    p1 = await _seed(session, website="a.gov", geo="G1")
+    await _seed(session, website="b.gov", geo="G2")
+    await client.patch(f"/prospects/{p1}/outreach", json={"status": "responded"})
+
+    responded = (await client.get("/prospects", params={"outreach_status": "responded"})).json()
+    assert [p["website"] for p in responded["items"]] == ["a.gov"]
+    fresh = (await client.get("/prospects", params={"outreach_status": "not_contacted"})).json()
+    assert [p["website"] for p in fresh["items"]] == ["b.gov"]
+
+
+async def test_patch_outreach_404(client: AsyncClient) -> None:
+    resp = await client.patch("/prospects/999999/outreach", json={"status": "contacted"})
+    assert resp.status_code == 404
