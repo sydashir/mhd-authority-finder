@@ -5,7 +5,7 @@ from datetime import date
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from authority_finder.db.models import GeoLevel, RunStatus, SourceTag, TrustBand
+from authority_finder.db.models import GeoLevel, OutreachStatus, RunStatus, SourceTag, TrustBand
 from authority_finder.db.repository import (
     ProspectIn,
     count_prospects,
@@ -18,6 +18,7 @@ from authority_finder.db.repository import (
     get_prospects,
     get_run,
     get_runs,
+    update_outreach_status,
     upsert_geo,
     upsert_prospect,
 )
@@ -60,6 +61,121 @@ async def test_upsert_prospect_is_idempotent_on_website_geo(session: AsyncSessio
     rows = await get_prospects(session)
     assert len(rows) == 1
     assert rows[0].email == "second@ochealthinfo.gov"  # latest value wins
+
+
+async def test_pipeline_upsert_preserves_user_outreach_fields(session: AsyncSession) -> None:
+    # THE make-or-break test (ADR-022): the team marks a prospect contacted with notes, then the
+    # pipeline re-runs and upserts the same (website, geo) with fresh discovery data. The discovery
+    # fields must UPDATE; the user-entered outreach fields must SURVIVE untouched.
+    pid = await upsert_prospect(session, _prospect(email="orig@ochealthinfo.gov"))
+    await session.commit()
+    await update_outreach_status(
+        session,
+        pid,
+        status=OutreachStatus.contacted,
+        notes="left a voicemail",
+        user_email="jake@dbh.com",
+    )
+    await session.commit()
+
+    await upsert_prospect(session, _prospect(email="fresh@ochealthinfo.gov"))  # pipeline re-run
+    await session.commit()
+
+    p = await get_prospect(session, pid)
+    assert p is not None
+    assert p.email == "fresh@ochealthinfo.gov"  # discovery field UPDATED by the re-run
+    assert p.outreach_status == OutreachStatus.contacted  # user field PRESERVED
+    assert p.outreach_notes == "left a voicemail"  # PRESERVED
+    assert p.outreach_updated_by == "jake@dbh.com"  # PRESERVED
+    assert p.contacted_at is not None  # PRESERVED
+
+
+async def test_new_prospect_defaults_to_not_contacted(session: AsyncSession) -> None:
+    pid = await upsert_prospect(session, _prospect())
+    await session.commit()
+    p = await get_prospect(session, pid)
+    assert p is not None
+    assert p.outreach_status == OutreachStatus.not_contacted
+    assert p.outreach_notes == ""
+    assert p.contacted_at is None
+    assert p.outreach_updated_by is None
+
+
+async def test_update_outreach_status_records_user_and_contacted_at(session: AsyncSession) -> None:
+    pid = await upsert_prospect(session, _prospect())
+    await session.commit()
+    p = await update_outreach_status(
+        session,
+        pid,
+        status=OutreachStatus.contacted,
+        notes="reached the director",
+        user_email="a@dbh.com",
+    )
+    await session.commit()
+    assert p is not None
+    assert p.outreach_status == OutreachStatus.contacted
+    assert p.outreach_notes == "reached the director"
+    assert p.outreach_updated_by == "a@dbh.com"
+    assert p.outreach_updated_at is not None
+    assert p.contacted_at is not None  # set on first move to contacted
+
+
+async def test_update_outreach_status_notes_none_keeps_existing(session: AsyncSession) -> None:
+    pid = await upsert_prospect(session, _prospect())
+    await session.commit()
+    await update_outreach_status(
+        session, pid, status=OutreachStatus.contacted, notes="my note", user_email="a@dbh.com"
+    )
+    await session.commit()
+    # a later status change with notes=None must not wipe the note
+    p = await update_outreach_status(
+        session, pid, status=OutreachStatus.responded, notes=None, user_email="b@dbh.com"
+    )
+    await session.commit()
+    assert p is not None
+    assert p.outreach_status == OutreachStatus.responded
+    assert p.outreach_notes == "my note"  # unchanged
+    assert p.outreach_updated_by == "b@dbh.com"
+
+
+async def test_update_outreach_status_missing_prospect_returns_none(session: AsyncSession) -> None:
+    assert (
+        await update_outreach_status(
+            session, 999_999, status=OutreachStatus.contacted, notes=None, user_email="a@dbh.com"
+        )
+        is None
+    )
+
+
+async def test_get_prospects_filter_by_outreach_status(session: AsyncSession) -> None:
+    p1 = await upsert_prospect(session, _prospect(website="a.gov", geo="G1"))
+    await upsert_prospect(session, _prospect(website="b.gov", geo="G2"))
+    await session.commit()
+    await update_outreach_status(
+        session, p1, status=OutreachStatus.responded, notes=None, user_email="u@dbh.com"
+    )
+    await session.commit()
+
+    responded = await get_prospects(session, outreach=OutreachStatus.responded)
+    assert [p.website for p in responded] == ["a.gov"]
+    not_contacted = await get_prospects(session, outreach=OutreachStatus.not_contacted)
+    assert [p.website for p in not_contacted] == ["b.gov"]
+    assert await count_prospects(session, outreach=OutreachStatus.responded) == 1
+
+
+async def test_get_prospect_stats_outreach_breakdown(session: AsyncSession) -> None:
+    p1 = await upsert_prospect(session, _prospect(website="a.gov", geo="G1"))
+    await upsert_prospect(session, _prospect(website="b.gov", geo="G2"))
+    await session.commit()
+    await update_outreach_status(
+        session, p1, status=OutreachStatus.contacted, notes=None, user_email="u@dbh.com"
+    )
+    await session.commit()
+
+    stats = await get_prospect_stats(session)
+    assert stats.outreach["contacted"] == 1
+    assert stats.outreach["not_contacted"] == 1
+    assert stats.outreach["responded"] == 0  # every status present, zero-filled
 
 
 async def test_get_prospects_filters(session: AsyncSession) -> None:

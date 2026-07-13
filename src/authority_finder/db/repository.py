@@ -15,7 +15,16 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import func
 
-from authority_finder.db.models import Geo, GeoLevel, Prospect, Run, RunStatus, SourceTag, TrustBand
+from authority_finder.db.models import (
+    Geo,
+    GeoLevel,
+    OutreachStatus,
+    Prospect,
+    Run,
+    RunStatus,
+    SourceTag,
+    TrustBand,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +71,10 @@ async def upsert_prospect(session: AsyncSession, data: ProspectIn) -> int:
         run_id=data.run_id,
         geo_id=data.geo_id,
     )
+    # On conflict we update ONLY the pipeline-owned discovery fields. The USER-owned outreach
+    # fields (outreach_status/notes/contacted_at/updated_by/at) are deliberately absent from both
+    # the INSERT values and this set_, so a re-run never clobbers the team's work (ADR-022) — a
+    # brand-new prospect gets their column defaults; an existing one keeps what the team entered.
     stmt = stmt.on_conflict_do_update(
         constraint="uq_prospect_website_geo",
         set_={
@@ -84,12 +97,41 @@ async def upsert_prospect(session: AsyncSession, data: ProspectIn) -> int:
     return (await session.execute(stmt)).scalar_one()
 
 
+async def update_outreach_status(
+    session: AsyncSession,
+    prospect_id: int,
+    *,
+    status: OutreachStatus,
+    notes: str | None,
+    user_email: str,
+) -> Prospect | None:
+    """Set a prospect's USER-owned outreach fields; return it, or ``None`` if it doesn't exist.
+
+    ``notes=None`` leaves the existing note unchanged. ``contacted_at`` is stamped the first time
+    the prospect leaves ``not_contacted`` (any actioned status implies contact was made).
+    """
+    prospect = await session.get(Prospect, prospect_id)
+    if prospect is None:
+        return None
+    now = datetime.now(UTC)
+    prospect.outreach_status = status
+    if notes is not None:
+        prospect.outreach_notes = notes
+    prospect.outreach_updated_by = user_email
+    prospect.outreach_updated_at = now
+    if status is not OutreachStatus.not_contacted and prospect.contacted_at is None:
+        prospect.contacted_at = now
+    await session.flush()
+    return prospect
+
+
 def _prospect_filters(
     *,
     trust: TrustBand | None,
     source: SourceTag | None,
     geo: str | None,
     level: GeoLevel | None,
+    outreach: OutreachStatus | None,
 ) -> tuple[bool, list[ColumnElement[bool]]]:
     """The UI filter set as (needs Geo join, WHERE conditions) — shared by list + count."""
     conditions: list[ColumnElement[bool]] = []
@@ -101,6 +143,8 @@ def _prospect_filters(
         conditions.append(Prospect.source_tag == source)
     if geo is not None:
         conditions.append(Prospect.geo_served == geo)
+    if outreach is not None:
+        conditions.append(Prospect.outreach_status == outreach)
     return level is not None, conditions
 
 
@@ -111,11 +155,14 @@ async def get_prospects(
     source: SourceTag | None = None,
     geo: str | None = None,
     level: GeoLevel | None = None,
+    outreach: OutreachStatus | None = None,
     limit: int | None = None,
     offset: int = 0,
 ) -> Sequence[Prospect]:
     """Filtered, paginated prospect read — the query the UI will issue."""
-    needs_join, conditions = _prospect_filters(trust=trust, source=source, geo=geo, level=level)
+    needs_join, conditions = _prospect_filters(
+        trust=trust, source=source, geo=geo, level=level, outreach=outreach
+    )
     stmt = select(Prospect)
     if needs_join:
         stmt = stmt.join(Geo, Prospect.geo_id == Geo.id)
@@ -134,9 +181,12 @@ async def count_prospects(
     source: SourceTag | None = None,
     geo: str | None = None,
     level: GeoLevel | None = None,
+    outreach: OutreachStatus | None = None,
 ) -> int:
     """Total prospects matching the filters — pagination needs the unpaged count."""
-    needs_join, conditions = _prospect_filters(trust=trust, source=source, geo=geo, level=level)
+    needs_join, conditions = _prospect_filters(
+        trust=trust, source=source, geo=geo, level=level, outreach=outreach
+    )
     stmt = select(func.count(Prospect.id))
     if needs_join:
         stmt = stmt.join(Geo, Prospect.geo_id == Geo.id)
@@ -156,10 +206,11 @@ class ProspectStats:
     high_trust: int
     with_email: int
     geos_covered: int
+    outreach: dict[str, int]  # status value → count, every OutreachStatus present (zero-filled)
 
 
 async def get_prospect_stats(session: AsyncSession) -> ProspectStats:
-    """One round-trip of FILTER aggregates over the whole prospects table."""
+    """FILTER aggregates + the outreach-status breakdown over the whole prospects table."""
     stmt = select(
         func.count(Prospect.id),
         func.count(Prospect.id).filter(Prospect.contact_trust == TrustBand.high),
@@ -167,7 +218,16 @@ async def get_prospect_stats(session: AsyncSession) -> ProspectStats:
         func.count(func.distinct(Prospect.geo_served)),
     )
     total, high, email, geos = (await session.execute(stmt)).one()
-    return ProspectStats(total=total, high_trust=high, with_email=email, geos_covered=geos)
+
+    outreach: dict[str, int] = {status.value: 0 for status in OutreachStatus}
+    status_rows = await session.execute(
+        select(Prospect.outreach_status, func.count(Prospect.id)).group_by(Prospect.outreach_status)
+    )
+    for status, count in status_rows:
+        outreach[status.value] = count
+    return ProspectStats(
+        total=total, high_trust=high, with_email=email, geos_covered=geos, outreach=outreach
+    )
 
 
 async def create_run(session: AsyncSession, *, site: str) -> Run:
