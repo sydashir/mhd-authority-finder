@@ -75,4 +75,7 @@ async def set_outreach(
     if row is None:
         raise HTTPException(status_code=404, detail="prospect not found")
     await session.commit()
+    # Reload server-computed columns (updated_at onupdate=now()) — otherwise sync model_validate
+    # would hit an expired attribute and attempt an async-illegal lazy refresh.
+    await session.refresh(row)
     return ProspectOut.model_validate(row)
