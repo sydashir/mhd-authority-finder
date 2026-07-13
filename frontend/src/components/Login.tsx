@@ -31,11 +31,16 @@ export function Login() {
   }
 
   return (
-    <div className="flex h-full items-center justify-center bg-app p-6">
-      <div className="w-full max-w-sm rounded-2xl border border-border bg-surface p-8 shadow-xl">
+    <div className="relative flex h-full items-center justify-center overflow-hidden bg-app p-6">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -top-1/4 left-1/2 h-[560px] w-[560px] -translate-x-1/2 rounded-full opacity-80 blur-3xl"
+        style={{ background: 'radial-gradient(circle, var(--brand-soft), transparent 65%)' }}
+      />
+      <div className="card elevate-pop relative w-full max-w-sm rounded-2xl p-8">
         <div className="flex flex-col items-center text-center">
-          <span className="text-brand">
-            <Logo size={40} />
+          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-soft text-brand ring-1 ring-brand/20">
+            <Logo size={30} />
           </span>
           <h1 className="mt-4 text-[20px] font-semibold tracking-tight text-fg">AuthorityScout</h1>
           <p className="mt-1.5 text-[13px] text-fg-muted">

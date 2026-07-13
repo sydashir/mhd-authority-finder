@@ -51,7 +51,7 @@ export function ProspectsScreen({ notify }: { notify: (toast: ToastData) => void
       <main className="flex flex-1 flex-col gap-5 overflow-hidden p-6">
         <StatCards />
         <div
-          className={`flex flex-1 flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-sm transition-opacity ${
+          className={`card flex flex-1 flex-col overflow-hidden transition-opacity ${
             query.isPlaceholderData ? 'opacity-60' : ''
           }`}
         >

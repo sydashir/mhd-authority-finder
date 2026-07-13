@@ -34,20 +34,35 @@
   --ah-fg: #1d4ed8;
   --flag-bg: #fff1f2;
   --flag-fg: #be123c;
+
+  /* Elevation + interaction — the depth that makes surfaces float (light). */
+  --brand-soft: rgb(13 148 136 / 0.09);
+  --ring: rgb(13 148 136 / 0.35);
+  --shadow-card: 0 1px 2px rgb(15 20 27 / 0.04), 0 1px 3px rgb(15 20 27 / 0.06);
+  --shadow-lift: 0 4px 12px rgb(15 20 27 / 0.08), 0 2px 4px rgb(15 20 27 / 0.05);
+  --shadow-pop: 0 12px 32px rgb(15 20 27 / 0.12), 0 4px 10px rgb(15 20 27 / 0.08);
+  --app-glow: radial-gradient(120% 120% at 50% -10%, rgb(13 148 136 / 0.06), transparent 60%);
 }
 
 .dark {
-  --app: #0a0c10;
-  --surface: #13171e;
-  --raised: #1b2129;
-  --border: #252b35;
-  --border-strong: #323a46;
-  --fg: #e7ecf3;
-  --fg-muted: #98a3b2;
-  --fg-subtle: #5c6675;
+  --app: #07090d;
+  --surface: #101520;
+  --raised: #182030;
+  --border: #222b3a;
+  --border-strong: #313c4f;
+  --fg: #e8edf5;
+  --fg-muted: #9aa6b8;
+  --fg-subtle: #616d80;
   --brand: #2dd4bf;
   --brand-strong: #14b8a6;
-  --brand-fg: #042925;
+  --brand-fg: #04211d;
+
+  --brand-soft: rgb(45 212 191 / 0.1);
+  --ring: rgb(45 212 191 / 0.4);
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3), 0 1px 3px rgb(0 0 0 / 0.35);
+  --shadow-lift: 0 8px 24px rgb(0 0 0 / 0.45), 0 2px 6px rgb(0 0 0 / 0.4);
+  --shadow-pop: 0 16px 44px rgb(0 0 0 / 0.6), 0 6px 14px rgb(0 0 0 / 0.5);
+  --app-glow: radial-gradient(130% 120% at 50% -10%, rgb(45 212 191 / 0.08), transparent 55%);
 
   --high-bg: #0e2a22;
   --high-fg: #4ade80;
@@ -81,6 +96,7 @@
   --color-brand: var(--brand);
   --color-brand-strong: var(--brand-strong);
   --color-brand-fg: var(--brand-fg);
+  --color-brand-soft: var(--brand-soft);
 }
 
 @layer base {
@@ -93,16 +109,76 @@
     @apply bg-app text-fg antialiased;
     font-family: var(--font-sans);
     font-feature-settings: 'cv02', 'cv03', 'cv11';
+    /* A faint brand aurora anchored to the top — depth without noise. */
+    background-image: var(--app-glow);
+    background-attachment: fixed;
   }
   .tnum {
     font-variant-numeric: tabular-nums;
   }
+  /* Keyboard focus is a brand ring, never a browser default. */
+  :focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ring);
+    border-radius: 6px;
+  }
+  /* Thin, self-effacing scrollbars — a quiet premium detail. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border: 3px solid transparent;
+    border-radius: 8px;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--fg-subtle);
+    background-clip: content-box;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+    }
+  }
 }
 
 @layer components {
+  /* Elevation primitives — one surface language across every screen. */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: var(--shadow-card);
+  }
+  /* Interactive cards lift on hover — transform/opacity only (cheap, smooth). */
+  .card-interactive {
+    transition:
+      transform 0.18s cubic-bezier(0.2, 0, 0, 1),
+      box-shadow 0.18s cubic-bezier(0.2, 0, 0, 1),
+      border-color 0.18s ease;
+    will-change: transform;
+  }
+  .card-interactive:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lift);
+    border-color: var(--border-strong);
+  }
+  .elevate-pop {
+    box-shadow: var(--shadow-pop);
+  }
   /* Trust + source + competitor badges, themed through the tokens above. */
   .badge {
-    @apply inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] font-medium;
+    @apply inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium;
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.04);
   }
   .badge-high {
     background: var(--high-bg);

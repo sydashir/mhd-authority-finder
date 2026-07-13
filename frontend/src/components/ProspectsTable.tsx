@@ -163,7 +163,8 @@ function compareBy(a: Prospect, b: Prospect, key: ColKey): number {
 
 const TH =
   'sticky top-0 z-10 border-b border-border bg-raised px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-fg-subtle whitespace-nowrap'
-const TD = 'border-b border-border px-3 py-1.5 align-middle group-hover:bg-raised/50'
+const TD =
+  'border-b border-border px-3 py-1.5 align-middle transition-colors duration-100 group-hover:bg-raised/50'
 
 function ColumnsMenu({
   hidden,

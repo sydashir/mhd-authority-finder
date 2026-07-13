@@ -20,15 +20,19 @@ function Card({
   detail: ReactNode
 }) {
   return (
-    <div className="rounded-xl border border-border bg-surface p-4">
+    <div className="card card-interactive p-4">
       <div className="flex items-center justify-between">
         <span className="text-[11px] font-medium uppercase tracking-wide text-fg-subtle">
           {label}
         </span>
-        <Icon size={15} strokeWidth={1.8} className="text-fg-subtle" />
+        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-soft text-brand">
+          <Icon size={15} strokeWidth={2} />
+        </span>
       </div>
-      <div className="mt-2 text-2xl font-semibold tabular-nums tracking-tight text-fg">{value}</div>
-      <div className="mt-0.5 text-[12px] text-fg-subtle">{detail}</div>
+      <div className="mt-3 text-[26px] font-semibold leading-none tracking-tight text-fg tnum">
+        {value}
+      </div>
+      <div className="mt-1.5 text-[12px] text-fg-subtle">{detail}</div>
     </div>
   )
 }

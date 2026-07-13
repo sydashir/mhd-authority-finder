@@ -21,14 +21,21 @@ function NavItem({
   soon?: boolean
   onClick?: () => void
 }) {
-  const base = 'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium'
+  const base =
+    'relative flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors duration-150'
   const state = active
-    ? 'bg-brand/10 text-brand'
+    ? 'bg-brand-soft text-brand'
     : soon
       ? 'text-fg-subtle cursor-default'
       : 'text-fg-muted hover:bg-raised hover:text-fg cursor-pointer'
   const content = (
     <>
+      {active && (
+        <span
+          aria-hidden
+          className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-brand"
+        />
+      )}
       <Icon size={16} strokeWidth={active ? 2.2 : 1.8} />
       <span className="flex-1 text-left">{label}</span>
       {soon && (
@@ -135,7 +142,7 @@ export function Sidebar({
         <button
           type="button"
           onClick={onToggleTheme}
-          className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium text-fg-muted hover:bg-raised hover:text-fg"
+          className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium text-fg-muted transition-colors duration-150 hover:bg-raised hover:text-fg"
         >
           {theme === 'dark' ? <Sun size={16} strokeWidth={1.8} /> : <Moon size={16} strokeWidth={1.8} />}
           {theme === 'dark' ? 'Light mode' : 'Dark mode'}
