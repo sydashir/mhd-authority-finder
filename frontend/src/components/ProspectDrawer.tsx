@@ -2,15 +2,19 @@ import {
   Check,
   Copy,
   ExternalLink,
+  Loader2,
   Mail,
   Phone,
+  Save,
   ShieldCheck,
   X,
 } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
-import type { Prospect, TrustBand } from '../api/types'
-import { competitorList, formatDate, formatPopulation } from '../lib/format'
-import { SourceBadge, TrustBadge } from './badges'
+import { useSetOutreach } from '../api/hooks'
+import type { OutreachStatus, Prospect, TrustBand } from '../api/types'
+import { competitorList, formatDate, formatPopulation, OUTREACH_LABELS, timeAgo } from '../lib/format'
+import { OutreachBadge, SourceBadge, TrustBadge } from './badges'
+import type { ToastData } from './Toast'
 
 function trustExplanation(band: TrustBand): string {
   if (band === 'high')
@@ -103,7 +107,110 @@ function rootUrl(website: string): string {
   return website.startsWith('http') ? website : `https://${website}`
 }
 
-function DrawerContent({ prospect: p, onClose }: { prospect: Prospect; onClose: () => void }) {
+/** The team's workspace on a prospect (ADR-022) — set the status, log a note. */
+function OutreachSection({
+  prospect: p,
+  notify,
+}: {
+  prospect: Prospect
+  notify: (toast: ToastData) => void
+}) {
+  const mutation = useSetOutreach()
+  const [status, setStatus] = useState<OutreachStatus>(p.outreach_status)
+  const [notes, setNotes] = useState(p.outreach_notes)
+  // The saved baseline — updated on a successful save so the pill + dirty-state track reality
+  // even though the parent's selected-prospect snapshot doesn't refresh until reopened.
+  const [savedStatus, setSavedStatus] = useState<OutreachStatus>(p.outreach_status)
+  const [savedNotes, setSavedNotes] = useState(p.outreach_notes)
+  const [savedBy, setSavedBy] = useState(p.outreach_updated_by)
+  const [savedAt, setSavedAt] = useState(p.outreach_updated_at)
+
+  useEffect(() => {
+    setStatus(p.outreach_status)
+    setNotes(p.outreach_notes)
+    setSavedStatus(p.outreach_status)
+    setSavedNotes(p.outreach_notes)
+    setSavedBy(p.outreach_updated_by)
+    setSavedAt(p.outreach_updated_at)
+  }, [p.id, p.outreach_status, p.outreach_notes, p.outreach_updated_by, p.outreach_updated_at])
+
+  const dirty = status !== savedStatus || notes !== savedNotes
+
+  function save() {
+    mutation.mutate(
+      { id: p.id, status, notes },
+      {
+        onSuccess: (updated) => {
+          setSavedStatus(updated.outreach_status)
+          setSavedNotes(updated.outreach_notes)
+          setSavedBy(updated.outreach_updated_by)
+          setSavedAt(updated.outreach_updated_at)
+          notify({ message: 'Outreach updated.', tone: 'success' })
+        },
+        onError: () => notify({ message: 'Couldn’t save outreach — try again.', tone: 'error' }),
+      },
+    )
+  }
+
+  return (
+    <Section title="Outreach">
+      <div className="space-y-3 rounded-xl border border-border bg-raised/40 p-4">
+        <div className="flex items-center gap-2">
+          <OutreachBadge status={savedStatus} />
+          {savedBy && (
+            <span className="ml-auto truncate text-[11px] text-fg-subtle" title={savedBy}>
+              {savedBy}
+              {savedAt ? ` · ${timeAgo(savedAt)}` : ''}
+            </span>
+          )}
+        </div>
+        <label className="block">
+          <span className="text-[10px] font-medium uppercase tracking-wide text-fg-subtle">Status</span>
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value as OutreachStatus)}
+            className="mt-1 w-full cursor-pointer rounded-md border border-border bg-app px-2 py-1.5 text-[13px] text-fg outline-none focus:ring-2 focus:ring-brand/25"
+          >
+            {(Object.keys(OUTREACH_LABELS) as OutreachStatus[]).map((s) => (
+              <option key={s} value={s}>
+                {OUTREACH_LABELS[s]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-[10px] font-medium uppercase tracking-wide text-fg-subtle">Notes</span>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            rows={3}
+            placeholder="Notes on the conversation…"
+            className="mt-1 w-full resize-y rounded-md border border-border bg-app px-2 py-1.5 text-[13px] text-fg outline-none placeholder:text-fg-subtle focus:ring-2 focus:ring-brand/25"
+          />
+        </label>
+        <button
+          type="button"
+          onClick={save}
+          disabled={!dirty || mutation.isPending}
+          className="inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-1.5 text-[12px] font-medium text-brand-fg hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {mutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+          {dirty ? 'Save' : 'Saved'}
+        </button>
+      </div>
+    </Section>
+  )
+}
+
+function DrawerContent({
+  prospect: p,
+  onClose,
+  notify,
+}: {
+  prospect: Prospect
+  onClose: () => void
+  notify: (toast: ToastData) => void
+}) {
   const competitors = competitorList(p.competitor_links)
   return (
     <>
@@ -148,6 +255,8 @@ function DrawerContent({ prospect: p, onClose }: { prospect: Prospect; onClose: 
             confidence <span className="capitalize text-fg-muted">{p.confidence}</span>
           </div>
         </div>
+
+        <OutreachSection prospect={p} notify={notify} />
 
         <Section title="Contact">
           <div className="space-y-2">
@@ -221,9 +330,11 @@ function DrawerContent({ prospect: p, onClose }: { prospect: Prospect; onClose: 
 export function ProspectDrawer({
   prospect,
   onClose,
+  notify,
 }: {
   prospect: Prospect | null
   onClose: () => void
+  notify: (toast: ToastData) => void
 }) {
   const open = prospect !== null
   const [shown, setShown] = useState<Prospect | null>(prospect)
@@ -255,7 +366,7 @@ export function ProspectDrawer({
         role="dialog"
         aria-label="Prospect detail"
       >
-        {shown && <DrawerContent prospect={shown} onClose={onClose} />}
+        {shown && <DrawerContent prospect={shown} onClose={onClose} notify={notify} />}
       </aside>
     </div>
   )

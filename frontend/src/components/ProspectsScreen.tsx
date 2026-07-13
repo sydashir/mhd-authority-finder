@@ -84,7 +84,7 @@ export function ProspectsScreen({ notify }: { notify: (toast: ToastData) => void
           />
         </div>
       </main>
-      <ProspectDrawer prospect={selected} onClose={() => setSelected(null)} />
+      <ProspectDrawer prospect={selected} onClose={() => setSelected(null)} notify={notify} />
     </div>
   )
 }
