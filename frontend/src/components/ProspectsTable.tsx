@@ -1,8 +1,8 @@
 import { ArrowUpDown, ChevronDown, ChevronUp, Columns3 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { Prospect, TrustBand } from '../api/types'
+import type { OutreachStatus, Prospect, TrustBand } from '../api/types'
 import { competitorList, formatPopulation, orDash, pagePath } from '../lib/format'
-import { ConfidenceTag, SourceBadge, TrustBadge } from './badges'
+import { ConfidenceTag, OutreachBadge, SourceBadge, TrustBadge } from './badges'
 
 type ColKey =
   | 'website'
@@ -10,11 +10,23 @@ type ColKey =
   | 'email'
   | 'phone'
   | 'contact_trust'
+  | 'outreach_status'
   | 'geo_served'
   | 'source_tag'
   | 'competitors'
   | 'population'
   | 'confidence'
+
+// Sort order = the outreach funnel (fresh → engaged → won, then the dead-ends last).
+const OUTREACH_RANK: Record<OutreachStatus, number> = {
+  not_contacted: 0,
+  contacted: 1,
+  responded: 2,
+  interested: 3,
+  linked: 4,
+  not_interested: 5,
+  bounced: 6,
+}
 
 interface Column {
   key: ColKey
@@ -90,6 +102,12 @@ const COLUMNS: Column[] = [
     render: (p) => <TrustBadge band={p.contact_trust} />,
   },
   {
+    key: 'outreach_status',
+    label: 'Outreach',
+    sortable: true,
+    render: (p) => <OutreachBadge status={p.outreach_status} />,
+  },
+  {
     key: 'geo_served',
     label: 'Geo Served',
     sortable: true,
@@ -132,6 +150,8 @@ function compareBy(a: Prospect, b: Prospect, key: ColKey): number {
       return (a.population ?? -1) - (b.population ?? -1)
     case 'contact_trust':
       return TRUST_RANK[a.contact_trust] - TRUST_RANK[b.contact_trust]
+    case 'outreach_status':
+      return OUTREACH_RANK[a.outreach_status] - OUTREACH_RANK[b.outreach_status]
     case 'confidence':
       return TRUST_RANK[a.confidence] - TRUST_RANK[b.confidence]
     case 'competitors':

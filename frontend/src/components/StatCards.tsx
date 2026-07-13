@@ -1,4 +1,4 @@
-import { History, Mail, MapPin, ShieldCheck, Target, type LucideIcon } from 'lucide-react'
+import { History, Mail, MapPin, Send, ShieldCheck, Target, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useStats } from '../api/hooks'
 import type { RunStatus } from '../api/types'
@@ -44,8 +44,8 @@ export function StatCards() {
 
   if (isPending || !data) {
     return (
-      <div className="grid shrink-0 grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
-        {Array.from({ length: 5 }, (_, i) => i).map((i) => (
+      <div className="grid shrink-0 grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+        {Array.from({ length: 6 }, (_, i) => i).map((i) => (
           <div key={`stat-sk-${i}`} className="h-[92px] animate-pulse rounded-xl bg-raised" />
         ))}
       </div>
@@ -55,9 +55,11 @@ export function StatCards() {
   const emailPct = pct(data.with_email, data.total_prospects)
   const highPct = pct(data.high_trust, data.total_prospects)
   const run = data.last_run
+  const worked = data.total_prospects - (data.outreach.not_contacted ?? 0)
+  const responded = data.outreach.responded ?? 0
 
   return (
-    <div className="grid shrink-0 grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
+    <div className="grid shrink-0 grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
       <Card
         icon={Target}
         label="Total Prospects"
@@ -81,6 +83,12 @@ export function StatCards() {
         label="Geos Covered"
         value={data.geos_covered.toLocaleString()}
         detail="states & localities"
+      />
+      <Card
+        icon={Send}
+        label="Outreach"
+        value={worked.toLocaleString()}
+        detail={`${responded} responded · ${data.outreach.not_contacted ?? 0} to go`}
       />
       <Card
         icon={History}

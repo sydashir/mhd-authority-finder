@@ -1,9 +1,11 @@
-import type { GeoLevel, SourceTag, TrustBand } from '../api/types'
+import type { GeoLevel, OutreachStatus, SourceTag, TrustBand } from '../api/types'
+import { OUTREACH_LABELS } from '../lib/format'
 
 export interface ProspectQueryFilters {
   contact_trust?: TrustBand
   source_tag?: SourceTag
   level?: GeoLevel
+  outreach_status?: OutreachStatus
 }
 
 const TRUST_OPTS = [
@@ -20,6 +22,10 @@ const LEVEL_OPTS = [
   { value: 'county', label: 'County' },
   { value: 'city', label: 'City' },
 ]
+const OUTREACH_OPTS = (Object.keys(OUTREACH_LABELS) as OutreachStatus[]).map((value) => ({
+  value,
+  label: OUTREACH_LABELS[value],
+}))
 
 function Select({
   label,
@@ -87,6 +93,12 @@ export function FilterBar({
         value={filters.level}
         options={LEVEL_OPTS}
         onChange={(v) => onChange({ level: v as GeoLevel | undefined })}
+      />
+      <Select
+        label="Outreach"
+        value={filters.outreach_status}
+        options={OUTREACH_OPTS}
+        onChange={(v) => onChange({ outreach_status: v as OutreachStatus | undefined })}
       />
       {activeCount > 0 && (
         <button

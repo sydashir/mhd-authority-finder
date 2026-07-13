@@ -9,9 +9,11 @@ import {
   getProspects,
   getRuns,
   getStats,
+  patchOutreach,
   triggerRun,
   type ProspectFilters,
 } from './client'
+import type { OutreachStatus } from './types'
 
 export function useMe() {
   // 401 -> not signed in (isError, no retry). Drives the auth gate.
@@ -57,6 +59,19 @@ export function useTriggerRun() {
     onSuccess: () => {
       // Surface the new 'running' row immediately; polling takes over from there.
       void queryClient.invalidateQueries({ queryKey: ['runs'] })
+    },
+  })
+}
+
+export function useSetOutreach() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (vars: { id: number; status: OutreachStatus; notes?: string }) =>
+      patchOutreach(vars.id, { status: vars.status, notes: vars.notes }),
+    onSuccess: () => {
+      // The row's pill + the dashboard's outreach counts both reflect the change.
+      void queryClient.invalidateQueries({ queryKey: ['prospects'] })
+      void queryClient.invalidateQueries({ queryKey: ['stats'] })
     },
   })
 }

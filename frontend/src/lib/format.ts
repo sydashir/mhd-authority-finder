@@ -1,5 +1,17 @@
 // Pure display helpers for the table + drawer.
 
+import type { OutreachStatus } from '../api/types'
+
+export const OUTREACH_LABELS: Record<OutreachStatus, string> = {
+  not_contacted: 'Not contacted',
+  contacted: 'Contacted',
+  responded: 'Responded',
+  interested: 'Interested',
+  not_interested: 'Not interested',
+  linked: 'Linked',
+  bounced: 'Bounced',
+}
+
 export function formatPopulation(p: number | null): string {
   return p === null ? '—' : p.toLocaleString('en-US')
 }

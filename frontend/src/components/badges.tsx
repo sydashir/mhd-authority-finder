@@ -1,5 +1,10 @@
 import { CheckCircle2, Loader2, XCircle } from 'lucide-react'
-import type { RunStatus, SourceTag, TrustBand } from '../api/types'
+import type { OutreachStatus, RunStatus, SourceTag, TrustBand } from '../api/types'
+import { OUTREACH_LABELS } from '../lib/format'
+
+export function OutreachBadge({ status }: { status: OutreachStatus }) {
+  return <span className={`badge badge-oc-${status}`}>{OUTREACH_LABELS[status]}</span>
+}
 
 export function TrustBadge({ band }: { band: TrustBand }) {
   return (

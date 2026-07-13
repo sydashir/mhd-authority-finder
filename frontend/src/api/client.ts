@@ -5,6 +5,7 @@ import type {
   AuthUser,
   GeoLevel,
   Health,
+  OutreachStatus,
   PageOf,
   Prospect,
   Run,
@@ -43,9 +44,9 @@ async function apiGet<T>(path: string, params?: Record<string, QueryValue>): Pro
   return (await res.json()) as T
 }
 
-async function apiPost<T>(path: string, body: unknown): Promise<T> {
+async function apiSend<T>(method: 'POST' | 'PATCH', path: string, body: unknown): Promise<T> {
   const res = await fetch(new URL(path, API_URL), {
-    method: 'POST',
+    method,
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(body),
     credentials: 'include',
@@ -54,11 +55,15 @@ async function apiPost<T>(path: string, body: unknown): Promise<T> {
   return (await res.json()) as T
 }
 
+const apiPost = <T>(path: string, body: unknown) => apiSend<T>('POST', path, body)
+const apiPatch = <T>(path: string, body: unknown) => apiSend<T>('PATCH', path, body)
+
 export interface ProspectFilters {
   contact_trust?: TrustBand
   source_tag?: SourceTag
   level?: GeoLevel
   geo?: string
+  outreach_status?: OutreachStatus
   limit?: number
   offset?: number
 }
@@ -91,6 +96,10 @@ export async function getAllProspects(filters: ProspectFilters): Promise<Prospec
 }
 
 export const getProspect = (id: number) => apiGet<Prospect>(`/prospects/${id}`)
+
+/** Set a prospect's outreach status/notes (ADR-022) — the backend records the signed-in user. */
+export const patchOutreach = (id: number, body: { status: OutreachStatus; notes?: string }) =>
+  apiPatch<Prospect>(`/prospects/${id}/outreach`, body)
 
 export interface ExportResult {
   url: string

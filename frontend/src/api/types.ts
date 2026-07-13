@@ -5,6 +5,14 @@ export type TrustBand = 'high' | 'medium' | 'low'
 export type SourceTag = 'MHD' | 'AH'
 export type GeoLevel = 'state' | 'county' | 'city'
 export type RunStatus = 'running' | 'success' | 'failed'
+export type OutreachStatus =
+  | 'not_contacted'
+  | 'contacted'
+  | 'responded'
+  | 'interested'
+  | 'not_interested'
+  | 'linked'
+  | 'bounced'
 
 export interface Prospect {
   id: number
@@ -25,6 +33,12 @@ export interface Prospect {
   updated_at: string
   run_id: number | null
   geo_id: number | null
+  // USER-owned outreach fields (ADR-022)
+  outreach_status: OutreachStatus
+  outreach_notes: string
+  contacted_at: string | null
+  outreach_updated_at: string | null
+  outreach_updated_by: string | null
 }
 
 export interface PageOf<T> {
@@ -71,5 +85,6 @@ export interface Stats {
   high_trust: number
   with_email: number
   geos_covered: number
+  outreach: Record<OutreachStatus, number>
   last_run: Run | null
 }

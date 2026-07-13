@@ -128,6 +128,35 @@
     background: var(--flag-bg);
     color: var(--flag-fg);
   }
+  /* Outreach workflow states (ADR-022) — colored tints that read on dark + light. */
+  .badge-oc-not_contacted {
+    background: var(--raised);
+    color: var(--fg-subtle);
+  }
+  .badge-oc-contacted {
+    background: rgb(59 130 246 / 0.16);
+    color: rgb(96 165 250);
+  }
+  .badge-oc-responded {
+    background: rgb(245 158 11 / 0.16);
+    color: rgb(251 191 36);
+  }
+  .badge-oc-interested {
+    background: rgb(16 185 129 / 0.16);
+    color: rgb(52 211 153);
+  }
+  .badge-oc-not_interested {
+    background: rgb(113 113 122 / 0.18);
+    color: rgb(161 161 170);
+  }
+  .badge-oc-linked {
+    background: var(--brand);
+    color: var(--brand-fg);
+  }
+  .badge-oc-bounced {
+    background: rgb(244 63 94 / 0.16);
+    color: rgb(251 113 133);
+  }
   .dot-high {
     background: var(--high-dot);
   }
