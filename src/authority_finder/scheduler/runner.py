@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import sentry_sdk
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -61,6 +62,10 @@ async def run_tick(
             )
         except Exception as exc:
             _log.error("scheduler.site_failed", site_id=site_id, error=str(exc))
+            # A scheduled run failing (the 3am cron) must alert someone (no-op if no DSN).
+            with sentry_sdk.new_scope() as scope:
+                scope.set_tag("site_id", site_id)
+                sentry_sdk.capture_exception(exc)
             result = IncrementalRunResult(site_id=site_id, aborted=True, note=str(exc))
         results.append(result)
     return results

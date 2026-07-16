@@ -36,6 +36,7 @@ from authority_finder.geo_monitor.sites import SITES
 from authority_finder.geo_monitor.state import load_state
 from authority_finder.geo_monitor.url_parser import parse_geo_url
 from authority_finder.logging import configure as configure_logging
+from authority_finder.monitoring import init_sentry
 from authority_finder.output.csv_writer import write_csv
 from authority_finder.output.sheets_writer import SheetsWriter
 from authority_finder.page_detector.models import DetectionResult
@@ -667,6 +668,8 @@ def schedule(interval_hours: int | None, run_now: bool, once: bool) -> None:
     """Run the scheduler: periodically process newly-published geo pages → live Sheet."""
     configure_logging("INFO")
     settings = get_settings()
+    # Report scheduled-run failures (the 3am cron) — no-op unless SENTRY_DSN is set (ADR-023).
+    init_sentry(dsn=settings.sentry_dsn, environment=settings.sentry_environment)
     if not settings.serpapi_api_key.get_secret_value():
         click.echo("SERPAPI_API_KEY is not set — aborting before scheduling.", err=True)
         sys.exit(2)

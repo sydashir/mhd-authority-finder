@@ -66,3 +66,4 @@ service-account.json
 service-account*.json
 *-service-account.json
 .playwright-mcp/
+.claude/skills/

@@ -16,6 +16,7 @@ from authority_finder.db.session import make_engine, make_session_factory
 from backend.auth import get_current_user
 from backend.deps import get_session
 from backend.jobs import sweep_orphan_runs
+from backend.monitoring import init_monitoring
 from backend.routers import auth, export, health, prospects, runs, stats
 
 __all__ = ["app", "create_app", "get_session"]
@@ -23,6 +24,7 @@ __all__ = ["app", "create_app", "get_session"]
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
+    init_monitoring(settings)  # no-op unless SENTRY_DSN is set (silent in dev + tests)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None]:

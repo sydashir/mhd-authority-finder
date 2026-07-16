@@ -107,6 +107,18 @@ class Settings(BaseSettings):
         ),
     )
 
+    sentry_dsn: str = Field(
+        default="",
+        description=(
+            "Sentry DSN for error monitoring (ADR-023). BLANK = monitoring disabled, so local dev "
+            "is silent. Set only in production."
+        ),
+    )
+    sentry_environment: str = Field(
+        default="production",
+        description="Sentry environment tag (SENTRY_ENVIRONMENT) — 'production' / 'staging'.",
+    )
+
     playwright_no_sandbox: bool = Field(
         default=False,
         description=(

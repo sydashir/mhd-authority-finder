@@ -18,6 +18,7 @@ from datetime import datetime
 from pathlib import Path
 
 import httpx
+import sentry_sdk
 import structlog
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -75,6 +76,13 @@ async def execute_run(
         summary = await job(run_id, site, mode)
     except Exception as exc:
         _log.error("api.run.failed", run_id=run_id, site=site, error=str(exc))
+        # A background run failing (e.g. a scheduled 3am run) is exactly what must alert
+        # someone — no request context wraps it, so capture it explicitly (no-op if no DSN).
+        with sentry_sdk.new_scope() as scope:
+            scope.set_tag("run_id", run_id)
+            scope.set_tag("site", site)
+            scope.set_tag("mode", mode)
+            sentry_sdk.capture_exception(exc)
         async with sessionmaker() as session:
             await finish_run(
                 session,
