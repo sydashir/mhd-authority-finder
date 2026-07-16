@@ -1176,3 +1176,56 @@ with teal icon-chips + tighter numerals + hover lift; the sidebar active item ge
 table panel + rows gain elevation + smooth hover; and the **login is now a premium dark screen** (OLED bg +
 teal aurora glow + branded logo chip + floating card). Frontend builds + lints clean (0 warnings); all Phase
 F3 functionality intact. Commit (sydashir): `a7b45ac`.
+
+## 2026-07-16 — Session 23: Phase F4 — frontend tests + error monitoring
+
+Final hardening before hosting. Closed two production-readiness gaps: the React app had ZERO tests
+(backend had 381) and production failures alerted no one. No features, no visual change, 0 billed,
+622-prospect dataset untouched. ADR-023.
+
+### Part A — frontend tests (Vitest + RTL + MSW)
+
+- Test infra: Vitest (jsdom, globals) in the Vite config, MSW v2 intercepting the API at the network layer
+  (real client/hook/component logic against realistic shapes, not stubbed hooks), `npm test`.
+- **30 tests** (9 files), REAL behavior not coverage theater: api client (filter/pagination params on the
+  wire, parsing, ApiError, PATCH/POST bodies); auth gate (401→login / authed→app / logout) + login 403
+  message; prospects table (rows, trust sort, column hide, select); filters (param + subset render, empty,
+  error); drawer + outreach (chips, clipboard, outreach PATCH → pill flip + toast, error path); runs +
+  Run-now (POST site+mode, error); ErrorBoundary (crash → recovery screen). Not tested: pure visual styling,
+  the real Google GSI iframe (its 403/success handling IS tested).
+
+### Part B — error monitoring (Sentry, DSN-gated, silent in dev)
+
+- Shared core `authority_finder/monitoring.py` (init + scrub); `backend/monitoring.py` adds FastAPI/Starlette
+  integrations; `frontend/src/lib/monitoring.ts` for React.
+- Backend captures unhandled exceptions AND — critically — background-run failures: `execute_run` (API task)
+  and the scheduler's `run_tick` per-site failure (the 3am scheduled-run case); the scheduler CLI inits
+  Sentry so the Docker cron reports too.
+- Frontend `@sentry/react` ErrorBoundary → on-brand recovery screen (not a white page) + report; errors only
+  (no tracing/replay).
+- Gating: SENTRY_DSN / VITE_SENTRY_DSN blank = disabled (dev + tests silent, CI sends nothing).
+- Scrubbing: send_default_pii=False (denies auth/cookie/session/token/secret) + before_send drops
+  cookies/body/sensitive-headers + redacts prospect emails. Session/JWT/.env/emails never leave the process.
+
+### Verification (0 billed)
+
+Frontend 30 tests green + build + oxlint clean. Backend **387 tests** (381 + 6 monitoring): scrub_event
+strips cookies/body/headers + redacts emails; init_sentry disabled with no DSN; execute_run captures a
+background failure; ErrorBoundary fallback proven by a crashing-child test. Nothing broke: db+api pass with
+the monitoring-wired app, CLI/scheduler + master Sheet unchanged, 622 dataset untouched (622/622
+not_contacted). Commits (sydashir): `064c355`/`db0654b`/`b19b355`/`0cb2bea` (tests), `1e3675b`/`ef3f0b8`
+(monitoring), `16ef384` (adr), + this progress log.
+
+### Hosting-time (Phase E)
+
+Create two Sentry projects (Python + React); set SENTRY_DSN/SENTRY_ENVIRONMENT (API/scheduler) +
+VITE_SENTRY_DSN (frontend build). Monitoring turns on the moment a DSN is present.
+
+### Gotchas
+
+- Vitest 4 + Vite 8: `defineConfig` from `vitest/config` types the `test` block (no triple-slash needed).
+- ESM named exports can't be `vi.spyOn`'d — mock the module (`vi.mock('@sentry/react', ...)`).
+- Pyright strict flags nested `dict[str, Any]` access as "partially unknown" — `cast(...)` each narrowed piece.
+- The npx-installed `.claude/skills/**` vendored Python scripts get linted by `ruff check .` — exclude
+  `.claude` in pyproject + gitignore them.
+- Docker Desktop kept dropping this session — testcontainer db/api tests skip when it's down, pass when up.

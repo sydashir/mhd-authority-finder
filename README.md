@@ -94,9 +94,19 @@ trust/source/level filters, pagination, and a row-detail drawer. Migrations: `uv
 uv run pytest                 # backend tests
 uv run ruff check .           # backend lint
 uv run pyright                # backend strict type check
+cd frontend && npm test       # frontend tests (Vitest + Testing Library + MSW)
 cd frontend && npm run build  # frontend: tsc type-check + production build
 cd frontend && npm run lint   # frontend lint (oxlint)
 ```
+
+### Error monitoring (Sentry — optional, off by default)
+
+Monitoring (ADR-023) is **disabled unless a DSN is set**, so local dev is silent. To turn it on in
+production, create two Sentry projects (a Python/FastAPI one and a React one) and set the DSNs in the
+deployed env — `SENTRY_DSN` (+ `SENTRY_ENVIRONMENT`) for the API/scheduler, `VITE_SENTRY_DSN` for the
+frontend build. It captures unhandled exceptions, a graceful React error-boundary fallback, and — crucially
+— background/scheduled **run failures**. Secrets (session/JWT/`.env`) and prospect emails are scrubbed from
+every event before it is sent.
 
 ## Docs
 
