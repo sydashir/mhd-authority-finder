@@ -917,3 +917,69 @@ frontend builds + lints clean. Dataset left pristine (622/622 `not_contacted`).
 - If the team wants outreach in the exported sheet, add DB-sourced outreach columns to the on-demand export
   (never to the master auto-write).
 - If >1 person edits concurrently, add optimistic-concurrency (the `outreach_updated_at` is the seam).
+
+## ADR-023 — Frontend tests + error monitoring (production-readiness)
+
+**Date:** 2026-07-16
+**Status:** Accepted
+**Context:** Final hardening before hosting (Phase E). Two gaps: the React app had ZERO tests (the backend
+had 381), and a production failure alerted no one — the S21 "laptop died mid-run" class of incident would
+pass silently. This session closes both. No features, no visual change, 0 billed, the 622-prospect dataset
+untouched.
+
+### Part A — frontend tests
+
+1. **Vitest + React Testing Library + MSW, testing BEHAVIOR not coverage.** Vitest (jsdom, globals) wired
+   into the Vite config; MSW v2 intercepts the API at the network layer so tests exercise the real client +
+   hooks + component logic against realistic response shapes — not stubbed hooks. Every test asserts a
+   behavior a user would notice; no snapshot-only or `expect(true)` filler. **30 tests** protect: the API
+   client (filter/pagination params on the wire, parsing, `ApiError` on non-2xx, PATCH/POST bodies); the
+   **auth gate** (401→login, authed→app, logout→login) and **login 403** ("isn't authorized" message, not a
+   crash); the **prospects table** (rows, trust sort asc/desc, column hide, row select); **filters** (trust
+   filter hits the API + renders only the subset; empty + error states); the **detail drawer + outreach**
+   (contact/competitor chips, clipboard copy, an outreach change PATCHes the right body + flips the pill +
+   toasts success, and an error path toasts failure); **runs + Run-now** (rows, POST with the chosen
+   site+mode, error toast); and the **ErrorBoundary** (a crashing child shows the recovery screen).
+2. **Deliberately NOT tested:** pure-visual styling (the elevation/theme tokens), exact pixel layout, and
+   the real Google GSI iframe (stubbed — its 403/success handling IS tested; the sign-in *transport* is
+   Google's). Coverage % is not chased; specific product-breaking behaviors are protected.
+
+### Part B — error monitoring (Sentry, DSN-gated)
+
+3. **Sentry, enabled only by a DSN — silent in dev.** Backend `SENTRY_DSN` / frontend `VITE_SENTRY_DSN`
+   BLANK ⇒ `init` never runs and every `capture_*` is a no-op, so local dev + tests are silent and CI sends
+   nothing. Real DSNs are a hosting-time step.
+4. **Backend: capture unhandled exceptions AND background-run failures.** The shared core
+   (`authority_finder/monitoring.py`) inits Sentry; the FastAPI wrapper (`backend/monitoring.py`) adds the
+   Starlette + FastAPI integrations for request context. CRITICALLY, the two places a run can die with no
+   request wrapping it are captured explicitly: the API background task (`execute_run`) and the standalone
+   scheduler's per-site failure (`run_tick`) — the 3am scheduled-run case. The scheduler CLI inits Sentry
+   itself so the Docker cron reports too.
+5. **Frontend: an ErrorBoundary + graceful fallback.** `@sentry/react` `Sentry.ErrorBoundary` wraps the app
+   with an on-brand recovery screen (reload button) instead of a white page, and reports the crash. Errors
+   only — no tracing, no session replay (free-tier friendly and replay-free avoids shipping PII-heavy DOM).
+6. **Scrubbing policy — never send secrets, redact PII.** `send_default_pii=False` (the SDK default) already
+   denies authorization/cookie/session/token/secret/api_key from event payloads and request headers; a
+   `before_send` (both stacks) additionally drops the request cookies + body outright, scrubs sensitive
+   headers, and redacts email addresses (prospect PII) from exception messages. So the Google session, JWT,
+   `.env` secrets, and prospect emails never leave the process.
+
+### Verification (0 billed)
+
+Frontend **30 tests** (9 files) green; build + oxlint clean. Backend **387 tests** (381 + 6 monitoring) —
+the monitoring tests prove: `scrub_event` strips cookies/body/headers + redacts emails; `init_sentry` returns
+False (never touches Sentry) with no DSN and True with one; and `execute_run` calls `capture_exception` when
+a background job raises (the 3am case, no real event sent). The ErrorBoundary fallback is proven by a
+crashing-child test. Nothing broke: db+api tests pass with the monitoring-wired app, CLI/scheduler + master
+Sheet unchanged, the 622-prospect dataset untouched (622/622 not_contacted).
+
+### Hosting-time (what the user must do — Phase E)
+
+Create two Sentry projects (a Python/FastAPI one and a React one); set `SENTRY_DSN` + `SENTRY_ENVIRONMENT`
+in the API/scheduler env and `VITE_SENTRY_DSN` in the frontend build env. Nothing else — monitoring turns on
+the moment a DSN is present.
+
+### Trigger to revisit
+
+- If error volume approaches the free tier, add sampling (`sample_rate`) or upgrade.
+- If a specific user flow needs regression protection, add a behavior test (the MSW harness makes it cheap).
