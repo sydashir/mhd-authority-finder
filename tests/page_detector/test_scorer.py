@@ -108,6 +108,74 @@ WYOMING_GEO = GeoRef(
     state="wyoming",
 )
 
+ALABAMA_GEO = GeoRef(
+    site_id="ah",
+    url="https://addictionhotline.com/alabama/",
+    level="state",
+    state="alabama",
+)
+
+
+def test_news_subdomain_capped_to_low() -> None:
+    # ADR-024 bucket C: a news/press subdomain is never the department page — cap it to low
+    # even when the article is topical and geo-confirmed (news.calstatela.edu scored HIGH).
+    content = make_content(
+        final_url="https://news.calstatela.edu/2026/04/06/cal-state-la-mental-health-services/",
+        title="Cal State LA Expands Mental Health Services",
+        h1s=["Mental Health Services"],
+        text="Counseling and crisis support for students in California. " + LONG_BODY,
+        has_mailto=True,
+        has_tel=True,
+    )
+    page = score_page(content, geo=CALIFORNIA_GEO)
+    assert isinstance(page, DetectedPage)
+    assert page.confidence == "low"
+    assert "junk_page_type" in _signal_names(page)
+
+
+def test_press_release_headline_slug_capped_to_low() -> None:
+    # The alabamaag.gov defect: a press release with a long headline slug (no /news/ section)
+    # scored HIGH. A headline-length slug is a press release, not a resource page.
+    slug = "attorney-general-and-health-officer-announce-issuance-of-opioid-council-report"
+    content = make_content(
+        final_url=f"https://www.alabamaag.gov/{slug}/",
+        title="Opioid Council Report",
+        h1s=["Mental Health and Substance Use"],
+        text="Alabama behavioral health and treatment resources. " + LONG_BODY,
+        has_mailto=True,
+    )
+    page = score_page(content, geo=ALABAMA_GEO)
+    assert isinstance(page, DetectedPage)
+    assert page.confidence == "low"
+    assert "junk_page_type" in _signal_names(page)
+
+
+def test_business_directory_capped_to_low() -> None:
+    content = make_content(
+        final_url="https://www.hooveralabama.gov/BusinessDirectoryII.aspx?lngBusinessCategoryID=30",
+        title="Business Directory",
+        h1s=["Mental Health Services"],
+        text="Alabama mental health provider services directory. " + LONG_BODY,
+    )
+    page = score_page(content, geo=ALABAMA_GEO)
+    assert isinstance(page, DetectedPage)
+    assert page.confidence == "low"
+    assert "junk_page_type" in _signal_names(page)
+
+
+def test_normal_resource_page_not_flagged_junk() -> None:
+    # Regression: a short-slug department page must NOT be flagged as junk.
+    content = make_content(
+        final_url="https://ochealthinfo.gov/services/behavioral-health/",
+        title="Behavioral Health Services",
+        h1s=["Behavioral Health Services"],
+        text="Mental health resources for Orange County, California residents. " + LONG_BODY,
+        has_mailto=True,
+    )
+    page = score_page(content, geo=ORANGE_COUNTY_GEO)
+    assert isinstance(page, DetectedPage)
+    assert "junk_page_type" not in _signal_names(page)
+
 
 def test_domain_contradicts_target_is_hard_rejected() -> None:
     # The killer S19 case: wyomingcountyny.gov is Wyoming COUNTY, New York. Its page says

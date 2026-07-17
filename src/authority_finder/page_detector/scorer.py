@@ -40,6 +40,24 @@ RESOURCE_MARKERS = ("resources", "services", "get help", "find help")
 NEWS_TITLE_MARKERS = ("press release", "news release", "newsroom", "in the news")
 DATE_PATH_RE = re.compile(r"/(19|20)\d{2}(/\d{1,2})?(/|$)")
 
+# Junk page TYPES that are never the department / resource page we want — a press
+# release, news post, event, calendar, media item, or business directory. They scored
+# high at full scale (news.calstatela.edu, alabamaag.gov's press release) because the
+# -3.0 news weight fires too weakly and misses URL patterns (ADR-024, bucket C). A
+# match caps confidence to low — a junk page type can never be promoted.
+_JUNK_HOST_RE = re.compile(r"^(?:news|newsroom|media)\.", re.IGNORECASE)
+_JUNK_PATH_RE = re.compile(
+    r"(?:/news/|/news-release|/newsroom|/press[-/]|press-release|/media/|/media-center"
+    r"|/event/|/events/|/calendar|/article/|/articles/|/blog/|businessdirectory)",
+    re.IGNORECASE,
+)
+# A final path segment this long is a headline, not a page name — the alabamaag.gov
+# press release (a 20-word slug with no /news/ section). Verified against the live 622:
+# every slug this long was a press release, news post, or job posting; zero were
+# department pages.
+_HEADLINE_SLUG_TOKENS = 10
+_SLUG_EXT_RE = re.compile(r"\.(?:aspx|php|html?)$", re.IGNORECASE)
+
 W_TOPIC_TITLE = 3.0
 W_TOPIC_PATH = 2.0
 W_TOPIC_BODY = 0.5
@@ -115,6 +133,15 @@ def _contact_signal(content: PageContent) -> PageSignal | None:
             name="contact_link", weight_contribution=W_CONTACT_LINK, detail="internal contact link"
         )
     return None
+
+
+def _is_junk_page(url: str) -> bool:
+    """True when the URL is a junk page type (news/press/event/directory/headline slug)."""
+    parsed = urlparse(url)
+    if _JUNK_HOST_RE.search(parsed.netloc) or _JUNK_PATH_RE.search(parsed.path):
+        return True
+    segment = _SLUG_EXT_RE.sub("", parsed.path.rstrip("/").rsplit("/", 1)[-1])
+    return bool(segment) and segment.count("-") + 1 >= _HEADLINE_SLUG_TOKENS
 
 
 def score_page(content: PageContent, *, geo: GeoRef) -> DetectedPage | WrongState:
@@ -213,6 +240,17 @@ def score_page(content: PageContent, *, geo: GeoRef) -> DetectedPage | WrongStat
     # health.maryland.gov/bha titled just "Get Help") escapes the cap.
     if not topic_title and not topic_path and not topic_body:
         confidence = "low"
+    # Junk page TYPE (news/press/event/directory/headline slug) — never the department
+    # page, so it can never be promoted regardless of topic/state score (ADR-024 bucket C).
+    if _is_junk_page(content.final_url):
+        confidence = "low"
+        signals.append(
+            PageSignal(
+                name="junk_page_type",
+                weight_contribution=0.0,
+                detail="press/news/event/directory/headline-slug URL",
+            )
+        )
     # Geo-confirmation gate (ADR-020): a candidate whose target geo is confirmed by NEITHER the
     # domain, NOR strong text (target state present AND not out-mentioned by another state — a
     # national/multi-state page naming the target once is weak), NOR (county/city) the locality is
