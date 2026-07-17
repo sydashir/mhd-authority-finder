@@ -28,6 +28,27 @@ def _row(
     return build_row(o, population=_pop(pop), now=NOW)
 
 
+def _orow(
+    domain: str, *, trust: str = "high", pop: int | None = 100, geo: str = "Maryland"
+) -> OutputRow:
+    """An OutputRow with explicit contact_trust/population/geo for sort assertions."""
+    return OutputRow(
+        website=domain,
+        specific_page=f"https://{domain}/p",
+        email="",
+        phone="",
+        contact_source="",
+        contact_trust=trust,
+        organization_description="",
+        geo_served=geo,
+        population=pop,
+        competitor_links="—",
+        source_tag="MHD",
+        date_added="2026-06-19",
+        confidence="high",
+    )
+
+
 def test_dedupe_keeps_one_per_domain_geo() -> None:
     rows = [_row("a.gov"), _row("a.gov"), _row("b.gov")]
     out = dedupe_and_sort(rows)
@@ -35,24 +56,45 @@ def test_dedupe_keeps_one_per_domain_geo() -> None:
     assert {r.website for r in out} == {"a.gov", "b.gov"}
 
 
-def test_sort_confidence_then_population() -> None:
+def test_sort_trust_then_population() -> None:
     rows = [
-        _row("low.gov", confidence="low", pop=900),
-        _row("high-small.gov", confidence="high", pop=10),
-        _row("high-big.gov", confidence="high", pop=999),
+        _orow("low.gov", trust="low", pop=900),
+        _orow("high-small.gov", trust="high", pop=10),
+        _orow("high-big.gov", trust="high", pop=999),
     ]
     out = dedupe_and_sort(rows)
-    # same geo: high before low; within high, bigger population first
+    # contact trust first; within a trust band, bigger population first
     assert [r.website for r in out] == ["high-big.gov", "high-small.gov", "low.gov"]
 
 
-def test_unknown_population_sorts_last_within_confidence() -> None:
+def test_trust_outranks_geo() -> None:
+    # A high-trust row in a late-alphabet geo must still beat a low-trust row in an
+    # early-alphabet geo — the whole point of the S24 re-sort (trust before geo).
     rows = [
-        _row("known.gov", confidence="high", pop=5),
-        _row("unknown.gov", confidence="high", pop=None),
+        _orow("low-early.gov", trust="low", geo="Alabama", pop=999),
+        _orow("high-late.gov", trust="high", geo="Wyoming", pop=1),
+    ]
+    out = dedupe_and_sort(rows)
+    assert [r.website for r in out] == ["high-late.gov", "low-early.gov"]
+
+
+def test_unknown_population_sorts_last_within_trust() -> None:
+    rows = [
+        _orow("known.gov", trust="high", pop=5),
+        _orow("unknown.gov", trust="high", pop=None),
     ]
     out = dedupe_and_sort(rows)
     assert [r.website for r in out] == ["known.gov", "unknown.gov"]
+
+
+def test_population_then_geo_within_trust() -> None:
+    # equal trust + equal population → stable geo (alphabetical) tiebreak
+    rows = [
+        _orow("b.gov", trust="high", pop=100, geo="Nevada"),
+        _orow("a.gov", trust="high", pop=100, geo="Georgia"),
+    ]
+    out = dedupe_and_sort(rows)
+    assert [r.geo_served for r in out] == ["Georgia", "Nevada"]
 
 
 def test_write_csv_header_and_count(tmp_path: Path) -> None:
