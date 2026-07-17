@@ -36,6 +36,28 @@ async def test_phone_only_is_partial() -> None:
     assert outcome.contacts.best_phone == "+19165551212"
 
 
+async def test_out_of_state_phone_is_dropped() -> None:
+    # Geo is Orange County, California; the page's only phone is a New York (212)
+    # number → area-code geography rejects it (ADR-024, bucket B). No phone published.
+    url = "https://county.gov/behavioral-health"
+    fetcher = fetcher_for({url: html(body="Reach us.", tel="212-736-3100")})
+    outcome = await extract_candidate(candidate_outcome(url), fetcher=fetcher)
+
+    assert outcome.contacts.best_phone is None
+    assert outcome.contacts.phones == []
+
+
+async def test_in_state_phone_survives_when_another_contradicts() -> None:
+    # An in-state 714 (Orange County CA) number is kept; a 212 (NY) number is dropped.
+    url = "https://county.gov/behavioral-health"
+    body = "Call 714-834-5000 or our NY office 212-736-3100."
+    fetcher = fetcher_for({url: html(body=body)})
+    outcome = await extract_candidate(candidate_outcome(url), fetcher=fetcher)
+
+    assert outcome.contacts.best_phone == "+17148345000"
+    assert all(p.number != "+12127363100" for p in outcome.contacts.phones)
+
+
 async def test_contact_form_only_is_partial() -> None:
     url = "https://county.gov/dept"
     fetcher = fetcher_for({url: html(body="Use the form.", form=True)})

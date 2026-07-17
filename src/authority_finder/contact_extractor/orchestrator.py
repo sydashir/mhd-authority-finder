@@ -28,6 +28,7 @@ from authority_finder.contact_extractor.models import (
     ExtractionResult,
     ExtractionStatus,
 )
+from authority_finder.contact_extractor.phone_geography import drop_wrong_geo_phones
 from authority_finder.discovery.classify import registrable_domain
 from authority_finder.fetching import FetchError, PageContent, PageFetcher
 from authority_finder.page_detector.models import CandidateOutcome, DetectionResult
@@ -101,7 +102,9 @@ async def extract_candidate(
                 break
 
     ranked_emails = rank_emails(emails)
-    ranked_phones = rank_phones(phones)
+    # Drop any phone whose area code contradicts the geo's state — a third-party or
+    # out-of-state number scraped off the page (ADR-024, bucket B).
+    ranked_phones = drop_wrong_geo_phones(rank_phones(phones), outcome.candidate.geo.state)
     has_contact_form = has_form and not ranked_emails
     contacts = ContactSet(
         emails=ranked_emails,

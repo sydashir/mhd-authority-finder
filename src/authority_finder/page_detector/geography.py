@@ -20,7 +20,7 @@ from urllib.parse import urlparse
 
 from authority_finder.discovery.classify import registrable_domain
 
-_ABBR_TO_SLUG: dict[str, str] = {
+ABBR_TO_SLUG: dict[str, str] = {
     "al": "alabama",
     "ak": "alaska",
     "az": "arizona",
@@ -73,7 +73,7 @@ _ABBR_TO_SLUG: dict[str, str] = {
     "wy": "wyoming",
 }
 # Full-name portals (texas.gov, maryland.gov, …) — EXACT registrable label only, never a suffix.
-_NAME_TO_SLUG: dict[str, str] = {slug.replace("-", ""): slug for slug in _ABBR_TO_SLUG.values()}
+_NAME_TO_SLUG: dict[str, str] = {slug.replace("-", ""): slug for slug in ABBR_TO_SLUG.values()}
 _NAME_TO_SLUG["newyork"] = "new-york"
 
 _COUNTY_ABBR = re.compile(r"county([a-z]{2})$")
@@ -82,12 +82,12 @@ _MIN_US_HOST_PARTS = 3  # host.abbr.us — the smallest {sub}.{abbr}.us shape we
 
 def _gov_state(label: str) -> str | None:
     """State slug from a ``.gov`` registrable label (portal or county{abbr}), else ``None``."""
-    if label in _ABBR_TO_SLUG:
-        return _ABBR_TO_SLUG[label]
+    if label in ABBR_TO_SLUG:
+        return ABBR_TO_SLUG[label]
     if label in _NAME_TO_SLUG:
         return _NAME_TO_SLUG[label]
     match = _COUNTY_ABBR.search(label)
-    return _ABBR_TO_SLUG.get(match.group(1)) if match is not None else None
+    return ABBR_TO_SLUG.get(match.group(1)) if match is not None else None
 
 
 def candidate_state(url: str) -> str | None:
@@ -102,7 +102,7 @@ def candidate_state(url: str) -> str | None:
     tld = parts[-1]
     if tld == "us":
         # Municipal .us encodes the state in the suffix: co.orange.ca.us → ca.
-        return _ABBR_TO_SLUG.get(parts[-2]) if len(parts) >= _MIN_US_HOST_PARTS else None
+        return ABBR_TO_SLUG.get(parts[-2]) if len(parts) >= _MIN_US_HOST_PARTS else None
     if tld != "gov":
         return None
     return _gov_state(registrable_domain(url).split(".")[0])
