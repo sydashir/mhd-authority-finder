@@ -124,10 +124,10 @@ def test_domain_contradicts_target_is_hard_rejected() -> None:
 
 
 def test_unconfirmable_target_state_demoted_to_low() -> None:
-    # cornell.edu is New York, not Wyoming; the .edu domain can't prove it, and the page never
-    # names Wyoming — neither domain nor text confirms the target, so it must not ship as verified.
+    # An .edu absent from the Scorecard snapshot can't be geolocated, and the page never names
+    # Wyoming — neither domain nor text confirms the target, so it must not ship as verified.
     content = make_content(
-        final_url="https://cornell.edu/student-health/",
+        final_url="https://regionalcollege.edu/student-health/",
         title="Student Mental Health and Counseling Services",
         text="Counseling and psychological services for students. Crisis support. " + LONG_BODY,
         has_mailto=True,
@@ -137,6 +137,40 @@ def test_unconfirmable_target_state_demoted_to_low() -> None:
     assert isinstance(page, DetectedPage)
     assert page.confidence == "low"
     assert "geo_unconfirmed" in {s.name for s in page.signals}
+
+
+def test_edu_wrong_state_hard_rejected() -> None:
+    # ADR-024 bucket A: cornell.edu is a New York university — under a Wyoming geo it must
+    # HARD-REJECT (not merely demote), same as a wrong-state .gov domain. The page text is
+    # deliberately generic so only the domain proves the contradiction.
+    content = make_content(
+        final_url="https://cornell.edu/student-health/",
+        title="Student Mental Health and Counseling Services",
+        text="Counseling and psychological services for students. Crisis support. " + LONG_BODY,
+        has_mailto=True,
+    )
+    verdict = score_page(content, geo=WYOMING_GEO)
+    assert isinstance(verdict, WrongState)
+    assert verdict.dominant_state == "new-york"
+
+
+def test_multi_campus_edu_confirmed_in_a_campus_state() -> None:
+    # midwestern.edu has both an Illinois and an Arizona campus — under Arizona it must be
+    # geo-confirmed (not rejected, not demoted), the multi-campus precision case.
+    arizona = GeoRef(
+        site_id="ah", url="https://addictionhotline.com/arizona/", level="state", state="arizona"
+    )
+    content = make_content(
+        final_url="https://midwestern.edu/programs/behavioral-health/",
+        title="Behavioral Health Programs",
+        text="Mental health and counseling services. Crisis support. " + LONG_BODY,
+        has_mailto=True,
+        has_tel=True,
+    )
+    page = score_page(content, geo=arizona)
+    assert isinstance(page, DetectedPage)
+    assert page.confidence != "low"
+    assert page.state_validated
 
 
 def test_domain_confirmed_candidate_not_demoted() -> None:
@@ -197,8 +231,8 @@ def test_cryptic_out_of_state_gov_demoted() -> None:
 
 
 def test_locality_in_text_confirms_out_of_domain_edu() -> None:
-    # A .edu that names the target locality IS geo-confirmed — CSU Long Beach naming "Long Beach"
-    # must not be demoted just because the domain carries no state.
+    # A .edu we can't geolocate but that names the target locality IS geo-confirmed — naming
+    # "Long Beach" must not be demoted just because the domain carries no derivable state.
     long_beach = GeoRef(
         site_id="mhd",
         url="https://inpatientmentalhealthfinder.com/serving/california/los-angeles/long-beach/",
@@ -208,7 +242,7 @@ def test_locality_in_text_confirms_out_of_domain_edu() -> None:
         city="long-beach",
     )
     content = make_content(
-        final_url="https://csulb.edu/counseling/",
+        final_url="https://regionalcollege.edu/counseling/",
         title="Counseling and Psychological Services",
         text="Serving students in Long Beach. Mental health and crisis support. " + LONG_BODY,
         has_mailto=True,

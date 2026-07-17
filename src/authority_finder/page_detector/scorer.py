@@ -23,6 +23,7 @@ from authority_finder.fetching import PageContent
 from authority_finder.geo_monitor.states import US_STATE_SLUGS
 from authority_finder.page_detector.geography import candidate_state
 from authority_finder.page_detector.models import Confidence, DetectedPage, PageSignal
+from authority_finder.page_detector.university_geo import university_states
 
 TOPIC_KEYWORDS = (
     "mental health",
@@ -131,6 +132,16 @@ def score_page(content: PageContent, *, geo: GeoRef) -> DetectedPage | WrongStat
     domain_confirms = cand_state == geo.state
     if cand_state is not None and not domain_confirms:
         return WrongState(dominant_state=cand_state, mentions=0)
+    # .edu domains carry no state in the label, so ADR-020 deferred them; the College
+    # Scorecard snapshot closes that gap (ADR-024). A multi-campus university confirms the
+    # geo if it's ANY of its campus states; a university operating in none of them is a
+    # wrong-state hard reject, exactly like a contradicting .gov domain.
+    uni_states = university_states(content.final_url)
+    if uni_states is not None:
+        if geo.state in uni_states:
+            domain_confirms = True
+        else:
+            return WrongState(dominant_state=sorted(uni_states)[0], mentions=0)
     if not domain_confirms and target_count == 0 and state_counts:
         dominant, mentions = max(state_counts.items(), key=lambda kv: kv[1])
         if mentions >= WRONG_STATE_MIN_COUNT:
