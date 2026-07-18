@@ -163,6 +163,26 @@ def test_business_directory_capped_to_low() -> None:
     assert "junk_page_type" in _signal_names(page)
 
 
+def test_department_page_with_long_slug_not_capped() -> None:
+    # ucop.edu FP (ADR-024 audit): a real /departments/ CAPS page whose long slug IS the
+    # spelled-out department name, not a headline — the long-slug heuristic must not cap it.
+    url = (
+        "https://ucop.edu/uc-health/departments/"
+        "uc-student-health-and-counseling-shcs-and-counseling-and-psychological-services-caps.html"
+    )
+    content = make_content(
+        final_url=url,
+        title="Student Health and Counseling Services",
+        h1s=["Counseling and Psychological Services"],
+        text="Mental health and counseling services across California campuses. " + LONG_BODY,
+        has_mailto=True,
+    )
+    page = score_page(content, geo=CALIFORNIA_GEO)
+    assert isinstance(page, DetectedPage)
+    assert "junk_page_type" not in _signal_names(page)
+    assert page.confidence != "low"
+
+
 def test_normal_resource_page_not_flagged_junk() -> None:
     # Regression: a short-slug department page must NOT be flagged as junk.
     content = make_content(

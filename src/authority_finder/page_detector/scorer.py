@@ -57,6 +57,9 @@ _JUNK_PATH_RE = re.compile(
 # department pages.
 _HEADLINE_SLUG_TOKENS = 10
 _SLUG_EXT_RE = re.compile(r"\.(?:aspx|php|html?)$", re.IGNORECASE)
+# A long slug under one of these sections is a spelled-out department/service name, not a
+# headline (ucop.edu's CAPS page, ADR-024 audit) — so the headline-slug rule skips it.
+_RESOURCE_PATH_RE = re.compile(r"/(?:departments?|services|programs?|resources)/", re.IGNORECASE)
 
 W_TOPIC_TITLE = 3.0
 W_TOPIC_PATH = 2.0
@@ -140,6 +143,8 @@ def _is_junk_page(url: str) -> bool:
     parsed = urlparse(url)
     if _JUNK_HOST_RE.search(parsed.netloc) or _JUNK_PATH_RE.search(parsed.path):
         return True
+    if _RESOURCE_PATH_RE.search(parsed.path):
+        return False
     segment = _SLUG_EXT_RE.sub("", parsed.path.rstrip("/").rsplit("/", 1)[-1])
     return bool(segment) and segment.count("-") + 1 >= _HEADLINE_SLUG_TOKENS
 
