@@ -1229,3 +1229,69 @@ VITE_SENTRY_DSN (frontend build). Monitoring turns on the moment a DSN is presen
 - The npx-installed `.claude/skills/**` vendored Python scripts get linted by `ruff check .` — exclude
   `.claude` in pyproject + gitignore them.
 - Docker Desktop kept dropping this session — testcontainer db/api tests skip when it's down, pass when up.
+
+---
+
+## 2026-07-18 — Session 24: Phase F5 — sheet data quality (ADR-024)
+
+### Done
+
+Audited the live 622-row production deliverable and fixed the defects reaching the client, **0 billed**
+(cached corpus + persisted rows). Diagnosed first, then fixed by evidence, then adversarially verified.
+
+- **Diagnosis (`docs/sheet-quality-audit.md`, commit `b47c777`).** Bucketed all 622: A `.edu` wrong-state
+  (31), B phone area-code contradiction (38), C junk page promoted (12 high/med), D third-party contact (61
+  — already low, not a defect), E population blank (74; 50 fixable), F federal leak (irs.gov ×2).
+- **Sort (`6345454`).** Trust-first (high→low), then population desc, then geo — the 71 high-trust rows now
+  sit at the top instead of scattered alphabetically.
+- **Phone geography (`272022b`).** New `contact_extractor/phone_geography.py` — resolves a phone's state via
+  the `phonenumbers` geocoder (libphonenumber, already a dep — chosen over a hand-kept ~300-code table);
+  drops a phone whose area code contradicts the geo; toll-free = neutral. Wired into the extractor.
+- **University state (`b273ec7`).** New `page_detector/university_geo.py` + vendored `data/university_states.csv`
+  (federal College Scorecard, domain → state-set, 90% corpus coverage; NCES was firewalled, `scorecard.network`
+  reachable). Scorer hard-rejects a `.edu` whose geo is in none of its campus states; multi-campus → set;
+  unknown → text fallback.
+- **Junk detection (`f9c7ad7`).** Scorer caps news/press/event/media/blog/business-directory + long-headline-slug
+  (≥10 hyphen tokens) pages to low; verified zero legit high-trust FPs on the 622.
+- **Census (`fd98e93`).** Not a matching bug — the 8 blank states had no cache from the crashed S21 run;
+  re-lookup fills all 8 with real ACS5-2024 figures. Added a fail-loud path for the API's 200-HTML
+  "Invalid Key" rate-limit response (was silently swallowed).
+- **Adversarial verification (4-agent workflow) caught 3 false positives, all fixed:** `wbu.edu`/Hawaii +
+  `widener.edu`/Delaware — real branch campuses the Scorecard row missed → `_BRANCH_CAMPUS_STATES` override
+  (`ea792c8`); `ucop.edu`/California — a real `/departments/` page tripped the long-slug rule → resource-path
+  exemption (`4ab3481`). Removals 31→29, caps 16→15.
+
+### Rewrite (Option B — re-derivation, not a fragile full re-run)
+
+No page-content cache exists, so a literal re-run would re-fetch ~2,500 pages (the ~2h S21 run that crashed)
++ inject drift. Instead applied the four fixes to the frozen S21 CSV by running the ACTUAL fix code over each
+row (`scratch/finalize_s24.py`) — faithful, 0-drift, 0-billed, cleanly attributable. Rewrote Postgres (run
+#10) + master Sheet: **622 → 593 rows**, high 77→71 / med 146→141 / low 399→381; population blanks 74→20
+(remaining are city geos honestly absent from Census); idempotent.
+
+### Verified
+
+- **Make-or-break (ADR-022):** seeded a survivor `contacted` in the DB → survived the rewrite (status/notes/
+  author intact); only the 29 wrong-state rows deleted. Reset to pristine (593/593 not_contacted).
+- **Playwright 6/6** corrected rows geo-correct + on-org contact + right page type: ucr.edu (CA), tamut.edu
+  (TX), ozarks.edu (AR — the blanked 505 was NM; real line is 479), tntech.edu (article, correctly capped),
+  southalabama.edu (AL, pop-filled), pinellas.gov (FL).
+- **504 tests** (416 unit + 58 db/api + 30 frontend), ruff + pyright clean. Master Sheet top rows all
+  high-trust, population-desc (read back live).
+
+### Surface to user
+
+- **Census key is valid** (was transient rate-limiting, now works — all 8 states filled correctly).
+- Residuals (honest): in-state third-party phone can't be caught by area code (already low); ~9% of `.edu`
+  absent from Scorecard fall back to text; a wrong-geo phone is blanked, not replaced with an in-geo alternate
+  (would need a re-fetch — the ozarks 479 case; email is the primary contact).
+
+### Gotchas
+
+- NCES/IPEDS (`nces.ed.gov`) is firewalled from this host (ConnectTimeout); GitHub-raw + `scorecard.network`
+  reachable. College Scorecard DEMO_KEY rate-limits at ~9 pages — used the full institution ZIP instead.
+- The Census API returns a 200 HTML "Invalid Key" page under load (rate-limit), not a 4xx — looks like a dead
+  key; retries fine. `resp.json()` was silently swallowing it.
+- The prospects outreach columns are `outreach_notes` / `outreach_updated_by` / `outreach_updated_at` (not
+  `notes`/`updated_by`).
+- Docker Desktop was down at write time — `open -a Docker`, waited for the daemon, then the DB write ran.
