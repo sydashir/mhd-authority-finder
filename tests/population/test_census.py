@@ -163,6 +163,27 @@ async def test_no_key_degrades_to_not_found(tmp_path: Path) -> None:
     assert "CENSUS_API_KEY" in result.note
 
 
+async def test_invalid_key_fails_loudly_with_clear_note(tmp_path: Path) -> None:
+    # An expired/invalid CENSUS_API_KEY makes the API return a 200 HTML "Invalid Key" page
+    # (not JSON). It must surface a CLEAR not_found note, not silently degrade — the exact
+    # failure that hid the S24 population gap (ADR-024, bucket E).
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            text="<html><head><title>Invalid Key</title></head></html>",
+            headers={"content-type": "text/html"},
+        )
+
+    client = CensusClient(
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        api_key="bad-key",
+        cache_dir=tmp_path,
+    )
+    result = await client.population_for(_geo("state", "alabama"))
+    assert result.confidence == "not_found"
+    assert "invalid" in result.note.lower() and "key" in result.note.lower()
+
+
 async def test_cache_avoids_second_request(tmp_path: Path) -> None:
     counter: list[str] = []
     client = _client(tmp_path, counter=counter)

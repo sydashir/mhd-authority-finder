@@ -56,6 +56,10 @@ _STE_RE = re.compile(r"\bste\b")
 _log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 
+class CensusKeyError(RuntimeError):
+    """The Census API rejected the key — a 200 HTML 'Invalid Key' page, not JSON."""
+
+
 def normalize_place(name: str) -> str:
     """Census NAME (or a geo display name) → comparable key: drop state tail + type suffix.
 
@@ -99,7 +103,14 @@ class CensusClient:
         state_fips = STATE_FIPS.get(geo.state)
         if state_fips is None:
             return _not_found(f"no FIPS for state slug {geo.state!r}")
+        try:
+            return await self._lookup(geo, state_fips)
+        except CensusKeyError:
+            # Loud, honest failure — an invalid/expired key must never masquerade as a
+            # plain "no data" not_found (that hid the S24 population gap).
+            return _not_found("census API returned Invalid Key — CENSUS_API_KEY is invalid/expired")
 
+    async def _lookup(self, geo: GeoPage, state_fips: str) -> PopulationResult:
         if geo.level == "state":
             return await self._state(geo.state, state_fips)
         if geo.level == "county" and geo.county:
@@ -184,8 +195,10 @@ class CensusClient:
             return None
         try:
             rows: list[list[str]] = resp.json()
-        except json.JSONDecodeError:
-            return None
+        except json.JSONDecodeError as exc:
+            # A 200 with a non-JSON body is the Census "Invalid Key" HTML page — surface it.
+            _log.warning("census.invalid_key", cache_name=cache_name, body=resp.text[:120])
+            raise CensusKeyError("census API returned a non-JSON response") from exc
         self._cache_write(cache_name, rows)
         return rows
 
