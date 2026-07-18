@@ -84,24 +84,25 @@ third-party phone (e.g. `uwa.edu`'s page lists the "Crisis Center of Central Ala
 number, 205 = correct state) — area code can't catch it and it's already low-trust.
 Documented as a known limit; no code change.
 
-### E — population blank where it should resolve → 74 blank (root cause: expired key)
+### E — population blank where it should resolve → 74 blank (50 fixed by re-run)
 
 Not a matching bug (`STATE_FIPS` covers every state; the state lookup is a direct FIPS
-call) and — corrected after live probing — **not** the run-crash I first assumed. The
-real cause is an **expired `CENSUS_API_KEY`**: the live Census API now returns a 200
-HTML "Invalid Key" page for every fresh lookup, which the client's `resp.json()`
-swallows as a silent `not_found`. The 8 whole states blank today (FIPS
-01/04/32/40/41/45/46/50 = Alabama, Arizona, Nevada, Oklahoma, Oregon, South Carolina,
-South Dakota, Vermont — 50 rows) are exactly the ones that were *not* already on disk
-from Session 12, when the key still worked; the cached states still resolve. The other
-24 blanks are city/neighbourhood geos honestly absent from Census (e.g. Palos Verdes) —
-correct `not_found`.
+call). The 8 whole states blank in S21 (FIPS 01/04/32/40/41/45/46/50 = Alabama, Arizona,
+Nevada, Oklahoma, Oregon, South Carolina, South Dakota, Vermont — 50 rows) are exactly
+the ones with **no cache file** — their Census fetch never completed during the S21 run
+(the host-crash / transient Census failures), while states cached back in Session 12
+still resolve. Re-looking them up fills all 8 correctly with the real ACS5 2024 figures
+(Alabama 5,086,768, Vermont 647,106, …, verified against the live API). Census is free
+(not SerpAPI). The other 24 blanks are city/neighbourhood geos honestly absent from
+Census (e.g. Palos Verdes) — correct `not_found`, left blank.
 
-Two fixes: a **code fix** so an invalid-key / non-JSON response fails loudly (a logged
-warning + a clear result note) instead of degrading silently; and an **operational**
-one — a valid free key is needed to fill the 8 states (the code is proven correct by
-every state that resolves from cache). Without a key the rows stay honestly blank; we
-never fabricate a population.
+While diagnosing this the Census API intermittently returned a 200 HTML "Invalid Key"
+page under load (its rate-limit response), which the client's `resp.json()` was
+swallowing as a silent, misleading "no ACS row" not_found. Added a **code fix** so a
+non-JSON response now fails loudly (a logged `census.invalid_key` warning + a clear
+result note) rather than masquerading as missing data — so a genuinely bad/expired key
+can never again hide as a population gap. Populations are never fabricated: an
+unresolved geo stays honestly blank.
 
 ### F — minor: national domain leak → 2 rows
 

@@ -983,3 +983,84 @@ the moment a DSN is present.
 
 - If error volume approaches the free tier, add sampling (`sample_rate`) or upgrade.
 - If a specific user flow needs regression protection, add a behavior test (the MSW harness makes it cheap).
+
+## ADR-024 — Sheet data quality: geolocation gates, trust-first sort, junk detection
+
+**Date:** 2026-07-18
+**Status:** Accepted
+**Context:** The live production deliverable (622 rows / 72 geos, ADR-021) was audited before the client
+digs in. Real defects reached the sheet: universities filed under the wrong state, phones belonging to a
+different state's org, press releases scored high, whole states missing population, and 77 high-trust rows
+scattered across an alphabetical sheet. Diagnosis first (`docs/sheet-quality-audit.md`), then evidence-driven
+fixes. **0 billed** — everything runs off the cached corpus + the persisted rows.
+
+### Decisions
+
+1. **Diagnose before fixing; fix by volume/severity.** Every defective row was bucketed with counts + named
+   examples across the full 622 BEFORE any code changed: A `.edu` wrong-state (31), B phone area-code
+   contradiction (38), C junk page promoted (12 high/medium), D third-party contact (61 — already low, not a
+   defect), E population blank (74; 50 fixable), F federal leak (irs.gov ×2). Scope followed the evidence.
+
+2. **Phone area-code geography via `phonenumbers`, not a hand-kept table (bucket B).** Phones encode
+   geography (NANP). We resolve a number's state through the maintained `phonenumbers` geocoder
+   (libphonenumber's data — authoritative, already a dependency) rather than hand-typing ~300 area codes —
+   a deliberate deviation from "build an area-code table" because the library IS the reliable current source
+   and is far less error-prone. A phone whose area code contradicts the geo's state is dropped (precision
+   over recall: only on a *confirmed* contradiction; toll-free carries no geography → neutral, kept).
+
+3. **`.edu` → state from the College Scorecard, closing the ADR-020 gap (bucket A).** ADR-020 geolocated
+   `.gov`/`.us` but deferred `.edu` (a bare `.edu` label carries no state). We vendor a snapshot of the
+   federal College Scorecard institution directory (`data/university_states.csv`, domain → state slugs, 90%
+   corpus coverage) and hard-reject a `.edu` whose geo is in *none* of its states — same shape as the S20
+   `.gov` domain gate. Multi-campus universities map to a *set* of states (`midwestern.edu` → {AZ, IL},
+   `touro.edu` → {NY, NV}) so a legitimate branch is never rejected; a domain absent from the snapshot falls
+   back to the page-text rule honestly (flag/low, never asserted). NCES/IPEDS was firewalled from this host;
+   the Scorecard institution ZIP on `scorecard.network` was reachable and authoritative.
+
+4. **Junk page TYPES cap to low, never promote (bucket C).** News/press/event/media/blog/business-directory
+   subdomains + path segments, plus a long-headline-slug heuristic (a final path segment of ≥10 hyphen
+   tokens is a headline, verified against the 622 as press-release/news/job-posting with zero legitimate
+   department pages). A match caps confidence to low — a junk *page type* can never be high, same shape as
+   the existing topic-relevance cap. The headline-slug rule is exempted under `/departments|services|
+   programs|resources/` (a long slug there is a spelled-out department name, not a headline).
+
+5. **Trust-first sort (the deliverable's ordering).** At 68 rows / 5 geos a geo-first sort was fine; at
+   622 / 72 it buried the value. Re-sorted contact-trust (high→low) FIRST, then population desc, then geo, so
+   the high-trust rows outreach can act on sit at the top of what the client opens.
+
+6. **Population — surface invalid-key failures loudly (bucket E).** The gap was not a matching bug (FIPS
+   covers every state) — the 8 blank states simply had no cache from the crashed S21 run; re-looking them up
+   fills all 8 with the real ACS5-2024 figures (Alabama 5,086,768, verified against the live API). While
+   diagnosing, the Census API intermittently returned a 200 HTML "Invalid Key" page under load, which the
+   client's `resp.json()` was swallowing as a misleading silent not_found; added a fail-loud path (a
+   `census.invalid_key` warning + a clear result note) so a genuinely bad key can never again hide as a
+   population gap. Populations are never fabricated.
+
+7. **Re-derivation over a full re-run (the rewrite mechanics).** There is no page-content cache, so a literal
+   pipeline re-run would re-fetch ~2,500 pages live (the fragile ~2h run that crashed in S21) and inject ~11
+   days of page drift that muddies before/after attribution. Instead the four fixes were applied to the
+   frozen S21 output by running the ACTUAL fix code (`university_states`, `phone_contradicts_geo`,
+   `_is_junk_page`, `CensusClient`) over each row — faithful (real code paths), 0-drift, 0-billed, and
+   cleanly attributable per bucket. Trade-off: a dropped wrong-geo phone is blanked, not replaced with an
+   in-geo alternate (that needs a re-fetch) — the primary email contact is unaffected.
+
+8. **Outreach preserved on rewrite (ADR-022 make-or-break).** Survivors are UPSERTED (the upsert never
+   touches the user-owned outreach columns) and only the 29 wrong-state rows are deleted — proven end-to-end:
+   a survivor seeded `contacted` in the DB kept its status/notes/author through the rewrite.
+
+### Adversarial verification found (and fixed) 3 false positives
+
+Four independent auditors web-verified all 118 changes. Buckets B (21/21) and the new-defect hunt were
+clean. Three false positives were caught and fixed: `wbu.edu`/Hawaii and `widener.edu`/Delaware — real
+physical branch campuses (Wayland Baptist Kapolei; Widener Delaware Law School) that the Scorecard
+single-state row missed → added a small evidence-cited `_BRANCH_CAMPUS_STATES` override, restoring both;
+and `ucop.edu`/California — a genuine `/departments/` CAPS page whose long slug is the department name, not a
+headline → the resource-path exemption above. Final removals 31→29, caps 16→15.
+
+### Result (0 billed)
+
+622 → **593 rows**. Contact-trust high 77→71, medium 146→141, low 399→381. Population blanks 74 → 20 (all
+remaining are city/neighbourhood geos honestly absent from Census). Master Sheet + Postgres rewritten,
+idempotent, high-trust rows at the top. **504 tests** (416 unit + 58 db/api + 30 frontend); ruff + pyright
+clean. Residuals (honest): an in-state third-party phone area-code cannot catch (already low); ~9% of `.edu`
+absent from Scorecard fall back to text; a wrong-geo phone is blanked not replaced.
