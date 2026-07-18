@@ -27,3 +27,13 @@ def test_non_edu_is_none() -> None:
 
 def test_bare_domain_and_subdomain_resolve() -> None:
     assert university_states("news.cornell.edu") == frozenset({"new-york"})
+
+
+def test_branch_campus_states_merged() -> None:
+    # Scorecard lists only the main-campus state for these, but each runs a real physical
+    # branch in another state (verified in the ADR-024 audit): Wayland Baptist in Hawaii,
+    # Widener's Delaware Law School in Delaware. The override must union, not replace.
+    wbu = university_states("wbu.edu")
+    assert wbu is not None and {"texas", "hawaii"} <= wbu
+    widener = university_states("widener.edu")
+    assert widener is not None and {"pennsylvania", "delaware"} <= widener

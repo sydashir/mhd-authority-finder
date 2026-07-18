@@ -22,15 +22,26 @@ from authority_finder.discovery.classify import registrable_domain
 
 _DATA_PATH = Path(__file__).parent / "data" / "university_states.csv"
 
+# Physical branch campuses the College Scorecard single-institution row misses, verified
+# against each university's own site (ADR-024 adversarial audit). Unioned onto the CSV states
+# so a genuine out-of-main-state campus is not wrong-state-rejected for the geo it serves.
+_BRANCH_CAMPUS_STATES: dict[str, frozenset[str]] = {
+    "wbu.edu": frozenset({"hawaii"}),  # Wayland Baptist — Kapolei HI campus + HI military bases
+    "widener.edu": frozenset({"delaware"}),  # Widener Delaware Law School, Wilmington DE
+}
+
 
 @cache
 def _states_by_domain() -> dict[str, frozenset[str]]:
     with _DATA_PATH.open(encoding="utf-8") as handle:
-        return {
+        states = {
             row["domain"]: frozenset(row["states"].split(";"))
             for row in csv.DictReader(handle)
             if row.get("domain") and row.get("states")
         }
+    for domain, extra in _BRANCH_CAMPUS_STATES.items():
+        states[domain] = states.get(domain, frozenset()) | extra
+    return states
 
 
 def university_states(url: str) -> frozenset[str] | None:
