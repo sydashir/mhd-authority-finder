@@ -27,6 +27,25 @@ def test_mailto_extracted_highest_confidence() -> None:
     assert hits[0].confidence == 1.0  # 0.9 base + 0.1 dept, rounded to 2dp
 
 
+def test_mailto_scheme_prefix_stripped() -> None:
+    # virginiabeach.gov shipped "mailto:vb311@vbgov.com" — the scheme must be stripped (ADR-025).
+    hits = extract_emails(page(mailto=["mailto:vb311@vbgov.com"]))
+    assert [h.address for h in hits] == ["vb311@vbgov.com"]
+
+
+def test_multi_recipient_mailto_takes_first_recipient() -> None:
+    # ndscs.edu shipped a 4-recipient list joined by ';%20' — keep only the first, decoded.
+    raw = "cloy.tobola@ndscs.edu;%20dana.k.kasowski@ndscs.edu;%20ndscs.marketing@ndscs.edu"
+    hits = extract_emails(page(mailto=[raw]))
+    assert [h.address for h in hits] == ["cloy.tobola@ndscs.edu"]
+
+
+def test_url_encoded_leading_space_email_cleaned() -> None:
+    # townofcumberlandmaine.gov shipped "%20info@..." — %20 decodes to a space that must be trimmed.
+    hits = extract_emails(page(mailto=["%20info@cumberlandmaine.com"]))
+    assert [h.address for h in hits] == ["info@cumberlandmaine.com"]
+
+
 def test_body_text_email_extracted() -> None:
     assert addrs({"text": "Email health@county.gov for help."}) == ["health@county.gov"]
 

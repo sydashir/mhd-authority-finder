@@ -36,6 +36,12 @@ def test_national_portals_rejected_as_federal() -> None:
         assert prefilter_candidate(make_candidate(url)).domain_rejection == "federal"
 
 
+def test_irs_rejected_as_federal() -> None:
+    # QA-audit leak (ADR-025): irs.gov is a national agency, never a per-geo authority.
+    verdict = prefilter_candidate(make_candidate("https://www.irs.gov/help/acceptance-agents"))
+    assert verdict.domain_rejection == "federal"
+
+
 def test_state_gov_is_not_federal() -> None:
     verdict = prefilter_candidate(make_candidate("https://health.maryland.gov/bha/"))
     assert verdict.domain_rejection is None

@@ -79,6 +79,7 @@ FEDERAL_DOMAINS: frozenset[str] = frozenset(
         "hrsa.gov",
         "hud.gov",
         "ihs.gov",
+        "irs.gov",  # national agency leaking as a per-geo authority (QA audit, ADR-025)
         "mentalhealth.gov",
         "nimh.gov",
         "senate.gov",

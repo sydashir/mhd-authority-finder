@@ -22,7 +22,7 @@ from authority_finder.page_detector.geography import candidate_state
         ("cornell.edu", None),  # NY university — not domain-derivable
         ("memphis.edu", None),  # TN university
         ("cuanschutz.edu", None),  # CO campus
-        ("dconc.gov", None),  # Durham County NC — cryptic, not derivable
+        ("dconc.gov", "north-carolina"),  # Durham County NC — a verified override (ADR-025)
         ("oc.gov", None),  # Orange County CA — 'oc' is not a state abbr, falls to locality
     ],
 )
@@ -68,6 +68,12 @@ def test_full_state_name_suffix_is_not_derived() -> None:
 
 
 def test_cryptic_acronym_is_not_derived() -> None:
-    assert (
-        candidate_state("https://dconc.gov/") is None
-    )  # Durham County NC, but 'dconc' is not derivable
+    # cabq.gov = Albuquerque NM — cryptic, not in the verified override → not derivable.
+    assert candidate_state("https://cabq.gov/") is None
+
+
+def test_verified_cryptic_gov_override_is_derived() -> None:
+    # dconc.gov is Durham County NC (verified in the QA audit) — a small override lets the scorer
+    # hard-reject it when served to a non-NC geo (it slipped through as wrong-geo, ADR-025).
+    assert candidate_state("https://dconc.gov/") == "north-carolina"
+    assert candidate_state("https://www.dconc.gov/behavioral-health/") == "north-carolina"

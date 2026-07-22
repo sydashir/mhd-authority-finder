@@ -21,6 +21,18 @@ def test_invalid_tel_link_dropped() -> None:
     assert extract_phones(page(tel=["tel-garbage", "123"])) == []
 
 
+def test_national_hotline_numbers_dropped() -> None:
+    # A national crisis/helpline number is never the ORG's own contact (ADR-025) — an outreach
+    # rep must not be handed the 988 Lifeline or the SAMHSA helpline as the prospect's phone.
+    assert extract_phones(page(tel=["+18002738255"])) == []  # 988 Lifeline (1-800-273-TALK)
+    assert extract_phones(page(tel=["1-800-662-4357"])) == []  # SAMHSA National Helpline
+    assert extract_phones(page(text="Call the crisis line at 1-800-273-8255 anytime.")) == []
+
+
+def test_ordinary_number_not_treated_as_hotline() -> None:
+    assert extract_phones(page(tel=["714-834-5000"]))[0].number == "+17148345000"
+
+
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
@@ -28,7 +40,7 @@ def test_invalid_tel_link_dropped() -> None:
         ("Reach us at 916-875-5881.", "+19168755881"),
         ("Phone: 916.555.1234", "+19165551234"),
         ("Dial 916 555 1234 now.", "+19165551234"),
-        ("Toll free 1-800-273-8255.", "+18002738255"),
+        ("Toll free 1-800-435-7352.", "+18004357352"),
         ("Fax: 916-555-7000", "+19165557000"),
     ],
 )

@@ -79,6 +79,13 @@ _NAME_TO_SLUG["newyork"] = "new-york"
 _COUNTY_ABBR = re.compile(r"county([a-z]{2})$")
 _MIN_US_HOST_PARTS = 3  # host.abbr.us — the smallest {sub}.{abbr}.us shape we can read
 
+# Cryptic .gov county/city domains whose state the rules above CAN'T parse, verified by hand
+# (QA audit, ADR-025). Kept tiny + evidence-cited — each one lets the scorer hard-reject a
+# domain served to the wrong state (dconc.gov = Durham County NC slipped through to CA geos).
+_KNOWN_GOV_STATES: dict[str, str] = {
+    "dconc.gov": "north-carolina",  # Durham County, North Carolina
+}
+
 
 def _gov_state(label: str) -> str | None:
     """State slug from a ``.gov`` registrable label (portal or county{abbr}), else ``None``."""
@@ -105,4 +112,7 @@ def candidate_state(url: str) -> str | None:
         return ABBR_TO_SLUG.get(parts[-2]) if len(parts) >= _MIN_US_HOST_PARTS else None
     if tld != "gov":
         return None
-    return _gov_state(registrable_domain(url).split(".")[0])
+    registrable = registrable_domain(url)
+    if registrable in _KNOWN_GOV_STATES:
+        return _KNOWN_GOV_STATES[registrable]
+    return _gov_state(registrable.split(".")[0])

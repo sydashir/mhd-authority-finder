@@ -304,10 +304,10 @@ def test_domain_confirmed_survives_other_state_in_text() -> None:
 
 
 def test_cryptic_out_of_state_gov_demoted() -> None:
-    # Bucket 3: dconc.gov is Durham County NC; 'dconc' can't be derived, and a topical page with
-    # no California/Orange-County context must be demoted, not shipped for an Orange County geo.
+    # cabq.gov is Albuquerque NM; 'cabq' can't be derived and the page has no California/Orange
+    # context, so it must be demoted (not shipped) for an Orange County geo.
     content = make_content(
-        final_url="https://dconc.gov/behavioral-health/",
+        final_url="https://cabq.gov/behavioral-health/",
         title="Behavioral Health Services",
         text="Mental health and substance use programs. Crisis and recovery support. " + LONG_BODY,
         has_tel=True,
@@ -316,6 +316,20 @@ def test_cryptic_out_of_state_gov_demoted() -> None:
     assert isinstance(page, DetectedPage)
     assert page.confidence == "low"
     assert "geo_unconfirmed" in {s.name for s in page.signals}
+
+
+def test_verified_wrong_geo_gov_hard_rejected() -> None:
+    # dconc.gov = Durham County NC (a verified override, ADR-025) — served to an Orange County CA
+    # geo it must HARD-REJECT even though its page reads as generically topical.
+    content = make_content(
+        final_url="https://dconc.gov/behavioral-health/",
+        title="Behavioral Health Services",
+        text="Mental health and substance use programs. Crisis and recovery support. " + LONG_BODY,
+        has_tel=True,
+    )
+    verdict = score_page(content, geo=ORANGE_COUNTY_GEO)
+    assert isinstance(verdict, WrongState)
+    assert verdict.dominant_state == "north-carolina"
 
 
 def test_locality_in_text_confirms_out_of_domain_edu() -> None:

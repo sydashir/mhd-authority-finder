@@ -17,6 +17,7 @@ best by confidence, then source, then address.
 
 import re
 from typing import Literal
+from urllib.parse import unquote
 
 import phonenumbers
 import tldextract
@@ -29,6 +30,16 @@ from authority_finder.contact_extractor.models import (
     PhoneSource,
 )
 from authority_finder.fetching.models import PageContent
+
+# National crisis/help lines are never an organisation's OWN contact — a rep working the sheet
+# must not be handed the 988 Lifeline or the SAMHSA helpline as the prospect's phone (ADR-025).
+_NATIONAL_HOTLINES = frozenset(
+    {
+        "+18002738255",  # 988 Suicide & Crisis Lifeline (legacy 1-800-273-TALK)
+        "+18006624357",  # SAMHSA National Helpline (1-800-662-HELP)
+        "+18007997233",  # National Domestic Violence Hotline
+    }
+)
 
 # Offline PSL extractor (matches discovery.classify config) — rejects emails whose
 # "domain" has no real public suffix (handler@bind.call, x@secret.key, a@host.local).
@@ -310,6 +321,20 @@ def _is_junk_email(address: str) -> bool:
     )
 
 
+def clean_email(raw: str) -> str | None:
+    """Normalise a raw address to a single deliverable email, or ``None`` if unusable (ADR-025).
+
+    Strips a leaked ``mailto:`` scheme, keeps only the FIRST recipient of a multi-recipient
+    href, and URL-decodes (``%20`` → space, then trimmed) BEFORE the junk guard — so the garbled
+    mailto values that reached the sheet (``mailto:vb311@…``, ``a@x;%20b@x``, ``%20info@…``) can
+    no longer be emitted.
+    """
+    address = raw.strip().lower().removeprefix("mailto:")
+    address = address.split(",", 1)[0].split(";", 1)[0]
+    address = unquote(address).strip().rstrip(".")
+    return None if not address or _is_junk_email(address) else address
+
+
 def _email_confidence(address: str, source: EmailSource) -> float:
     base = _SOURCE_BASE[source]
     category = classify_localpart(address)
@@ -336,9 +361,9 @@ def extract_emails(content: PageContent, *, contact_page: bool = False) -> list[
     hits: list[EmailHit] = []
     seen: set[str] = set()
 
-    def add(address: str, source: EmailSource, context: str, *, constrain: bool) -> None:
-        address = address.strip().rstrip(".").lower()
-        if not address or address in seen or _is_junk_email(address):
+    def add(raw: str, source: EmailSource, context: str, *, constrain: bool) -> None:
+        address = clean_email(raw)
+        if address is None or address in seen:
             return
         same_domain = _registrable_domain(address.split("@", 1)[-1]) == page_domain
         if constrain and not same_domain:
@@ -389,6 +414,8 @@ def extract_phones(content: PageContent, *, contact_page: bool = False) -> list[
         if not phonenumbers.is_valid_number(parsed):
             continue
         e164 = phonenumbers.format_number(parsed, PhoneNumberFormat.E164)
+        if e164 in _NATIONAL_HOTLINES:
+            continue
         add(e164, raw, tel_source, "tel: link")
 
     body_source: PhoneSource = "contact_page" if contact_page else "body_text"
@@ -403,6 +430,8 @@ def extract_phones(content: PageContent, *, contact_page: bool = False) -> list[
         if _PHONE_JUNK_LABEL.search(text[max(0, match.start - _PHONE_LABEL_WINDOW) : match.start]):
             continue
         e164 = phonenumbers.format_number(match.number, PhoneNumberFormat.E164)
+        if e164 in _NATIONAL_HOTLINES:
+            continue
         start = max(0, match.start - _CONTEXT_PAD)
         context = text[start : match.start + len(match.raw_string) + _CONTEXT_PAD].strip()
         add(e164, match.raw_string, body_source, context)
