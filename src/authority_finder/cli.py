@@ -18,11 +18,13 @@ from typing import Any, cast
 
 import click
 import httpx
+from sqlalchemy.exc import SQLAlchemyError
 
-from authority_finder.config import get_settings
+from authority_finder.config import Settings, get_settings
 from authority_finder.contact_extractor.models import ExtractionResult
 from authority_finder.contact_extractor.orchestrator import extract_for_geo
 from authority_finder.db.ingest import persist_pipeline_run
+from authority_finder.db.repository import run_rejection_reason
 from authority_finder.db.session import make_engine, make_session_factory
 from authority_finder.discovery.discover import discover_many
 from authority_finder.discovery.models import DiscoveryResult
@@ -571,6 +573,26 @@ def run(
         click.echo(db_note)
 
 
+async def _enforce_run_budget(settings: Settings) -> None:
+    """Refuse a CLI run when another run is in progress or the daily SerpAPI budget is spent
+    (ADR-025) — the same global rails the API/scheduler enforce. Best-effort: if the DB is
+    unreachable the run proceeds under the per-run circuit breaker alone."""
+    engine = make_engine()
+    reason: str | None = None
+    try:
+        async with make_session_factory(engine)() as session:
+            reason = await run_rejection_reason(
+                session, max_billed_per_day=settings.max_billed_searches_per_day
+            )
+    except SQLAlchemyError as exc:
+        click.echo(f"warning: could not check the run budget ({exc}); per-run cap still applies")
+        return
+    finally:
+        await engine.dispose()
+    if reason is not None:
+        raise click.ClickException(reason)
+
+
 async def _run_full(
     site_ids: list[str],
     *,
@@ -582,13 +604,18 @@ async def _run_full(
     persist_db: bool,
 ) -> tuple[PipelineFunnel, str, int, str | None]:
     settings = get_settings()
+    await _enforce_run_budget(settings)
     geos = _load_geos(site_ids, limit=limit, level=level, now=now)
     browser = PlaywrightBrowserFetcher(no_sandbox=settings.playwright_no_sandbox)
     async with httpx.AsyncClient(follow_redirects=True) as client:
         try:
             rows, funnel = await run_pipeline(
                 geos,
-                serp_client=SerpApiClient(client=client, api_key=settings.serpapi_api_key),
+                serp_client=SerpApiClient(
+                    client=client,
+                    api_key=settings.serpapi_api_key,
+                    max_billed=settings.max_billed_searches_per_run,
+                ),
                 fetcher=PageFetcher(client=client, browser=browser),
                 census_client=CensusClient(
                     client=client, api_key=settings.census_api_key.get_secret_value()

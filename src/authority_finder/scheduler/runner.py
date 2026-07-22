@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from authority_finder.config import Settings, get_settings
 from authority_finder.db.ingest import persist_pipeline_run
+from authority_finder.db.repository import run_rejection_reason
 from authority_finder.db.session import make_engine, make_session_factory
 from authority_finder.discovery.serpapi_client import SerpApiClient
 from authority_finder.fetching import PageFetcher
@@ -135,6 +136,15 @@ async def scheduled_tick(
     engine = make_engine(settings.database_url)
     sessionmaker = make_session_factory(engine)
     try:
+        # Respect the shared cost rails (ADR-025): if a run is already in progress (e.g. an API
+        # trigger) or the daily budget is spent, skip this tick rather than collide/overspend.
+        async with sessionmaker() as session:
+            reason = await run_rejection_reason(
+                session, max_billed_per_day=settings.max_billed_searches_per_day
+            )
+        if reason is not None:
+            _log.warning("scheduler.tick_skipped", reason=reason)
+            return []
         async with httpx.AsyncClient(follow_redirects=True) as sitemap_client:
             fetcher = SitemapFetcher(client=sitemap_client)
             results = await run_tick(

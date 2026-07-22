@@ -27,10 +27,28 @@ describe('RunsScreen', () => {
 
   it('shows the empty state when there are no runs', async () => {
     server.use(
-      http.get(`${API}/runs`, () => HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 })),
+      http.get(`${API}/runs`, () =>
+        HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 }),
+      ),
     )
     renderWithProviders(<RunsScreen notify={vi.fn()} />)
     expect(await screen.findByText(/no runs yet/i)).toBeInTheDocument()
+  })
+
+  it('disables Run now while a run is in progress (no double-trigger)', async () => {
+    server.use(
+      http.get(`${API}/runs`, () =>
+        HttpResponse.json({
+          items: [makeRun({ id: 1, status: 'running' })],
+          total: 1,
+          limit: 50,
+          offset: 0,
+        }),
+      ),
+    )
+    renderWithProviders(<RunsScreen notify={vi.fn()} />)
+    const btn = await screen.findByRole('button', { name: /run in progress/i })
+    expect(btn).toBeDisabled()
   })
 })
 
@@ -63,6 +81,23 @@ describe('RunNowButton', () => {
     await userEvent.click(screen.getByRole('button', { name: /start run/i }))
     await waitFor(() =>
       expect(notify).toHaveBeenCalledWith(expect.objectContaining({ tone: 'error' })),
+    )
+  })
+
+  it('surfaces the 409 reason verbatim when a run is already in progress', async () => {
+    server.use(
+      http.post(`${API}/runs`, () =>
+        HttpResponse.json({ detail: 'a run is already in progress' }, { status: 409 }),
+      ),
+    )
+    const notify = vi.fn()
+    renderWithProviders(<RunNowButton notify={notify} />)
+    await userEvent.click(screen.getByRole('button', { name: /run now/i }))
+    await userEvent.click(screen.getByRole('button', { name: /start run/i }))
+    await waitFor(() =>
+      expect(notify).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'a run is already in progress', tone: 'error' }),
+      ),
     )
   })
 })

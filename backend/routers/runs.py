@@ -7,9 +7,15 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 
 from authority_finder.config import get_settings
 from authority_finder.db.models import RunStatus
-from authority_finder.db.repository import count_runs, create_run, get_run, get_runs
+from authority_finder.db.repository import (
+    count_runs,
+    create_run,
+    get_run,
+    get_runs,
+    run_rejection_reason,
+)
 from authority_finder.geo_monitor.state import DEFAULT_STATE_DIR
-from backend.deps import SessionDep, SessionmakerDep, get_sessionmaker
+from backend.deps import SessionDep, SessionmakerDep, SettingsDep, get_sessionmaker
 from backend.jobs import RunJob, RunSummary, execute_run, run_pipeline_job
 from backend.schemas import PageOf, RunAccepted, RunCreate, RunOut
 
@@ -61,11 +67,21 @@ async def trigger_run(
     background_tasks: BackgroundTasks,
     session: SessionDep,
     sessionmaker: SessionmakerDep,
+    settings: SettingsDep,
     job: RunJobDep,
 ) -> RunAccepted:
     """Open a run (status=running), return its id immediately, run the pipeline in the
     background. The background task writes BOTH Postgres and the Sheet and respects the
-    cost rails; it finalizes the run row to success/failed when done."""
+    cost rails; it finalizes the run row to success/failed when done.
+
+    Guarded (ADR-025): refuses (409) when a run is already in progress — so a double-click or
+    a colliding scheduler tick can't double-spend SerpAPI or race the Sheet — and when the
+    day's recorded runs have already spent the global budget ceiling."""
+    reason = await run_rejection_reason(
+        session, max_billed_per_day=settings.max_billed_searches_per_day
+    )
+    if reason is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, reason)
     run = await create_run(session, site=body.site)
     await session.commit()  # commit before returning so the client can poll the id
     run_id = run.id

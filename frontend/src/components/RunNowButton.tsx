@@ -1,5 +1,6 @@
 import { AlertTriangle, Loader2, Play } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { ApiError } from '../api/client'
 import { useTriggerRun } from '../api/hooks'
 import type { RunMode, RunSite } from '../api/types'
 import type { ToastData } from './Toast'
@@ -11,11 +12,25 @@ const SITES: { value: RunSite; label: string }[] = [
 ]
 
 const MODES: { value: RunMode; label: string; hint: string }[] = [
-  { value: 'incremental', label: 'New geos only', hint: 'Cost-safe — spends nothing if nothing is new.' },
-  { value: 'full', label: 'Full re-scan', hint: 'Re-scans every known geo — may use search credits.' },
+  {
+    value: 'incremental',
+    label: 'New geos only',
+    hint: 'Cost-safe — spends nothing if nothing is new.',
+  },
+  {
+    value: 'full',
+    label: 'Full re-scan',
+    hint: 'Re-scans every known geo — may use search credits.',
+  },
 ]
 
-export function RunNowButton({ notify }: { notify: (toast: ToastData) => void }) {
+export function RunNowButton({
+  notify,
+  disabled = false,
+}: {
+  notify: (toast: ToastData) => void
+  disabled?: boolean
+}) {
   const [open, setOpen] = useState(false)
   const [site, setSite] = useState<RunSite>('both')
   const [mode, setMode] = useState<RunMode>('incremental')
@@ -36,8 +51,13 @@ export function RunNowButton({ notify }: { notify: (toast: ToastData) => void })
       const res = await trigger.mutateAsync({ site, mode })
       notify({ message: `Run #${res.run_id} started — ${site}, ${mode}.`, tone: 'success' })
       setOpen(false)
-    } catch {
-      notify({ message: 'Couldn’t start the run — is the backend running?', tone: 'error' })
+    } catch (err) {
+      // 409 = a run is already in progress or the daily budget is spent — surface it verbatim.
+      const message =
+        err instanceof ApiError && err.status === 409
+          ? err.message
+          : 'Couldn’t start the run — is the backend running?'
+      notify({ message, tone: 'error' })
     }
   }
 
@@ -45,10 +65,19 @@ export function RunNowButton({ notify }: { notify: (toast: ToastData) => void })
     <div ref={ref} className="relative">
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-1.5 text-[12px] font-semibold text-brand-fg hover:bg-brand-strong"
+        onClick={() => !disabled && setOpen((o) => !o)}
+        disabled={disabled}
+        className="inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-1.5 text-[12px] font-semibold text-brand-fg hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-60"
       >
-        <Play size={13} strokeWidth={2.2} /> Run now
+        {disabled ? (
+          <>
+            <Loader2 size={13} className="animate-spin" /> Run in progress
+          </>
+        ) : (
+          <>
+            <Play size={13} strokeWidth={2.2} /> Run now
+          </>
+        )}
       </button>
 
       {open && (
@@ -99,8 +128,8 @@ export function RunNowButton({ notify }: { notify: (toast: ToastData) => void })
 
           {mode === 'full' && (
             <div className="mt-2 flex items-start gap-1.5 rounded-md bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-700 dark:text-amber-300">
-              <AlertTriangle size={13} className="mt-px shrink-0" />
-              A full re-scan can spend SerpAPI search credits.
+              <AlertTriangle size={13} className="mt-px shrink-0" />A full re-scan can spend SerpAPI
+              search credits.
             </div>
           )}
 
@@ -110,7 +139,11 @@ export function RunNowButton({ notify }: { notify: (toast: ToastData) => void })
             disabled={trigger.isPending}
             className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-md bg-brand px-3 py-1.5 text-[12px] font-semibold text-brand-fg hover:bg-brand-strong disabled:opacity-60"
           >
-            {trigger.isPending ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
+            {trigger.isPending ? (
+              <Loader2 size={13} className="animate-spin" />
+            ) : (
+              <Play size={13} />
+            )}
             Start run
           </button>
         </div>

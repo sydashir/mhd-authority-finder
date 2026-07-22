@@ -11,6 +11,14 @@ from typing import Annotated
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from authority_finder.config import Settings
+
+
+def get_app_settings(request: Request) -> Settings:
+    """The app's resolved Settings (set on app.state by the lifespan / create_app)."""
+    settings: Settings = request.app.state.settings
+    return settings
+
 
 def get_sessionmaker(request: Request) -> async_sessionmaker[AsyncSession]:
     """The app-level session factory itself — for code that opens its OWN session
@@ -31,3 +39,4 @@ async def get_session(request: Request) -> AsyncGenerator[AsyncSession]:
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 SessionmakerDep = Annotated[async_sessionmaker[AsyncSession], Depends(get_sessionmaker)]
+SettingsDep = Annotated[Settings, Depends(get_app_settings)]

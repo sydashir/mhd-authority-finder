@@ -97,6 +97,16 @@ class Settings(BaseSettings):
             "(MAX_BILLED_SEARCHES_PER_RUN)."
         ),
     )
+    max_billed_searches_per_day: int = Field(
+        default=320,
+        ge=1,
+        description=(
+            "Global daily SerpAPI ceiling (MAX_BILLED_SEARCHES_PER_DAY, ADR-025). A run is refused "
+            "when the last 24h of recorded runs have already spent this many billed searches — so "
+            "no run flood (API triggers or the scheduler) can silently overspend the budget. "
+            "Enforced against the runs table by the API, the scheduler, and the DB-persisting CLI."
+        ),
+    )
 
     cors_allow_origins: list[str] = Field(
         default=["http://localhost:5173", "http://localhost:3000"],

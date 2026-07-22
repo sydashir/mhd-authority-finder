@@ -8,7 +8,7 @@ the backend API (Phase B) will call to render and filter prospects.
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import ColumnElement, case, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -352,6 +352,31 @@ async def count_runs(session: AsyncSession) -> int:
 async def get_run(session: AsyncSession, run_id: int) -> Run | None:
     """A single run by id — what the UI polls after triggering."""
     return await session.get(Run, run_id)
+
+
+async def has_running_run(session: AsyncSession) -> bool:
+    """True while any run is in progress — the concurrency guard so two runs never race the
+    Sheet writer or double-spend SerpAPI (ADR-025)."""
+    stmt = select(func.count(Run.id)).where(Run.status == RunStatus.running)
+    return (await session.execute(stmt)).scalar_one() > 0
+
+
+async def billed_since(session: AsyncSession, since: datetime) -> int:
+    """Total billed SerpAPI searches across runs started at/after ``since`` — powers the global
+    daily budget ceiling so no run flood can silently overspend the shared budget (ADR-025)."""
+    stmt = select(func.coalesce(func.sum(Run.billed_searches), 0)).where(Run.started_at >= since)
+    return int((await session.execute(stmt)).scalar_one())
+
+
+async def run_rejection_reason(session: AsyncSession, *, max_billed_per_day: int) -> str | None:
+    """Why a new run must NOT start now, or ``None`` if it may (ADR-025). Shared by the API,
+    the scheduler, and the DB-persisting CLI so every path enforces the same cost rails."""
+    if await has_running_run(session):
+        return "a run is already in progress"
+    spent = await billed_since(session, datetime.now(UTC) - timedelta(days=1))
+    if spent >= max_billed_per_day:
+        return f"daily SerpAPI budget reached ({spent}/{max_billed_per_day} billed in the last 24h)"
+    return None
 
 
 async def upsert_geo(

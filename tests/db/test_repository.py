@@ -18,6 +18,7 @@ from authority_finder.db.repository import (
     get_prospects,
     get_run,
     get_runs,
+    run_rejection_reason,
     update_outreach_status,
     upsert_geo,
     upsert_prospect,
@@ -93,6 +94,31 @@ async def test_default_order_is_trust_first(session: AsyncSession) -> None:
     await session.commit()
     ordered = [p.contact_trust for p in await get_prospects(session)]
     assert ordered == [TrustBand.high, TrustBand.medium, TrustBand.low]
+
+
+async def test_run_rejection_reason_concurrency_and_budget(session: AsyncSession) -> None:
+    # The shared cost-rail gate (ADR-025) used by the API, scheduler, and CLI.
+    assert await run_rejection_reason(session, max_billed_per_day=320) is None  # clean → allowed
+
+    running = await create_run(session, site="mhd")  # a run is in progress
+    await session.commit()
+    concurrency = await run_rejection_reason(session, max_billed_per_day=320)
+    assert concurrency is not None and "in progress" in concurrency
+
+    # finish it having spent past the daily ceiling → now the budget blocks
+    await finish_run(
+        session,
+        running.id,
+        geos_processed=1,
+        rows_written=0,
+        billed_searches=400,
+        status=RunStatus.success,
+    )
+    await session.commit()
+    budget = await run_rejection_reason(session, max_billed_per_day=320)
+    assert budget is not None and "budget" in budget
+    # a higher ceiling lets it through again
+    assert await run_rejection_reason(session, max_billed_per_day=1000) is None
 
 
 async def test_pipeline_upsert_preserves_user_outreach_fields(session: AsyncSession) -> None:

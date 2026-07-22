@@ -31,6 +31,20 @@ export class ApiError extends Error {
 
 type QueryValue = string | number | undefined
 
+/** Build an ApiError, preferring the API's JSON ``detail`` message (e.g. a 409's reason). */
+async function errorFrom(res: Response): Promise<ApiError> {
+  let message = `${res.status} ${res.statusText}`
+  try {
+    const body: unknown = await res.json()
+    if (body && typeof (body as { detail?: unknown }).detail === 'string') {
+      message = (body as { detail: string }).detail
+    }
+  } catch {
+    // non-JSON error body — keep the status line
+  }
+  return new ApiError(res.status, message)
+}
+
 async function apiGet<T>(path: string, params?: Record<string, QueryValue>): Promise<T> {
   const url = new URL(path, API_URL)
   if (params) {
@@ -40,7 +54,7 @@ async function apiGet<T>(path: string, params?: Record<string, QueryValue>): Pro
   }
   // credentials:'include' sends the session cookie (backend CORS allows credentials).
   const res = await fetch(url, { headers: { Accept: 'application/json' }, credentials: 'include' })
-  if (!res.ok) throw new ApiError(res.status, `${res.status} ${res.statusText}`)
+  if (!res.ok) throw await errorFrom(res)
   return (await res.json()) as T
 }
 
@@ -51,7 +65,7 @@ async function apiSend<T>(method: 'POST' | 'PATCH', path: string, body: unknown)
     body: JSON.stringify(body),
     credentials: 'include',
   })
-  if (!res.ok) throw new ApiError(res.status, `${res.status} ${res.statusText}`)
+  if (!res.ok) throw await errorFrom(res)
   return (await res.json()) as T
 }
 

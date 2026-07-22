@@ -55,7 +55,9 @@ function RunsTable({ runs }: { runs: Run[] }) {
               <td className={`${TD} text-fg-muted`} title={new Date(r.started_at).toLocaleString()}>
                 {timeAgo(r.started_at)}
               </td>
-              <td className={`${TD} tnum text-fg-muted`}>{dur ?? (r.status === 'running' ? '…' : '—')}</td>
+              <td className={`${TD} tnum text-fg-muted`}>
+                {dur ?? (r.status === 'running' ? '…' : '—')}
+              </td>
               <td className={`${TD} tnum text-right text-fg`}>{num(r.geos_processed)}</td>
               <td className={`${TD} tnum text-right text-fg`}>{num(r.rows_written)}</td>
               <td
@@ -65,7 +67,10 @@ function RunsTable({ runs }: { runs: Run[] }) {
               </td>
               <td className={`${TD} max-w-[280px]`}>
                 {r.error_summary ? (
-                  <span className="truncate text-[12px] text-rose-600 dark:text-rose-400" title={r.error_summary}>
+                  <span
+                    className="truncate text-[12px] text-rose-600 dark:text-rose-400"
+                    title={r.error_summary}
+                  >
                     {r.error_summary}
                   </span>
                 ) : (
@@ -110,13 +115,14 @@ export function RunsScreen({ notify }: { notify: (toast: ToastData) => void }) {
   }, [runs.data, queryClient])
 
   const items = runs.data?.items ?? []
+  const runInProgress = items.some((r) => r.status === 'running')
 
   return (
     <div className="flex min-w-0 flex-1 flex-col">
       <Topbar
         title="Runs"
         subtitle={runs.data ? `${runs.data.total} total` : undefined}
-        actions={<RunNowButton notify={notify} />}
+        actions={<RunNowButton notify={notify} disabled={runInProgress} />}
       />
       <main className="flex flex-1 flex-col overflow-hidden p-6">
         <div className="flex flex-1 flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-sm">

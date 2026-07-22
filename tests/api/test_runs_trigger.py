@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from authority_finder.config import Settings
 from authority_finder.db.models import Base, RunStatus
-from authority_finder.db.repository import create_run, get_run
+from authority_finder.db.repository import create_run, finish_run, get_run
 from backend.app import create_app
 from backend.auth import AuthUser, get_current_user
 from backend.jobs import RunSummary, sweep_orphan_runs
@@ -117,6 +117,40 @@ async def test_invalid_site_is_rejected(trigger: Trigger) -> None:
     client, _app, _sm = trigger
     resp = await client.post("/runs", json={"site": "nope"})
     assert resp.status_code == 422  # Literal validation
+
+
+async def test_trigger_refused_while_a_run_is_in_progress(trigger: Trigger) -> None:
+    # Concurrency guard (ADR-025): a run is already running — a double-click or a colliding
+    # scheduler tick must be refused, not started (else duplicate rows + double SerpAPI spend).
+    client, _app, sm = trigger
+    async with sm() as session:
+        await create_run(session, site="mhd")  # left 'running'
+        await session.commit()
+
+    resp = await client.post("/runs", json={"site": "ah", "mode": "incremental"})
+    assert resp.status_code == 409
+    assert "in progress" in resp.json()["detail"].lower()
+
+
+async def test_trigger_refused_when_daily_budget_exhausted(trigger: Trigger) -> None:
+    # Global budget ceiling (ADR-025): the day's recorded runs already spent past the cap
+    # (default 320), so no new run may start — no flood can silently overspend the budget.
+    client, _app, sm = trigger
+    async with sm() as session:
+        run = await create_run(session, site="mhd")
+        await finish_run(
+            session,
+            run.id,
+            geos_processed=1,
+            rows_written=0,
+            billed_searches=500,  # > the 320/day default ceiling
+            status=RunStatus.success,
+        )
+        await session.commit()
+
+    resp = await client.post("/runs", json={"site": "ah"})
+    assert resp.status_code == 409
+    assert "budget" in resp.json()["detail"].lower()
 
 
 async def test_orphan_sweep_fails_stuck_running_rows(
