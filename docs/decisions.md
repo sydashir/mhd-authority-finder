@@ -1064,3 +1064,74 @@ remaining are city/neighbourhood geos honestly absent from Census). Master Sheet
 idempotent, high-trust rows at the top. **504 tests** (416 unit + 58 db/api + 30 frontend); ruff + pyright
 clean. Residuals (honest): an in-state third-party phone area-code cannot catch (already low); ~9% of `.edu`
 absent from Scorecard fall back to text; a wrong-geo phone is blanked not replaced.
+
+## ADR-025 — P0 hardening: single source of truth, server-side list, cost rails, data scrubs
+
+**Date:** 2026-07-22
+**Status:** Accepted
+**Context:** A 30-agent QA audit (adversarially verified, 24 serious findings, 0 refuted) found the engine
+solid but the product-around-it had workflow-breaking bugs, a split-brain deploy flaw, and data items the
+client would personally trip over. This ADR fixes ONLY the P0 set — the things that fail the client's first
+hour. P1 (hosting) and P2 (quality-of-life) are deferred. 0 billed; TDD throughout; outreach preserved
+(ADR-022); nothing that worked broke.
+
+### The root cause: two writable sources of truth
+
+Postgres AND the Sheet were both authoritative writers. That single fact spawned the split-brain scheduler,
+the header-wipe, and race-duplicate rows. **Decision: Postgres is the single source of truth; the Google
+Sheet is a pure export (a projection of the DB).** The fixes below all descend from this.
+
+### Decisions
+
+1. **The scheduler persists to Postgres, not just the Sheet.** The Docker scheduler (`runner.py`) wrote the
+   Sheet only, so a 3am-discovered prospect never reached the DB the dashboard reads. It now
+   `persist_pipeline_run` (prospects + a run row) BEFORE exporting to the Sheet — the upsert preserves
+   outreach (ADR-022), so a re-run of a known geo never clobbers a note. The API path already did this.
+
+2. **The Sheet writer refuses a destructive rewrite (`_safe_rewrite`).** A drifted header (a client editing
+   a column) or a short run used to trigger a full clear+rewrite with only the current run's rows — wiping
+   the deliverable — and the clear→update was non-atomic. Now: a rewrite that would SHRINK the tab is refused
+   unless `allow_shrink=True` (deliberate corrections opt in); the write is in place from A1 (no empty-tab
+   window), clearing only the trailing band on an allowed shrink.
+
+3. **Search + sort are server-side over the WHOLE dataset.** The dashboard's search filtered only the loaded
+   50 rows (so a real prospect on page 2 read "no prospects match"), and column sort re-ordered only the
+   page while the server default was geo-alphabetical (burying the 71 high-trust rows the S24 Sheet-sort
+   fixed). Now `?search=` (ILIKE across website/geo/email/description) and `?sort=&sort_dir=` hit Postgres;
+   the default order is trust-first (CASE rank so "low" doesn't sort before "medium" — the first-click
+   low-first bug); the React table is controlled (no client reorder); the search box is debounced.
+
+4. **Run concurrency + a global daily budget (`run_rejection_reason`, shared by API/scheduler/CLI).** Nothing
+   stopped two "Run now" clicks or a Run-vs-scheduler collision from double-spending SerpAPI and racing the
+   Sheet, and the budget cap was per-run (the CLI had none at all). Now a run is refused (409) when one is
+   already `running` or when the last 24h of recorded runs have spent `MAX_BILLED_SEARCHES_PER_DAY` (new
+   setting, default 320). The frontend disables "Run now" while a run is active and surfaces the 409 reason
+   verbatim (the client now parses the error `detail`). The CLI gained the per-run circuit breaker it lacked.
+
+5. **Data scrubs the client would trip on (deterministic, evidence-driven).** `clean_email` strips a leaked
+   `mailto:` scheme, keeps the first recipient of a multi-recipient href, and URL-decodes (`%20`) — killing
+   the 3 malformed emails that broke a mail-merge. A `_NATIONAL_HOTLINES` blocklist (988 Lifeline / SAMHSA /
+   DV) drops a national crisis line published as an org's phone (an outreach rep would have called the
+   Lifeline) — 7 rows. `irs.gov` joins `FEDERAL_DOMAINS`. `dconc.gov` (Durham County NC, verified) joins a
+   tiny `_KNOWN_GOV_STATES` override so the scorer hard-rejects it when served to a CA geo. The live DB was
+   scrubbed in place (discovery columns only — outreach untouched) and the federal/wrong-geo leaks deleted
+   by the general rule `is_federal(website) OR candidate_state(website) ≠ geo state` (caught exactly the 4
+   named rows, no over-deletion), then the DB was re-exported to the Sheet.
+
+### Verified (0 billed)
+
+**Backend 435 + db/api/scheduler 72 + frontend 33 tests**, ruff + pyright + build clean. Live (Playwright):
+search "uwyo" now returns the row (was "no prospects"); the dashboard opens on high-trust rows; the Trust
+header sorts high-first; the 3 malformed emails are cleaned (`cloy.tobola@ndscs.edu`, `vb311@vbgov.com`,
+`info@cumberlandmaine.com`), 0 hotline phones remain, irs.gov + dconc.gov are gone; a second `POST /runs`
+while one runs → 409; the header-drift/shrink guard refuses a wiping rewrite. **Make-or-break:** a survivor
+seeded `contacted` survived the in-place scrub with its note + author intact (ADR-022). DB + master Sheet
+**593 → 589 rows** (4 leaks deleted), idempotent, high-trust-first, dataset reset to 589/589 not_contacted.
+
+### Deferred (still open — NOT P0)
+
+P1 hosting (production compose for API+frontend, migrations-on-boot, DB backups, loopback pg bind + real
+password, `AUTH_COOKIE_SECURE`, Sentry DSNs, session revocation). P2 quality-of-life (bulk outreach, URL
+routing, outreach columns in the CSV export, Export-Sheet outreach filter + scratch workbook, org-level
+dedupe view, session-expiry UX, note-conflict guard). The scheduler holds no `running` row during its own
+pipeline, so the API↔scheduler mutual exclusion has a narrow window bounded by the daily budget cap.

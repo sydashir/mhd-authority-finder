@@ -1295,3 +1295,67 @@ row (`scratch/finalize_s24.py`) — faithful, 0-drift, 0-billed, cleanly attribu
 - The prospects outreach columns are `outreach_notes` / `outreach_updated_by` / `outreach_updated_at` (not
   `notes`/`updated_by`).
 - Docker Desktop was down at write time — `open -a Docker`, waited for the daemon, then the DB write ran.
+
+---
+
+## 2026-07-22 — Session 25: full QA audit (read-only, no code)
+
+Expert-QA pass over the whole delivered tool: read the live ClickUp task + brief + docs, ran all 504 tests,
+drove the real app via Playwright (minted session), and ran a 30-agent adversarial review. **65 findings →
+24 verified serious, 0 refuted.** Nothing modified, 0 billed, dataset verified pristine after. Headliners:
+dashboard search/sort page-local (search lies "no prospects", high-trust rows unreachable, default order
+geo-alphabetical — the S24 Sheet fix never reached the app); docker scheduler writes Sheet only → dashboard
+diverges; no concurrent-run guard (double SerpAPI spend); SheetsWriter header-drift can wipe the master tab;
+10 rows publish national crisis-line numbers as org phones; same org ×N geos; Source Tag never "both"; single
+tab vs promised MHD/AH tabs; email 61.7% vs promised 65-75%; no hosting path for API/frontend, no DB backups,
+pg on 0.0.0.0 with default creds. Full P0/P1/P2 list in journal `SESSION-2026-07-22-qa-audit.md`.
+
+---
+
+## 2026-07-22 — Session 26: P0 hardening (ADR-025)
+
+### Done
+
+Fixed ONLY the P0 showstoppers from the S25 audit — the things that fail the client's first hour. 0 billed,
+TDD throughout, outreach preserved (ADR-022). Root-cause fix: **Postgres = single source of truth; the Sheet
+is a pure export.** Six atomic commits (all sydashir):
+
+- `04fe5e1` fix: scheduler writes to postgres not just sheet — kills the split-brain (runner.py persists to
+  the DB before the Sheet export; scheduled_tick builds a sessionmaker + skips a tick when a run/budget guard
+  fires). New scheduler-persist test + `session_factory` fixture.
+- `eb812d3` fix: guard sheet writer against destructive rewrite — `_safe_rewrite` refuses a shrinking rewrite
+  (header edit / short run) unless `allow_shrink=True`; in-place write from A1, tail-clear only on shrink.
+- `96a9b06` fix: server-side prospect search — `?search=` ILIKE across website/geo/email/desc; debounced box.
+- `919bcf6` fix: trust-first default order and server-side sort — CASE-rank default (trust→pop→geo) + `?sort=`
+  server-side; controlled React table; fixes the low-first click bug.
+- `0edf798` fix: prevent concurrent runs and cap global spend — `run_rejection_reason` (409 on running or
+  24h-billed ≥ `MAX_BILLED_SEARCHES_PER_DAY`=320); Run-now disabled while running + 409 surfaced; CLI per-run
+  cap added.
+- `734340a` fix: scrub crisis-line phones and malformed contacts — `clean_email` (mailto:/multi-recipient/
+  %20), `_NATIONAL_HOTLINES` blocklist, irs.gov→FEDERAL_DOMAINS, dconc.gov→`_KNOWN_GOV_STATES` override.
+
+Then scrubbed the live DB in place (discovery cols only) + deleted the 4 federal/wrong-geo leaks + re-exported
+DB→Sheet (`scratch/finalize_s25.py`): **593 → 589 rows**.
+
+### Verified
+
+- **435 backend + 72 db/api/scheduler + 33 frontend** tests; ruff + format + pyright + build clean.
+- Live (Playwright): search "uwyo" → 1 row (was "no prospects"); dashboard opens high-trust; Trust sort
+  high-first; 3 malformed emails cleaned; 0 hotline phones; irs.gov + dconc.gov gone; 2nd `POST /runs` → 409;
+  Sheet 589 rows high-trust-first. Deletion rule hit EXACTLY the 4 named rows — no over-deletion.
+- **Make-or-break (ADR-022):** a survivor seeded `contacted` survived the in-place scrub (note + author
+  intact). Dataset reset to **589/589 not_contacted**, idempotent.
+
+### Surface to user
+
+- The deliverable now survives the client's first hour: value at the top, search works, no crisis-line
+  phones, no wipe-on-edit, no double-spend. Remaining: P1 hosting (compose for API+frontend, DB backups,
+  migrations-on-boot, loopback pg + real password, AUTH_COOKIE_SECURE, Sentry DSNs, session revocation) and
+  P2 quality-of-life (bulk outreach, URL routing, outreach in CSV export, org-level dedupe view).
+
+### Gotchas
+
+- The frontend has NO prettier config but IS prettier-formatted single-quote/no-semi/width-100 — reformat
+  edits with `prettier --single-quote --no-semi --print-width 100`, never bare `prettier --write`.
+- `runs.geos_processed/rows_written/billed_searches` are NOT NULL — a hand-seeded run row needs them.
+- The session tmpfs fills during Playwright + workflows (ENOSPC) — set `CLAUDE_CODE_TMPDIR` to `scratch/tmp`.
