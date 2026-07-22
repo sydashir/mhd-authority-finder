@@ -91,16 +91,50 @@ def _writer(tmp_path: Path, values_api: _ValuesApi) -> SheetsWriter:
     return writer
 
 
-async def test_schema_migration_clears_and_rewrites(tmp_path: Path) -> None:
-    # Old 11-column layout present -> clear + full rewrite (no duplicate, no mixed layouts).
+async def test_schema_migration_rewrites_in_place(tmp_path: Path) -> None:
+    # Old layout + 1 row, writing 2 rows (a GROW) -> in-place rewrite, header normalized.
+    # No clear needed because the new data fully overwrites the old (no shrink), so there is
+    # never an empty-tab window (ADR-025 safe-rewrite).
     old_header = ["Website", "Specific Page", "Email", "Phone", "Geo Served"]
     api = _ValuesApi(existing=[old_header, ["a.gov", "u", "", "", "Maryland"]])
     result = await _writer(tmp_path, api).write([_row("a.gov"), _row("b.gov")])
-    assert api.cleared
     assert api.updated is not None and api.updated[0] == OUTPUT_HEADER
     assert len(api.updated) == 3  # header + 2 rows
+    assert not api.cleared  # grew, so no destructive clear
     assert result.appended == 2
     assert api.appended == []  # rewrite via update, not append
+
+
+async def test_refuses_shrinking_rewrite_on_header_drift(tmp_path: Path) -> None:
+    # A client edited the header; the next small incremental run must NOT wipe the deliverable.
+    drifted = ["Website", "EDITED BY A HUMAN", *OUTPUT_HEADER[2:]]
+    existing = [drifted, *(_row(f"d{i}.gov").cells() for i in range(50))]
+    api = _ValuesApi(existing=existing)
+    with pytest.raises(SheetsError, match="shrink"):
+        await _writer(tmp_path, api).write([_row("a.gov")])  # 1 row << 50 present
+    assert not api.cleared
+    assert api.updated is None  # nothing written — the tab is untouched
+
+
+async def test_refuses_shrinking_replace_without_allow_shrink(tmp_path: Path) -> None:
+    existing = [OUTPUT_HEADER, *(_row(f"d{i}.gov").cells() for i in range(50))]
+    api = _ValuesApi(existing=existing)
+    with pytest.raises(SheetsError, match="shrink"):
+        await _writer(tmp_path, api).write([_row("a.gov")], replace=True)
+    assert not api.cleared and api.updated is None
+
+
+async def test_allow_shrink_permits_intentional_correction(tmp_path: Path) -> None:
+    # A deliberate correction (S24 finalize: 622 -> 593) opts into the shrink and clears the tail.
+    existing = [OUTPUT_HEADER, *(_row(f"d{i}.gov").cells() for i in range(50))]
+    api = _ValuesApi(existing=existing)
+    result = await _writer(tmp_path, api).write(
+        [_row("a.gov"), _row("b.gov")], replace=True, allow_shrink=True
+    )
+    assert api.updated is not None and api.updated[0] == OUTPUT_HEADER
+    assert len(api.updated) == 3  # header + 2 rows
+    assert api.cleared  # stale tail rows (4..51) cleared after the in-place write
+    assert result.appended == 2
 
 
 async def test_writes_header_when_empty_and_appends(tmp_path: Path) -> None:
@@ -162,11 +196,12 @@ async def test_missing_creds_file_raises(tmp_path: Path) -> None:
         await writer.write([_row("a.gov")])
 
 
-async def test_replace_clears_and_rewrites_existing_schema(tmp_path: Path) -> None:
-    # Value correction: header already matches, but replace=True forces a full rewrite.
+async def test_replace_rewrites_existing_schema_in_place(tmp_path: Path) -> None:
+    # Value correction: header matches, replace=True, growing 1 -> 2 rows (no shrink) rewrites
+    # in place with no destructive clear.
     api = _ValuesApi(existing=[OUTPUT_HEADER, _row("a.gov").cells()])
     result = await _writer(tmp_path, api).write([_row("a.gov"), _row("b.gov")], replace=True)
-    assert api.cleared
+    assert not api.cleared
     assert api.updated is not None and api.updated[0] == OUTPUT_HEADER
     assert len(api.updated) == 3  # header + 2 rows
     assert result.appended == 2

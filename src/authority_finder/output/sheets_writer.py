@@ -32,7 +32,6 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 _WEBSITE_COL = 0
 _GEO_COL = 7  # "Geo Served" index in OUTPUT_HEADER (after the Contact Source/Trust columns)
 _RANGE = "A:M"
-_CLEAR_RANGE = "A:Z"
 
 _log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -55,45 +54,40 @@ class SheetsWriter:
         self._sheet_id = spreadsheet_id
         self._tab = tab
 
-    async def write(self, rows: list[OutputRow], *, replace: bool = False) -> SheetsWriteResult:
-        """Append new (deduped) rows; ``replace=True`` clears + rewrites the whole tab.
+    async def write(
+        self, rows: list[OutputRow], *, replace: bool = False, allow_shrink: bool = False
+    ) -> SheetsWriteResult:
+        """Append new (deduped) rows; ``replace=True`` rewrites the whole tab in place.
 
+        A destructive rewrite that would SHRINK the tab is refused unless ``allow_shrink=True``
+        (ADR-025): a client editing the header, or a short run, must never wipe the deliverable.
         Runs the sync google client off the event loop.
         """
         if not self._sheet_id:
             raise SheetsError("GOOGLE_SHEET_ID is not set")
         if not self._creds_path.exists():
             raise SheetsError(f"service-account file not found: {self._creds_path}")
-        return await asyncio.to_thread(self._write_sync, rows, replace)
+        return await asyncio.to_thread(self._write_sync, rows, replace, allow_shrink)
 
-    def _write_sync(self, rows: list[OutputRow], replace: bool) -> SheetsWriteResult:
+    def _write_sync(
+        self, rows: list[OutputRow], replace: bool, allow_shrink: bool
+    ) -> SheetsWriteResult:
         values_api: Any = self._service().spreadsheets().values()
         existing = self._read(values_api)
         final = dedupe_and_sort(rows)
 
         # Full rewrite when explicitly replacing (value corrections that append can't apply)
-        # or migrating an older column layout (mixing layouts would break dedup).
+        # or migrating an older column layout (mixing layouts would break dedup). A drifted
+        # header ALSO lands here — which is exactly why the shrink guard below is essential.
         schema_changed = bool(existing) and existing[0] != OUTPUT_HEADER
         if replace or schema_changed:
-            self._call(
-                values_api.clear(
-                    spreadsheetId=self._sheet_id, range=f"{self._tab}!{_CLEAR_RANGE}", body={}
-                )
-            )
-            self._call(
-                values_api.update(
-                    spreadsheetId=self._sheet_id,
-                    range=f"{self._tab}!A1",
-                    valueInputOption="RAW",
-                    body={"values": [OUTPUT_HEADER, *(r.cells() for r in final)]},
-                )
-            )
-            _log.warning(
-                "sheets.full_rewrite",
-                rewrote=len(final),
+            return self._safe_rewrite(
+                values_api,
+                final,
+                existing,
+                allow_shrink=allow_shrink,
                 reason="replace" if replace else "migration",
             )
-            return SheetsWriteResult(appended=len(final), skipped_existing=0, header_written=True)
 
         header_written = self._ensure_header(values_api, existing)
         existing_keys = _existing_keys(existing)
@@ -119,6 +113,50 @@ class SheetsWriter:
             skipped_existing=len(final) - len(new_rows),
             header_written=header_written,
         )
+
+    def _safe_rewrite(
+        self,
+        values_api: Any,
+        final: list[OutputRow],
+        existing: list[list[str]],
+        *,
+        allow_shrink: bool,
+        reason: str,
+    ) -> SheetsWriteResult:
+        """Rewrite the tab from A1 without a destructive clear-first window (ADR-025).
+
+        Refuses a rewrite that would leave FEWER rows than the tab currently holds (a client
+        edited the header, or a truncated run) unless ``allow_shrink`` — so normal use can never
+        wipe the master deliverable. Writes in place from A1 (overwriting the old rows, no empty
+        window), then clears only the trailing band when the new data is genuinely shorter.
+        """
+        existing_data_rows = max(0, len(existing) - 1)  # rows under whatever header is there
+        if len(final) < existing_data_rows and not allow_shrink:
+            raise SheetsError(
+                f"refusing to rewrite {self._tab}: it holds {existing_data_rows} rows but the "
+                f"write has only {len(final)} — this would shrink/wipe the deliverable (the tab "
+                f"may have been edited). Pass allow_shrink=True to force an intentional correction."
+            )
+        body_rows = [OUTPUT_HEADER, *(r.cells() for r in final)]
+        self._call(
+            values_api.update(
+                spreadsheetId=self._sheet_id,
+                range=f"{self._tab}!A1",
+                valueInputOption="RAW",
+                body={"values": body_rows},
+            )
+        )
+        if len(body_rows) < len(existing):
+            # Old rows extend past the new data — clear only that trailing band.
+            self._call(
+                values_api.clear(
+                    spreadsheetId=self._sheet_id,
+                    range=f"{self._tab}!A{len(body_rows) + 1}:Z",
+                    body={},
+                )
+            )
+        _log.warning("sheets.full_rewrite", rewrote=len(final), reason=reason)
+        return SheetsWriteResult(appended=len(final), skipped_existing=0, header_written=True)
 
     def _service(self) -> Any:
         creds = _sa.Credentials.from_service_account_file(str(self._creds_path), scopes=SCOPES)
