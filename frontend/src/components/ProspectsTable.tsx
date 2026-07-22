@@ -1,10 +1,10 @@
 import { ArrowUpDown, ChevronDown, ChevronUp, Columns3 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { OutreachStatus, Prospect, TrustBand } from '../api/types'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import type { Prospect } from '../api/types'
 import { competitorList, formatPopulation, orDash, pagePath } from '../lib/format'
 import { ConfidenceTag, OutreachBadge, SourceBadge, TrustBadge } from './badges'
 
-type ColKey =
+export type ColKey =
   | 'website'
   | 'specific_page'
   | 'email'
@@ -17,15 +17,9 @@ type ColKey =
   | 'population'
   | 'confidence'
 
-// Sort order = the outreach funnel (fresh → engaged → won, then the dead-ends last).
-const OUTREACH_RANK: Record<OutreachStatus, number> = {
-  not_contacted: 0,
-  contacted: 1,
-  responded: 2,
-  interested: 3,
-  linked: 4,
-  not_interested: 5,
-  bounced: 6,
+export interface SortState {
+  key: ColKey
+  dir: 'asc' | 'desc'
 }
 
 interface Column {
@@ -35,8 +29,6 @@ interface Column {
   right?: boolean
   render: (p: Prospect) => ReactNode
 }
-
-const TRUST_RANK: Record<TrustBand, number> = { high: 3, medium: 2, low: 1 }
 
 function CompetitorCell({ raw }: { raw: string }) {
   const links = competitorList(raw)
@@ -134,7 +126,9 @@ const COLUMNS: Column[] = [
     label: 'Population',
     sortable: true,
     right: true,
-    render: (p) => <span className="tnum whitespace-nowrap text-fg">{formatPopulation(p.population)}</span>,
+    render: (p) => (
+      <span className="tnum whitespace-nowrap text-fg">{formatPopulation(p.population)}</span>
+    ),
   },
   {
     key: 'confidence',
@@ -143,23 +137,6 @@ const COLUMNS: Column[] = [
     render: (p) => <ConfidenceTag band={p.confidence} />,
   },
 ]
-
-function compareBy(a: Prospect, b: Prospect, key: ColKey): number {
-  switch (key) {
-    case 'population':
-      return (a.population ?? -1) - (b.population ?? -1)
-    case 'contact_trust':
-      return TRUST_RANK[a.contact_trust] - TRUST_RANK[b.contact_trust]
-    case 'outreach_status':
-      return OUTREACH_RANK[a.outreach_status] - OUTREACH_RANK[b.outreach_status]
-    case 'confidence':
-      return TRUST_RANK[a.confidence] - TRUST_RANK[b.confidence]
-    case 'competitors':
-      return competitorList(a.competitor_links).length - competitorList(b.competitor_links).length
-    default:
-      return String(a[key]).localeCompare(String(b[key]))
-  }
-}
 
 const TH =
   'sticky top-0 z-10 border-b border-border bg-raised px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-fg-subtle whitespace-nowrap'
@@ -220,24 +197,21 @@ export function ProspectsTable({
   prospects,
   selectedId,
   onSelect,
+  sort,
+  onSort,
 }: {
   prospects: Prospect[]
   selectedId: number | null
   onSelect: (p: Prospect) => void
+  sort: SortState | null
+  onSort: (key: ColKey) => void
 }) {
-  const [sort, setSort] = useState<{ key: ColKey; dir: 'asc' | 'desc' } | null>(null)
   const [hidden, setHidden] = useState<Set<ColKey>>(new Set())
 
   const visible = COLUMNS.filter((c) => !hidden.has(c.key))
-  const rows = useMemo(() => {
-    if (!sort) return prospects
-    const sorted = [...prospects].sort((a, b) => compareBy(a, b, sort.key))
-    return sort.dir === 'desc' ? sorted.reverse() : sorted
-  }, [prospects, sort])
+  // Rows arrive already sorted by the API (server-side over the WHOLE dataset, not the page).
+  const rows = prospects
 
-  function toggleSort(key: ColKey) {
-    setSort((s) => (s?.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }))
-  }
   function toggleCol(key: ColKey) {
     setHidden((h) => {
       const next = new Set(h)
@@ -251,7 +225,9 @@ export function ProspectsTable({
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 items-center justify-between border-b border-border bg-surface px-3 py-1.5">
         <span className="text-[11px] text-fg-subtle">
-          {sort ? `Sorted by ${sort.key.replace('_', ' ')} (${sort.dir})` : 'Click a header to sort'}
+          {sort
+            ? `Sorted by ${sort.key.replace('_', ' ')} (${sort.dir})`
+            : 'Sorted by trust · click a header to sort'}
         </span>
         <ColumnsMenu hidden={hidden} onToggle={toggleCol} />
       </div>
@@ -271,7 +247,7 @@ export function ProspectsTable({
                     {col.sortable ? (
                       <button
                         type="button"
-                        onClick={() => toggleSort(col.key)}
+                        onClick={() => onSort(col.key)}
                         className="inline-flex items-center gap-1 uppercase tracking-wide hover:text-fg"
                       >
                         {col.label}

@@ -6,7 +6,7 @@ import { ExportActions } from './ExportActions'
 import { FilterBar, type ProspectQueryFilters } from './FilterBar'
 import { Pagination } from './Pagination'
 import { ProspectDrawer } from './ProspectDrawer'
-import { ProspectsTable } from './ProspectsTable'
+import { ProspectsTable, type ColKey, type SortState } from './ProspectsTable'
 import { StatCards } from './StatCards'
 import { Topbar } from './Topbar'
 import type { ToastData } from './Toast'
@@ -18,6 +18,7 @@ export function ProspectsScreen({ notify }: { notify: (toast: ToastData) => void
   const [filters, setFilters] = useState<ProspectQueryFilters>({})
   const [offset, setOffset] = useState(0)
   const [search, setSearch] = useState('')
+  const [sort, setSort] = useState<SortState | null>(null)
   const [selected, setSelected] = useState<Prospect | null>(null)
 
   // Debounce the search box, then query the API — searching the WHOLE dataset, not just the
@@ -28,10 +29,25 @@ export function ProspectsScreen({ notify }: { notify: (toast: ToastData) => void
   const query = useProspects({
     ...filters,
     search: debouncedSearch.trim() || undefined,
+    sort: sort?.key,
+    sort_dir: sort?.dir,
     limit: PAGE_SIZE,
     offset,
   })
   const activeCount = Object.values(filters).filter(Boolean).length
+
+  function changeSort(key: ColKey) {
+    // Server-side sort over the WHOLE dataset. Numeric-heavy columns default to biggest-first;
+    // the rank columns (trust/confidence/outreach) sort best-first at asc.
+    setSort((s) => {
+      if (s?.key === key) return { key, dir: s.dir === 'asc' ? 'desc' : 'asc' }
+      return {
+        key,
+        dir: key === 'population' || key === 'competitors' ? 'desc' : 'asc',
+      }
+    })
+    setOffset(0)
+  }
 
   function patchFilters(patch: Partial<ProspectQueryFilters>) {
     setFilters((f) => ({ ...f, ...patch }))
@@ -71,7 +87,10 @@ export function ProspectsScreen({ notify }: { notify: (toast: ToastData) => void
             {query.isPending ? (
               <TableSkeleton />
             ) : query.isError ? (
-              <ErrorState message={errorMessage(query.error)} onRetry={() => void query.refetch()} />
+              <ErrorState
+                message={errorMessage(query.error)}
+                onRetry={() => void query.refetch()}
+              />
             ) : visible.length === 0 ? (
               <EmptyState />
             ) : (
@@ -79,6 +98,8 @@ export function ProspectsScreen({ notify }: { notify: (toast: ToastData) => void
                 prospects={visible}
                 selectedId={selected?.id ?? null}
                 onSelect={setSelected}
+                sort={sort}
+                onSort={changeSort}
               />
             )}
           </div>

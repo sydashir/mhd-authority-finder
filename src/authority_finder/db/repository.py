@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
-from sqlalchemy import ColumnElement, or_, select
+from sqlalchemy import ColumnElement, case, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import func
@@ -25,6 +25,56 @@ from authority_finder.db.models import (
     SourceTag,
     TrustBand,
 )
+
+# Trust/confidence sort by VALUE, not the enum's alphabetical order (which would put "low"
+# before "medium"). 0 = best, so ascending on the rank = best-first (ADR-025).
+_TRUST_RANK = case(
+    {TrustBand.high: 0, TrustBand.medium: 1, TrustBand.low: 2}, value=Prospect.contact_trust
+)
+_CONFIDENCE_RANK = case(
+    {TrustBand.high: 0, TrustBand.medium: 1, TrustBand.low: 2}, value=Prospect.confidence
+)
+# The outreach funnel: fresh → engaged → won, then the dead-ends last.
+_OUTREACH_RANK = case(
+    {
+        OutreachStatus.not_contacted: 0,
+        OutreachStatus.contacted: 1,
+        OutreachStatus.responded: 2,
+        OutreachStatus.interested: 3,
+        OutreachStatus.linked: 4,
+        OutreachStatus.not_interested: 5,
+        OutreachStatus.bounced: 6,
+    },
+    value=Prospect.outreach_status,
+)
+
+# Columns the UI may sort by → the ORDER BY expression. Rank-based ones already encode
+# best-first, so ascending = best-first for those too.
+_SORTABLE: dict[str, ColumnElement[object]] = {
+    "website": Prospect.website,
+    "email": Prospect.email,
+    "geo_served": Prospect.geo_served,
+    "source_tag": Prospect.source_tag,
+    "population": Prospect.population,
+    "competitors": Prospect.competitor_links,
+    "contact_trust": _TRUST_RANK,
+    "confidence": _CONFIDENCE_RANK,
+    "outreach_status": _OUTREACH_RANK,
+}
+
+
+def _order_by(sort: str | None, sort_dir: str) -> list[ColumnElement[object]]:
+    """The ORDER BY: an explicit sortable column, else the default trust-first ordering
+    (high→low, then population desc, then geo) so the dashboard opens on the best leads."""
+    if sort and sort in _SORTABLE:
+        col = _SORTABLE[sort]
+        primary = col.desc() if sort_dir == "desc" else col.asc()
+        return [primary, Prospect.website.asc()]  # stable tiebreak
+    return [
+        _TRUST_RANK.asc(),
+        Prospect.population.desc().nulls_last(),
+        Prospect.geo_served.asc(),
+    ]
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,17 +220,22 @@ async def get_prospects(
     level: GeoLevel | None = None,
     outreach: OutreachStatus | None = None,
     search: str | None = None,
+    sort: str | None = None,
+    sort_dir: str = "asc",
     limit: int | None = None,
     offset: int = 0,
 ) -> Sequence[Prospect]:
-    """Filtered, paginated prospect read — the query the UI will issue."""
+    """Filtered, paginated prospect read — the query the UI will issue.
+
+    Default order is trust-first (ADR-025); ``sort`` selects an explicit column, sorted
+    SERVER-SIDE over the whole dataset (not just the page)."""
     needs_join, conditions = _prospect_filters(
         trust=trust, source=source, geo=geo, level=level, outreach=outreach, search=search
     )
     stmt = select(Prospect)
     if needs_join:
         stmt = stmt.join(Geo, Prospect.geo_id == Geo.id)
-    stmt = stmt.where(*conditions).order_by(Prospect.geo_served, Prospect.website)
+    stmt = stmt.where(*conditions).order_by(*_order_by(sort, sort_dir))
     if offset:
         stmt = stmt.offset(offset)
     if limit is not None:

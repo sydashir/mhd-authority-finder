@@ -60,6 +60,27 @@ async def test_list_returns_items_and_total(client: AsyncClient, session: AsyncS
     assert row["population"] == 3_165_820
 
 
+async def test_search_default_order_and_server_side_sort(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    await _seed(session, website="uwyo.edu", geo="Wyoming", trust=TrustBand.high)
+    await _seed(session, website="alaska.edu", geo="Alaska", trust=TrustBand.low)
+    await _seed(session, website="nau.edu", geo="Arizona", trust=TrustBand.medium)
+
+    # server-side search finds the row regardless of which page it's on (ADR-025)
+    hit = await client.get("/prospects", params={"search": "uwyo"})
+    assert [p["website"] for p in hit.json()["items"]] == ["uwyo.edu"]
+    assert hit.json()["total"] == 1
+
+    # default order is trust-first (high → medium → low), not geo-alphabetical
+    default = await client.get("/prospects")
+    assert [p["contact_trust"] for p in default.json()["items"]] == ["high", "medium", "low"]
+
+    # explicit sort hits the API and orders the WHOLE dataset
+    by_site = await client.get("/prospects", params={"sort": "website", "sort_dir": "asc"})
+    assert [p["website"] for p in by_site.json()["items"]] == ["alaska.edu", "nau.edu", "uwyo.edu"]
+
+
 async def test_filter_by_trust(client: AsyncClient, session: AsyncSession) -> None:
     await _seed(session, website="hi.gov", geo="G1", trust=TrustBand.high)
     await _seed(session, website="lo.gov", geo="G2", trust=TrustBand.low)
