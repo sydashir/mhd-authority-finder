@@ -20,8 +20,11 @@ import sentry_sdk
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from authority_finder.config import Settings, get_settings
+from authority_finder.db.ingest import persist_pipeline_run
+from authority_finder.db.session import make_engine, make_session_factory
 from authority_finder.discovery.serpapi_client import SerpApiClient
 from authority_finder.fetching import PageFetcher
 from authority_finder.fetching.browser import PlaywrightBrowserFetcher
@@ -71,8 +74,19 @@ async def run_tick(
     return results
 
 
-def _make_run_and_write(*, settings: Settings, now: datetime) -> RunAndWrite:
-    """Build the pipeline+sheet closure; the costly clients are created only when called."""
+def _make_run_and_write(
+    *,
+    settings: Settings,
+    now: datetime,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    site: str,
+) -> RunAndWrite:
+    """Build the pipeline+persist+export closure; costly clients are created only when called.
+
+    Postgres is the source of truth (ADR-025): persist prospects + record the run FIRST, then
+    export to the Google Sheet. The upsert preserves the team's outreach fields (ADR-022), so a
+    scheduled re-run of a known geo never clobbers a note.
+    """
 
     async def _run_and_write(geos: list[GeoPage]) -> RunOutcome:
         browser = PlaywrightBrowserFetcher(no_sandbox=settings.playwright_no_sandbox)
@@ -94,6 +108,13 @@ def _make_run_and_write(*, settings: Settings, now: datetime) -> RunAndWrite:
                 )
             finally:
                 await browser.aclose()
+
+        async with sessionmaker() as session:
+            await persist_pipeline_run(
+                session, rows=rows, geos=geos, site=site, billed_searches=funnel.billed_searches
+            )
+            await session.commit()
+
         writer = SheetsWriter(
             credentials_path=settings.google_sheets_credentials_path,
             spreadsheet_id=settings.google_sheet_id,
@@ -111,15 +132,22 @@ async def scheduled_tick(
     settings = settings or get_settings()
     now = datetime.now(UTC)
     _log.info("scheduler.tick_start", at=now.isoformat())
-    async with httpx.AsyncClient(follow_redirects=True) as sitemap_client:
-        fetcher = SitemapFetcher(client=sitemap_client)
-        results = await run_tick(
-            sitemap_fetcher=fetcher,
-            build_run_and_write=lambda _cfg: _make_run_and_write(settings=settings, now=now),
-            now=now,
-            max_new_geos=settings.max_new_geos_per_run,
-            state_dir=state_dir,
-        )
+    engine = make_engine(settings.database_url)
+    sessionmaker = make_session_factory(engine)
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as sitemap_client:
+            fetcher = SitemapFetcher(client=sitemap_client)
+            results = await run_tick(
+                sitemap_fetcher=fetcher,
+                build_run_and_write=lambda cfg: _make_run_and_write(
+                    settings=settings, now=now, sessionmaker=sessionmaker, site=cfg.id
+                ),
+                now=now,
+                max_new_geos=settings.max_new_geos_per_run,
+                state_dir=state_dir,
+            )
+    finally:
+        await engine.dispose()
     _log.info(
         "scheduler.tick_finish",
         new_geos=sum(r.new_geos_found for r in results),

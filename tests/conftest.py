@@ -47,3 +47,18 @@ async def session(pg_url: str) -> AsyncGenerator[AsyncSession]:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.drop_all)
         await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def session_factory(pg_url: str) -> AsyncGenerator[async_sessionmaker[AsyncSession]]:
+    """A session FACTORY over a clean schema — for code that opens its own sessions
+    (the scheduler / background jobs), which a single bound ``session`` can't exercise."""
+    engine = create_async_engine(pg_url)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    try:
+        yield async_sessionmaker(engine, expire_on_commit=False)
+    finally:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+        await engine.dispose()
