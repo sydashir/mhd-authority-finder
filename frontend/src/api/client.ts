@@ -64,6 +64,9 @@ export interface ProspectFilters {
   level?: GeoLevel
   geo?: string
   outreach_status?: OutreachStatus
+  search?: string
+  sort?: string
+  sort_dir?: 'asc' | 'desc'
   limit?: number
   offset?: number
 }

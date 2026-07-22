@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
-from sqlalchemy import ColumnElement, select
+from sqlalchemy import ColumnElement, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import func
@@ -132,6 +132,7 @@ def _prospect_filters(
     geo: str | None,
     level: GeoLevel | None,
     outreach: OutreachStatus | None,
+    search: str | None = None,
 ) -> tuple[bool, list[ColumnElement[bool]]]:
     """The UI filter set as (needs Geo join, WHERE conditions) — shared by list + count."""
     conditions: list[ColumnElement[bool]] = []
@@ -145,6 +146,18 @@ def _prospect_filters(
         conditions.append(Prospect.geo_served == geo)
     if outreach is not None:
         conditions.append(Prospect.outreach_status == outreach)
+    if search and search.strip():
+        # Server-side search so the dashboard box finds a prospect ANYWHERE in the set, not just
+        # the loaded page. ILIKE is case-insensitive across the fields a user would type into.
+        like = f"%{search.strip()}%"
+        conditions.append(
+            or_(
+                Prospect.website.ilike(like),
+                Prospect.organization_description.ilike(like),
+                Prospect.geo_served.ilike(like),
+                Prospect.email.ilike(like),
+            )
+        )
     return level is not None, conditions
 
 
@@ -156,12 +169,13 @@ async def get_prospects(
     geo: str | None = None,
     level: GeoLevel | None = None,
     outreach: OutreachStatus | None = None,
+    search: str | None = None,
     limit: int | None = None,
     offset: int = 0,
 ) -> Sequence[Prospect]:
     """Filtered, paginated prospect read — the query the UI will issue."""
     needs_join, conditions = _prospect_filters(
-        trust=trust, source=source, geo=geo, level=level, outreach=outreach
+        trust=trust, source=source, geo=geo, level=level, outreach=outreach, search=search
     )
     stmt = select(Prospect)
     if needs_join:
@@ -182,10 +196,11 @@ async def count_prospects(
     geo: str | None = None,
     level: GeoLevel | None = None,
     outreach: OutreachStatus | None = None,
+    search: str | None = None,
 ) -> int:
     """Total prospects matching the filters — pagination needs the unpaged count."""
     needs_join, conditions = _prospect_filters(
-        trust=trust, source=source, geo=geo, level=level, outreach=outreach
+        trust=trust, source=source, geo=geo, level=level, outreach=outreach, search=search
     )
     stmt = select(func.count(Prospect.id))
     if needs_join:

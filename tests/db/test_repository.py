@@ -63,6 +63,38 @@ async def test_upsert_prospect_is_idempotent_on_website_geo(session: AsyncSessio
     assert rows[0].email == "second@ochealthinfo.gov"  # latest value wins
 
 
+async def test_search_matches_across_fields_case_insensitive(session: AsyncSession) -> None:
+    # Server-side search (ADR-025): the dashboard box must find a prospect anywhere in the set,
+    # not just the loaded page. Matches website / geo / email / description, case-insensitively.
+    await upsert_prospect(session, _prospect(website="uwyo.edu", geo="Wyoming", email="c@uwyo.edu"))
+    await upsert_prospect(
+        session, _prospect(website="alaska.edu", geo="Alaska", email="dean@alaska.edu")
+    )
+    await session.commit()
+
+    assert [p.website for p in await get_prospects(session, search="uwyo")] == ["uwyo.edu"]
+    assert await count_prospects(session, search="uwyo") == 1
+    # case-insensitive, and matches the geo column too
+    assert {p.website for p in await get_prospects(session, search="ALASKA")} == {"alaska.edu"}
+    # matches email local-part
+    assert {p.website for p in await get_prospects(session, search="dean@")} == {"alaska.edu"}
+    assert await get_prospects(session, search="zzz-no-such-thing") == []
+
+
+async def test_default_order_is_trust_first(session: AsyncSession) -> None:
+    # The dashboard must open on the strongest leads (ADR-024/025), not geo-alphabetical.
+    await upsert_prospect(session, _prospect(website="low.gov", geo="Alabama", trust=TrustBand.low))
+    await upsert_prospect(
+        session, _prospect(website="high.gov", geo="Wyoming", trust=TrustBand.high)
+    )
+    await upsert_prospect(
+        session, _prospect(website="med.gov", geo="Nevada", trust=TrustBand.medium)
+    )
+    await session.commit()
+    ordered = [p.contact_trust for p in await get_prospects(session)]
+    assert ordered == [TrustBand.high, TrustBand.medium, TrustBand.low]
+
+
 async def test_pipeline_upsert_preserves_user_outreach_fields(session: AsyncSession) -> None:
     # THE make-or-break test (ADR-022): the team marks a prospect contacted with notes, then the
     # pipeline re-runs and upserts the same (website, geo) with fresh discovery data. The discovery

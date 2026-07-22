@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ApiError } from '../api/client'
 import { useProspects } from '../api/hooks'
 import type { Prospect } from '../api/types'
@@ -20,7 +20,17 @@ export function ProspectsScreen({ notify }: { notify: (toast: ToastData) => void
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<Prospect | null>(null)
 
-  const query = useProspects({ ...filters, limit: PAGE_SIZE, offset })
+  // Debounce the search box, then query the API — searching the WHOLE dataset, not just the
+  // loaded page (ADR-025). A stale-page match no longer falsely reports "no prospects".
+  const debouncedSearch = useDebounced(search, 300)
+  useEffect(() => setOffset(0), [debouncedSearch]) // a new search returns to the first page
+
+  const query = useProspects({
+    ...filters,
+    search: debouncedSearch.trim() || undefined,
+    limit: PAGE_SIZE,
+    offset,
+  })
   const activeCount = Object.values(filters).filter(Boolean).length
 
   function patchFilters(patch: Partial<ProspectQueryFilters>) {
@@ -33,11 +43,7 @@ export function ProspectsScreen({ notify }: { notify: (toast: ToastData) => void
     setOffset(0)
   }
 
-  const items = query.data?.items ?? []
-  const q = search.trim().toLowerCase()
-  const visible = q
-    ? items.filter((p) => `${p.website} ${p.email} ${p.geo_served}`.toLowerCase().includes(q))
-    : items
+  const visible = query.data?.items ?? []
 
   return (
     <div className="flex min-w-0 flex-1 flex-col">
@@ -87,6 +93,15 @@ export function ProspectsScreen({ notify }: { notify: (toast: ToastData) => void
       <ProspectDrawer prospect={selected} onClose={() => setSelected(null)} notify={notify} />
     </div>
   )
+}
+
+function useDebounced<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value)
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delayMs)
+    return () => clearTimeout(id)
+  }, [value, delayMs])
+  return debounced
 }
 
 function errorMessage(error: unknown): string {

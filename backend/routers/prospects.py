@@ -26,10 +26,14 @@ async def list_prospects(
     geo: str | None = None,
     level: GeoLevel | None = None,
     outreach_status: OutreachStatus | None = None,
+    search: Annotated[str | None, Query(max_length=200)] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> PageOf[ProspectOut]:
-    """Prospects matching the filters, paginated. ``total`` is the unpaged count."""
+    """Prospects matching the filters, paginated. ``total`` is the unpaged count.
+
+    ``search`` matches the whole dataset (website/geo/email/description, case-insensitive) —
+    not just the current page (ADR-025)."""
     total = await count_prospects(
         session,
         trust=contact_trust,
@@ -37,6 +41,7 @@ async def list_prospects(
         geo=geo,
         level=level,
         outreach=outreach_status,
+        search=search,
     )
     rows = await get_prospects(
         session,
@@ -45,6 +50,7 @@ async def list_prospects(
         geo=geo,
         level=level,
         outreach=outreach_status,
+        search=search,
         limit=limit,
         offset=offset,
     )
