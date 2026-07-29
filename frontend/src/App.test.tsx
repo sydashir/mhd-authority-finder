@@ -13,8 +13,8 @@ const HERO = /local authority sites, ready to contact/i
 async function signIn(username: string, password: string) {
   await userEvent.click((await screen.findAllByRole('button', { name: /^sign in$/i }))[0]!)
   const dialog = within(await screen.findByRole('dialog'))
-  await userEvent.type(dialog.getByLabelText(/username/i), username)
-  await userEvent.type(dialog.getByLabelText(/password/i), password)
+  await userEvent.type(dialog.getByLabelText(/^username$/i), username)
+  await userEvent.type(dialog.getByLabelText(/^password$/i), password)
   await userEvent.click(dialog.getByRole('button', { name: /^sign in$/i }))
 }
 

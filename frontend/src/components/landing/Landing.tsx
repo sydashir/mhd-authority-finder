@@ -14,6 +14,7 @@ import { useState, type ReactNode } from 'react'
 import { useTheme } from '../../lib/theme'
 import { useReveal } from '../../lib/useReveal'
 import { Logo } from '../Logo'
+import { PipelineTrace } from './PipelineTrace'
 import { RadarScan } from './RadarScan'
 import { WatchedProperties } from './WatchedProperties'
 import { SignInDialog } from './SignInDialog'
@@ -158,6 +159,9 @@ export function Landing() {
             <a href="#how" className="transition-colors hover:text-fg">
               How it works
             </a>
+            <a href="#trace" className="transition-colors hover:text-fg">
+              See a run
+            </a>
             <a href="#precision" className="transition-colors hover:text-fg">
               Precision
             </a>
@@ -235,6 +239,11 @@ export function Landing() {
             </li>
           ))}
         </ol>
+      </Section>
+
+      {/* TRACE: the pipeline running on one real page, in place of a static screenshot. */}
+      <Section id="trace" className="pb-20 sm:pb-28">
+        <PipelineTrace />
       </Section>
 
       {/* PRECISION: asymmetric bento, four cells for four claims. */}

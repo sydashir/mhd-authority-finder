@@ -14,8 +14,10 @@ afterAll(() => server.close())
 // jsdom gaps the components rely on.
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
+  // Report reduced-motion in tests: components then render their final state instead of
+  // running timers/animations, which keeps assertions deterministic rather than racing them.
   value: (query: string) => ({
-    matches: false,
+    matches: query.includes('prefers-reduced-motion'),
     media: query,
     onchange: null,
     addEventListener: vi.fn(),
