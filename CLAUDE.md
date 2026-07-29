@@ -229,7 +229,17 @@ git remote set-url --add --push origin https://github.com/sydashir/mhd-authority
 git remote set-url --add --push origin https://github.com/hybrid-mediaworks/mhd-authority-finder.git
 ```
 
-Pushes require the `sydashir` GitHub account — if `gh auth status` shows a different active account, run `gh auth switch -u sydashir` before pushing (it frequently defaults back to `dev778d`, which cannot see either repo and fails with a confusing "repository not found").
+Pushes require the `sydashir` GitHub account. The active `gh` account flips to another one
+(usually `dev778d`) fairly often because the user runs other projects on this machine under a
+different GitHub identity. **This is expected, not a fault — just switch back and continue, no
+need to raise it:**
+
+```bash
+gh auth switch -u sydashir
+```
+
+A wrong active account cannot see either private repo, so the failure looks like a confusing
+"repository not found" (or a push that prints nothing at all) rather than an auth error.
 
 **ABSOLUTE RULE (user-stated, non-negotiable):** every commit and every push is done as **`sydashir`** and ONLY `sydashir` — never any other GitHub account, ever. Commit author is always `sydashir <meetashirr@gmail.com>`; never Claude, never a `Co-Authored-By`/"Generated with" trailer, never another identity. The active `gh` account on this machine often defaults to `dev778d`, so before any push verify and, if needed, push with the sydashir token (`gh auth token -u sydashir`) or `gh auth switch -u sydashir`. If pushing as sydashir is somehow impossible, STOP and tell the user — do not push as anyone else.
 
