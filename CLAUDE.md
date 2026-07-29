@@ -204,7 +204,18 @@ Phase 2 (Ahrefs authority filter, competitor link checker, scheduled triggers) c
 
 ## Repo access
 
-Remote `origin` is the private repo `sydashir/mhd-authority-finder`. Pushes require the `sydashir` GitHub account — if `gh auth status` shows a different active account, run `gh auth switch -u sydashir` before pushing.
+Remote `origin` pushes to TWO private repos at once, so the same code lives in both places:
+`sydashir/mhd-authority-finder` (personal) and `hybrid-mediaworks/mhd-authority-finder` (org).
+A single `git push origin main` updates both; `git fetch` reads from the personal one.
+
+If the dual push is ever lost (fresh clone, re-added remote), restore it with:
+
+```bash
+git remote set-url --add --push origin https://github.com/sydashir/mhd-authority-finder.git
+git remote set-url --add --push origin https://github.com/hybrid-mediaworks/mhd-authority-finder.git
+```
+
+Pushes require the `sydashir` GitHub account — if `gh auth status` shows a different active account, run `gh auth switch -u sydashir` before pushing (it frequently defaults back to `dev778d`, which cannot see either repo and fails with a confusing "repository not found").
 
 **ABSOLUTE RULE (user-stated, non-negotiable):** every commit and every push is done as **`sydashir`** and ONLY `sydashir` — never any other GitHub account, ever. Commit author is always `sydashir <meetashirr@gmail.com>`; never Claude, never a `Co-Authored-By`/"Generated with" trailer, never another identity. The active `gh` account on this machine often defaults to `dev778d`, so before any push verify and, if needed, push with the sydashir token (`gh auth token -u sydashir`) or `gh auth switch -u sydashir`. If pushing as sydashir is somehow impossible, STOP and tell the user — do not push as anyone else.
 
