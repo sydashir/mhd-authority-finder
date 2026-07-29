@@ -89,8 +89,8 @@ export const getHealth = () => apiGet<Health>('/health')
 
 // --- auth (ADR-018) ---
 export const getMe = () => apiGet<AuthUser>('/auth/me')
-export const postGoogleLogin = (credential: string) =>
-  apiPost<AuthUser>('/auth/google', { credential })
+export const postLogin = (username: string, password: string) =>
+  apiPost<AuthUser>('/auth/login', { username, password })
 export const postLogout = () => apiPost<{ ok: boolean }>('/auth/logout', {})
 
 export const getStats = () => apiGet<Stats>('/stats')

@@ -54,7 +54,7 @@ function NavItem({
 }
 
 function initials(user: AuthUser): string {
-  const source = user.name || user.email
+  const source = user.name || user.username
   return source.slice(0, 1).toUpperCase()
 }
 
@@ -117,8 +117,10 @@ export function Sidebar({
             {initials(user)}
           </span>
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[12px] font-medium text-fg">{user.name || user.email}</div>
-            <div className="truncate text-[11px] text-fg-subtle">{user.email}</div>
+            <div className="truncate text-[12px] font-medium text-fg">
+              {user.name || user.username}
+            </div>
+            <div className="truncate text-[11px] text-fg-subtle">Signed in</div>
           </div>
           <button
             type="button"
@@ -144,7 +146,11 @@ export function Sidebar({
           onClick={onToggleTheme}
           className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium text-fg-muted transition-colors duration-150 hover:bg-raised hover:text-fg"
         >
-          {theme === 'dark' ? <Sun size={16} strokeWidth={1.8} /> : <Moon size={16} strokeWidth={1.8} />}
+          {theme === 'dark' ? (
+            <Sun size={16} strokeWidth={1.8} />
+          ) : (
+            <Moon size={16} strokeWidth={1.8} />
+          )}
           {theme === 'dark' ? 'Light mode' : 'Dark mode'}
         </button>
       </div>

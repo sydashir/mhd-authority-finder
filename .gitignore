@@ -67,3 +67,6 @@ service-account*.json
 *-service-account.json
 .playwright-mcp/
 .claude/skills/
+# Agent-skill installers (`npx skills add`) — vendored skills, never committed
+.agents/
+skills-lock.json

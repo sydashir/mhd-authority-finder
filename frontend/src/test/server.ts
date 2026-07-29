@@ -8,10 +8,8 @@ import type { AuthUser, Prospect, Run, Stats } from '../api/types'
 export const API = 'http://localhost:8000' // matches the client's default VITE_API_URL
 
 export const authUser: AuthUser = {
-  email: 'intake@dbh.com',
-  name: 'Intake Team',
-  picture: '',
-  sub: 's1',
+  username: 'admin',
+  name: 'admin',
 }
 
 export function makeProspect(over: Partial<Prospect> = {}): Prospect {

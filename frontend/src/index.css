@@ -233,6 +233,94 @@
     background: rgb(244 63 94 / 0.16);
     color: rgb(251 113 133);
   }
+  /* ── Landing motion ────────────────────────────────────────────────────────
+     Three motions, each earning its place: the radar depicts the product's job,
+     the reveal sequences a section as you reach it, the marquee carries a list
+     that does not need individual attention. All stop under reduced motion
+     (the global rule in @layer base collapses every duration to ~0). */
+  .radar-sweep {
+    animation: radar-rotate 8s linear infinite;
+  }
+  .radar-blip {
+    animation: blip-flash 8s linear infinite;
+  }
+  .radar-blip-halo {
+    animation: blip-halo 8s linear infinite;
+  }
+  @keyframes radar-rotate {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  /* Bright on the beat the sweep passes, then settling back rather than blinking off. */
+  @keyframes blip-flash {
+    0%,
+    4% {
+      opacity: 1;
+    }
+    60%,
+    100% {
+      opacity: 0.45;
+    }
+  }
+  @keyframes blip-halo {
+    0% {
+      transform: scale(0.4);
+      opacity: 0.5;
+    }
+    18%,
+    100% {
+      transform: scale(1);
+      opacity: 0;
+    }
+  }
+  .radar-blip-halo {
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+
+  .reveal {
+    opacity: 0;
+    transform: translateY(14px);
+    transition:
+      opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+      transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .reveal-in {
+    opacity: 1;
+    transform: none;
+  }
+
+  .marquee-track {
+    animation: marquee-slide 46s linear infinite;
+  }
+  .marquee-mask:hover .marquee-track {
+    animation-play-state: paused; /* let someone actually read a domain */
+  }
+  @keyframes marquee-slide {
+    to {
+      transform: translateX(-50%);
+    }
+  }
+  /* Fade the strip into the page edges instead of cutting it off. */
+  .marquee-mask {
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .radar-sweep,
+    .radar-blip,
+    .radar-blip-halo,
+    .marquee-track {
+      animation: none;
+    }
+    .reveal {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
   .dot-high {
     background: var(--high-dot);
   }

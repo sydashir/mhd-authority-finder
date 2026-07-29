@@ -74,10 +74,8 @@ export interface Health {
 }
 
 export interface AuthUser {
-  email: string
+  username: string
   name: string
-  picture: string
-  sub: string
 }
 
 export interface Stats {
