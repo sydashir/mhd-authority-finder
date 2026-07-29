@@ -47,7 +47,9 @@ describe('RunsScreen', () => {
       ),
     )
     renderWithProviders(<RunsScreen notify={vi.fn()} />)
-    const btn = await screen.findByRole('button', { name: /run in progress/i })
+    // useRuns polls every 2s while a run is running, so under full-suite load this render
+    // can land after the 1s default. Give the find a realistic window.
+    const btn = await screen.findByRole('button', { name: /run in progress/i }, { timeout: 4000 })
     expect(btn).toBeDisabled()
   })
 })

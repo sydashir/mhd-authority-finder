@@ -15,6 +15,7 @@ import { useTheme } from '../../lib/theme'
 import { useReveal } from '../../lib/useReveal'
 import { Logo } from '../Logo'
 import { RadarScan } from './RadarScan'
+import { WatchedProperties } from './WatchedProperties'
 import { SignInDialog } from './SignInDialog'
 
 /**
@@ -27,18 +28,7 @@ import { SignInDialog } from './SignInDialog'
  * per section; both stand still under prefers-reduced-motion.
  */
 
-// Live dataset, 22 July 2026.
-const DATA = {
-  prospects: 589,
-  geos: 70,
-  highTrust: 71,
-  mediumTrust: 139,
-  lowTrust: 379,
-  withEmail: 364,
-  competitorLinked: 82,
-  wrongStateRemoved: 29,
-}
-
+// The 16 competitor domains from the brief, checked on every prospect.
 const COMPETITORS = [
   'samhsa.gov',
   'rehabnet.com',
@@ -58,11 +48,32 @@ const COMPETITORS = [
   'treatmentatlas.org',
 ]
 
+// What each contact-trust band actually means (ADR-010), which beats a row count that
+// changes on every run.
+const TRUST_BANDS = [
+  {
+    label: 'High',
+    cls: 'badge-high',
+    meaning: 'A department inbox on the organization\u2019s own domain.',
+  },
+  {
+    label: 'Medium',
+    cls: 'badge-medium',
+    meaning: 'A general inbox, or a department reached through a contact page.',
+  },
+  {
+    label: 'Low',
+    cls: 'badge-low',
+    meaning: 'A role address, an off-domain contact, or a phone number only.',
+  },
+]
+
 // Real wrong-state catches from the ADR-024 audit.
 const REJECTED = [
   { domain: 'vaughn.edu', actually: 'New York', filedUnder: 'Alaska' },
   { domain: 'tamiu.edu', actually: 'Texas', filedUnder: 'Hawaii' },
   { domain: 'dconc.gov', actually: 'North Carolina', filedUnder: 'Irvine, California' },
+  { domain: 'iup.edu', actually: 'Pennsylvania', filedUnder: 'Indiana' },
 ]
 
 const STEPS = [
@@ -124,17 +135,6 @@ function Eyebrow({ children }: { children: ReactNode }) {
     <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-brand">
       {children}
     </span>
-  )
-}
-
-function Stat({ value, label }: { value: string; label: string }) {
-  return (
-    <div className="flex flex-col gap-1 py-5 sm:py-0">
-      <span className="tnum text-[30px] font-semibold leading-none tracking-tight text-fg sm:text-[34px]">
-        {value}
-      </span>
-      <span className="text-[12.5px] text-fg-muted">{label}</span>
-    </div>
   )
 }
 
@@ -212,22 +212,9 @@ export function Landing() {
         <RadarScan />
       </Section>
 
-      {/* STAT RAIL: the live dataset, hairline separated. */}
-      <Section className="pb-20 pt-10 sm:pb-24">
-        <div className="grid divide-y divide-border border-y border-border sm:grid-cols-4 sm:divide-x sm:divide-y-0 sm:py-7">
-          <div className="sm:px-6 sm:first:pl-0">
-            <Stat value={DATA.prospects.toLocaleString()} label="Verified prospects" />
-          </div>
-          <div className="sm:px-6">
-            <Stat value={String(DATA.geos)} label="Geographies covered" />
-          </div>
-          <div className="sm:px-6">
-            <Stat value={String(DATA.highTrust)} label="High trust contacts" />
-          </div>
-          <div className="sm:px-6">
-            <Stat value="16" label="Competitor domains checked" />
-          </div>
-        </div>
+      {/* WATCHED PROPERTIES: the brands this runs for, which do not go stale like counts do. */}
+      <Section className="pb-20 pt-12 sm:pb-24">
+        <WatchedProperties />
       </Section>
 
       {/* HOW IT WORKS: a connected rail, one step per stage of the real pipeline. */}
@@ -303,15 +290,6 @@ export function Landing() {
                 against the geography they are being filed under, and a contradiction is rejected
                 before it reaches your list.
               </p>
-              <p className="mt-6 flex items-baseline gap-2">
-                <span className="tnum text-[34px] font-semibold leading-none text-fg">
-                  {DATA.wrongStateRemoved}
-                </span>
-                <span className="text-[13px] text-fg-muted">
-                  mis-filed rows removed in the last audit
-                </span>
-              </p>
-
               {/* Real rejections from that audit, shown the way the checker saw them. */}
               <ul className="mt-6 space-y-px overflow-hidden rounded-lg border border-border">
                 {REJECTED.map((row) => (
@@ -330,6 +308,10 @@ export function Landing() {
                   </li>
                 ))}
               </ul>
+              <p className="mt-4 text-[12.5px] leading-relaxed text-fg-subtle">
+                The domain decides, not the wording on the page. Indiana University of Pennsylvania
+                reads like Indiana and is checked as Pennsylvania.
+              </p>
             </div>
           </article>
 
@@ -339,15 +321,15 @@ export function Landing() {
             <p className="mt-1.5 text-[13px] leading-relaxed text-fg-muted">
               You know which are safe to mail before you open the row.
             </p>
-            <dl className="mt-5 space-y-2">
-              {[
-                { label: 'High', value: DATA.highTrust, cls: 'badge-high' },
-                { label: 'Medium', value: DATA.mediumTrust, cls: 'badge-medium' },
-                { label: 'Low', value: DATA.lowTrust, cls: 'badge-low' },
-              ].map((band) => (
-                <div key={band.label} className="flex items-center gap-3">
-                  <dt className={`badge ${band.cls} w-[74px] justify-center`}>{band.label}</dt>
-                  <dd className="tnum flex-1 text-[13px] text-fg-muted">{band.value} rows</dd>
+            <dl className="mt-5 space-y-2.5">
+              {TRUST_BANDS.map((band) => (
+                <div key={band.label} className="flex gap-3">
+                  <dt className={`badge ${band.cls} h-fit w-[74px] shrink-0 justify-center`}>
+                    {band.label}
+                  </dt>
+                  <dd className="flex-1 text-[12.5px] leading-snug text-fg-muted">
+                    {band.meaning}
+                  </dd>
                 </div>
               ))}
             </dl>
@@ -359,9 +341,8 @@ export function Landing() {
               You see who already links out
             </h3>
             <p className="mt-1.5 text-[13px] leading-relaxed text-fg-muted">
-              <span className="tnum font-semibold text-fg">{DATA.competitorLinked}</span> of the{' '}
-              <span className="tnum">{DATA.prospects}</span> rows already point at a competing
-              directory, which is a warm opening rather than a cold one.
+              Sixteen competing directories are checked on every prospect. A site that already links
+              to one is a warm opening rather than a cold one, and the row names which.
             </p>
           </article>
         </div>
@@ -402,8 +383,7 @@ export function Landing() {
               Your prospects are waiting in the workspace.
             </h2>
             <p className="mx-auto mt-3 max-w-[46ch] text-[14px] text-fg-muted">
-              {DATA.prospects} verified rows across {DATA.geos} geographies, {DATA.withEmail} with a
-              contact email.
+              Filtered, graded, and geography checked, ready for the next outreach round.
             </p>
             <button
               type="button"
@@ -427,7 +407,10 @@ export function Landing() {
             </span>
             AuthorityScout
           </span>
-          <span>Backlink prospecting for District Behavioral Health.</span>
+          <span>
+            Backlink prospecting for District Behavioral Health, across Inpatient Mental Health
+            Finder and Addiction Hotline.
+          </span>
         </div>
       </footer>
 
