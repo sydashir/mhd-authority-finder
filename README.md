@@ -61,15 +61,22 @@ cost-safe "Run now" trigger with live status polling. It is **private — Google
 allowlist** (ADR-018). The pipeline + master Sheet auto-write are unchanged — the DB/API/UI are
 additive layers on top; the UI talks only to the API. The CLI/scheduler are headless and need no login.
 
-### Sign-in setup (Google OAuth)
+### Sign-in setup (username + password)
 
-In Google Cloud Console → APIs & Services → Credentials, create an **OAuth 2.0 Web client**; under
-**Authorized JavaScript origins** add `http://localhost:5173` (and your prod origin). On the OAuth
-consent screen, keep the app in **Testing** and add each teammate as a **Test user**. Then in `.env`:
-`GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `ALLOWED_EMAILS` (comma-separated), a long
-`JWT_SECRET`; in `frontend/.env`, `VITE_GOOGLE_CLIENT_ID` (the same client id). Only allowlisted +
-test-user emails can sign in; a verified-but-not-allowlisted account gets a 403. In prod set
-`AUTH_COOKIE_SECURE=true` (HTTPS).
+Sign-in is local (ADR-026): no Google account, no third party, nothing for a teammate to hand over.
+Create an account per person, which prints one `username:hash` line:
+
+```bash
+uv run python -m authority_finder.cli create-user --username jake   # prompts for the password
+```
+
+Paste the line into `AUTH_USERS` in `.env` (comma-separate multiple users) and set a long
+`JWT_SECRET` (`openssl rand -hex 32`). Passwords are stored only as salted scrypt hashes, never in
+plaintext, and repeated failures from one client are locked out for `AUTH_LOCKOUT_MINUTES`. In prod
+set `AUTH_COOKIE_SECURE=true` (HTTPS).
+
+Signed-out visitors get the **landing page**, which carries the sign-in dialog; signing in drops
+straight into the workspace.
 
 Three local processes:
 

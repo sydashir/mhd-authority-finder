@@ -1135,3 +1135,68 @@ password, `AUTH_COOKIE_SECURE`, Sentry DSNs, session revocation). P2 quality-of-
 routing, outreach columns in the CSV export, Export-Sheet outreach filter + scratch workbook, org-level
 dedupe view, session-expiry UX, note-conflict guard). The scheduler holds no `running` row during its own
 pipeline, so the API↔scheduler mutual exclusion has a narrow window bounded by the daily budget cap.
+
+## ADR-026 — Local username/password sign-in + a public landing page
+
+**Date:** 2026-07-29
+**Status:** Accepted (supersedes the Google sign-in of ADR-018)
+**Context:** Teammates were not comfortable handing a Google account to the tool, and the ADR-018 flow
+also required a Google Cloud project, an OAuth consent screen, and every teammate added as a "test
+user" before they could log in. That is heavy machinery for an internal tool with a handful of users,
+and it made the front door the most awkward part of the product. Separately, the app had no public
+face at all: an unauthenticated visitor saw only a bare login card.
+
+### Decisions
+
+1. **Local credentials, no third-party identity.** `POST /auth/login` takes a username and password,
+   verifies against `AUTH_USERS` (`username:<scrypt hash>` pairs), and mints the SAME signed session
+   JWT in the SAME httpOnly cookie as before. Everything downstream is untouched: `get_current_user`,
+   the guarded data routers, and the pipeline/CLI/scheduler (which never touch the HTTP API).
+2. **scrypt from the standard library, not a new dependency.** `hashlib.scrypt` (n=2^14, r=8, p=1) is
+   a memory-hard KDF, salted per password, compared with `secrets.compare_digest`. No plaintext is
+   stored or logged. Chosen over bcrypt/argon2 to avoid adding a dependency for one function.
+3. **No user enumeration.** An unknown username still runs a verify against a dummy hash, so the work
+   (and the response time) matches a wrong password, and both return the identical message.
+4. **Brute force is throttled.** A password form is guessable in a way an identity provider was not,
+   so failures per (client, username) are counted and locked out for `AUTH_LOCKOUT_MINUTES` after
+   `AUTH_MAX_FAILED_LOGINS`. The counter lives on the app instance, not in module state, so tests and
+   multiple apps in one process never share a lockout. A shared store is the upgrade if this ever
+   faces the open internet.
+5. **Identity is now `username`, not `email`.** `AuthUser.username` is what gets recorded as
+   `outreach_updated_by`, so the ADR-022 attribution still answers "who marked this contacted".
+6. **Accounts are minted by a CLI, never typed into a config by hand.**
+   `authority_finder.cli create-user` prompts for the password (hidden, confirmed) so it never lands
+   in shell history, and prints the one line to paste into `AUTH_USERS`.
+
+### The landing page
+
+A signed-out visitor now gets a real product page instead of a login card, built on the workspace's
+own token system (teal on slate, Inter, the existing card/badge language) so the two halves read as
+one product. The concept extends the logomark: the logo is a radar scope, so the hero is a sweep
+lighting up the authority sites it finds.
+
+**Every figure on the page is read from the live dataset** (589 prospects, 70 geographies, 71 high
+trust, 364 with email, 82 already linking to a competitor, 29 mis-filed rows removed in the S24
+audit), and the wrong-state examples (`vaughn.edu` under Alaska, `tamiu.edu` under Hawaii,
+`dconc.gov` under Irvine) are real catches from that audit. The product screenshot is a real capture
+of the running workspace, not an illustration. Nothing on the page is invented.
+
+Motion is limited to three things that each carry meaning: the radar sweep (the product's actual
+job), one reveal per section as it enters, and a single marquee for the 16 competitor domains (a list
+that needs breadth, not individual attention). All of it stops under `prefers-reduced-motion`, and
+reveals fall back to visible when IntersectionObserver is unavailable or a fast scroll skips a
+section, because content must never be hidden by a missing API.
+
+### Verification
+
+**444 backend + 33 frontend tests**, ruff + format + pyright + build clean. Live: `admin` signs in
+through the dialog and lands in the workspace showing the real 589 rows; a wrong password returns one
+generic message; the lockout message surfaces verbatim; logout returns to the landing page. Checked
+at 1440px and 375px (no horizontal scroll), in both dark and light themes.
+
+### Trade-off
+
+Password auth puts credential handling on us rather than on Google: no MFA, and a leaked password is
+a direct compromise. For an internal tool of a few users behind an admin-created account, the drop in
+friction is worth it. Sessions still cannot be revoked before expiry (a P1 item carried over from the
+QA audit), and passkeys remain the natural upgrade once the tool is hosted over HTTPS.
