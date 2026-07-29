@@ -149,12 +149,13 @@ export function Landing() {
     <div className="min-h-[100dvh] overflow-x-hidden bg-app">
       {/* NAV: one line, 64px, never wraps. */}
       <header className="sticky top-0 z-40 border-b border-border/70 bg-app/85 backdrop-blur-md">
-        <nav className="mx-auto flex h-16 max-w-[1180px] items-center gap-6 px-5 sm:px-8">
-          <span className="flex items-center gap-2 font-semibold tracking-tight text-fg">
+        <nav className="mx-auto flex h-16 max-w-[1180px] items-center gap-3 px-5 sm:gap-6 sm:px-8">
+          <span className="flex shrink-0 items-center gap-2 font-semibold tracking-tight text-fg">
             <span className="text-brand">
               <Logo size={22} />
             </span>
-            AuthorityScout
+            {/* The badge takes the room the wordmark needs on a phone; the mark carries it there. */}
+            <span className="hidden min-[420px]:inline">AuthorityScout</span>
           </span>
           {/* Not a marketing site: this is a private tool and the door says so. */}
           <span
