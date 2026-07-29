@@ -18,6 +18,8 @@
   --brand: #0d9488;
   --brand-strong: #0f766e;
   --brand-fg: #ffffff;
+  /* --brand on --app measures 3.49:1 and fails AA, so teal TEXT uses this instead. */
+  --brand-text: #0f766e;
 
   --high-bg: #ecfdf5;
   --high-fg: #047857;
@@ -56,6 +58,7 @@
   --brand: #2dd4bf;
   --brand-strong: #14b8a6;
   --brand-fg: #04211d;
+  --brand-text: #2dd4bf;
 
   --brand-soft: rgb(45 212 191 / 0.1);
   --ring: rgb(45 212 191 / 0.4);
@@ -97,6 +100,7 @@
   --color-brand-strong: var(--brand-strong);
   --color-brand-fg: var(--brand-fg);
   --color-brand-soft: var(--brand-soft);
+  --color-brand-text: var(--brand-text);
 }
 
 @layer base {
@@ -119,7 +123,9 @@
   /* Keyboard focus is a brand ring, never a browser default. */
   :focus-visible {
     outline: none;
-    box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ring);
+    box-shadow:
+      0 0 0 2px var(--surface),
+      0 0 0 4px var(--ring);
     border-radius: 6px;
   }
   /* Thin, self-effacing scrollbars — a quiet premium detail. */
@@ -355,6 +361,263 @@
   .marquee-mask {
     -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
     mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+  }
+
+  /* ── Case file (the trace section) ───────────────────────────────────────
+     One real North Dakota run. The motion IS the pipeline's work: a check walks a list
+     of domains and takes one out. Anything with a lasting end state is a transition keyed
+     off [data-phase], and keyframes are used only for the two washes that leave nothing
+     behind — so reduced motion, or jumping the rail, always lands on the correct final
+     state and can never re-fire a flourish. */
+  .cf-card {
+    --cf-gate: 91ms; /* the sweep front crosses one of 11 rows in ~91ms; see CaseFile.tsx */
+  }
+  .cf-trigger {
+    background: color-mix(in srgb, var(--raised) 40%, transparent);
+  }
+
+  /* The scan itself: one pass, top to bottom, exactly on the geography beat. */
+  .cf-sweep {
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    top: 44px;
+    height: 30%;
+    border-radius: 10px;
+    pointer-events: none;
+    opacity: 0;
+    background: linear-gradient(
+      180deg,
+      transparent,
+      var(--brand-soft) 68%,
+      color-mix(in srgb, var(--brand) 38%, transparent)
+    );
+  }
+  .cf[data-phase='2']:not([data-jump]) .cf-sweep {
+    opacity: 1;
+    animation: cf-scan 1200ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  }
+  @keyframes cf-scan {
+    from {
+      transform: translateY(-30%);
+    }
+    to {
+      transform: translateY(240%);
+    }
+  }
+
+  .cf-row {
+    opacity: 0;
+    transform: translateY(6px);
+    transition:
+      opacity 0.26s ease-out,
+      transform 0.26s ease-out,
+      background-color 0.2s ease,
+      box-shadow 0.2s ease,
+      color 0.2s ease;
+    transition-delay: calc(var(--i) * 55ms);
+  }
+  .cf:not([data-phase='0']) .cf-row {
+    opacity: 0.6;
+    transform: none;
+  }
+  .cf-row:not([data-state='pending']) {
+    opacity: 1;
+  }
+
+  /* The verdict per row resolves in step with the sweep front, from one class flip. */
+  .cf-glyph {
+    box-shadow: inset 0 0 0 1px var(--border-strong);
+    color: transparent;
+    transition:
+      box-shadow 0.14s ease-out,
+      color 0.14s ease-out;
+  }
+  .cf-state {
+    opacity: 0;
+    transition: opacity 0.14s ease-out;
+  }
+  .cf-checked .cf-row .cf-glyph,
+  .cf-checked .cf-row .cf-state {
+    transition-delay: calc(var(--i) * var(--cf-gate));
+  }
+  .cf-checked .cf-row .cf-state {
+    opacity: 1;
+  }
+  .cf-checked .cf-row[data-state='reject'] .cf-glyph {
+    color: var(--flag-fg);
+    box-shadow: inset 0 0 0 1px var(--flag-fg);
+  }
+  .cf-checked .cf-row:not([data-state='reject']) .cf-glyph {
+    color: var(--fg-subtle);
+  }
+
+  .cf-row[data-state='ok'] {
+    color: var(--fg-muted);
+  }
+  .cf-row[data-state='ok'] .cf-state {
+    color: var(--fg-subtle);
+  }
+  /* The survivor: teal is the tool speaking, so the row it keeps carries the brand field. */
+  .cf-row[data-state='picked'] {
+    color: var(--fg);
+    background: color-mix(in srgb, var(--brand) 10%, var(--surface));
+    box-shadow:
+      inset 3px 0 0 var(--brand),
+      inset 0 0 0 1px color-mix(in srgb, var(--brand) 24%, transparent);
+  }
+  .cf-row[data-state='picked'] .cf-state {
+    color: var(--brand-text);
+  }
+  /* The one rejection gets a full field, not a chip — it is the point of the section. */
+  .cf-row[data-state='reject'] {
+    color: var(--fg-subtle);
+    background: color-mix(in srgb, var(--flag-fg) 12%, var(--surface));
+    box-shadow:
+      inset 3px 0 0 var(--flag-fg),
+      inset 0 0 0 1px color-mix(in srgb, var(--flag-fg) 22%, transparent);
+  }
+  .cf-row[data-state='reject'] .cf-state {
+    color: var(--flag-fg);
+  }
+
+  .cf-strike {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: 1px;
+    background: var(--flag-fg);
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 0.34s cubic-bezier(0.16, 1, 0.3, 1);
+    transition-delay: calc(var(--i) * var(--cf-gate) + 80ms);
+  }
+  .cf-checked .cf-row[data-state='reject'] .cf-strike {
+    transform: scaleX(1);
+  }
+
+  .cf-stamp {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 8.5px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--flag-fg);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--flag-fg) 45%, transparent);
+    background: var(--surface);
+    /* Rotation is layout, not motion — it survives reduced motion. */
+    transform: translateY(-50%) rotate(-7deg) scale(0.6);
+    opacity: 0;
+    transition:
+      transform 0.3s cubic-bezier(0.34, 1.4, 0.64, 1),
+      opacity 0.2s ease-out;
+    transition-delay: calc(var(--i) * var(--cf-gate) + 120ms);
+  }
+  .cf-checked .cf-row[data-state='reject'] .cf-stamp {
+    opacity: 1;
+    transform: translateY(-50%) rotate(-7deg) scale(1);
+  }
+
+  .cf-caption {
+    opacity: 0;
+    transition: opacity 0.4s ease-out 0.9s;
+  }
+  .cf-checked ~ .cf-caption {
+    opacity: 1;
+  }
+
+  /* The file fills once the survivor is picked. */
+  .cf-val {
+    opacity: 0;
+    transform: translateY(4px);
+    transition:
+      opacity 0.34s ease-out,
+      transform 0.34s ease-out;
+    transition-delay: calc(var(--d) * 90ms);
+  }
+  .cf[data-filled] .cf-val {
+    opacity: 1;
+    transform: none;
+  }
+  .cf-echo {
+    position: relative;
+    color: var(--brand-text);
+  }
+  .cf-echo::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -2px;
+    height: 1px;
+    background: var(--brand);
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1) 0.3s;
+  }
+  .cf[data-graded] .cf-echo::after {
+    transform: scaleX(1);
+  }
+
+  /* The meter is a needle traversing its range and settling, not a claim of two grades. */
+  .cf-seg {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 18px;
+    border-radius: 3px;
+    font-size: 9.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    background: var(--raised);
+    color: var(--fg-subtle);
+    opacity: 0.45;
+    transition:
+      opacity 0.2s ease,
+      background-color 0.2s ease,
+      color 0.2s ease;
+    transition-delay: calc(var(--n) * 140ms);
+  }
+  .cf[data-graded] .cf-seg-low {
+    background: var(--low-bg);
+    color: var(--low-fg);
+    opacity: 0.3;
+  }
+  .cf[data-graded] .cf-seg-medium {
+    background: var(--med-bg);
+    color: var(--med-fg);
+    opacity: 0.3;
+  }
+  .cf[data-graded] .cf-seg-high {
+    background: var(--high-bg);
+    color: var(--high-fg);
+    opacity: 1;
+  }
+
+  .cf-cell {
+    opacity: 0;
+    transform: translateY(3px);
+    transition:
+      opacity 0.28s ease-out,
+      transform 0.28s ease-out;
+    transition-delay: calc(var(--c) * 45ms);
+  }
+  .cf[data-phase='6'] .cf-cell {
+    opacity: 1;
+    transform: none;
+  }
+  .cf-shipped {
+    box-shadow: inset 3px 0 0 var(--high-fg);
+    padding-left: 9px;
+    margin-left: -9px;
   }
 
   @media (prefers-reduced-motion: reduce) {

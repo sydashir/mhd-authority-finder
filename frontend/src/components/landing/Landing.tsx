@@ -15,7 +15,7 @@ import { useState, type ReactNode } from 'react'
 import { useTheme } from '../../lib/theme'
 import { useReveal } from '../../lib/useReveal'
 import { Logo } from '../Logo'
-import { PipelineTrace } from './PipelineTrace'
+import { CaseFile } from './CaseFile'
 import { RadarScan } from './RadarScan'
 import { WatchedProperties } from './WatchedProperties'
 import { SignInDialog } from './SignInDialog'
@@ -276,7 +276,7 @@ export function Landing() {
 
       {/* TRACE: the pipeline running on one real page, in place of a static screenshot. */}
       <Section id="trace" className="pb-20 sm:pb-28">
-        <PipelineTrace />
+        <CaseFile />
       </Section>
 
       {/* PRECISION: asymmetric bento, four cells for four claims. */}
