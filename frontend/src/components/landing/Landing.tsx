@@ -158,9 +158,6 @@ export function Landing() {
             <a href="#how" className="transition-colors hover:text-fg">
               How it works
             </a>
-            <a href="#workspace" className="transition-colors hover:text-fg">
-              Workspace
-            </a>
             <a href="#precision" className="transition-colors hover:text-fg">
               Precision
             </a>
@@ -238,29 +235,6 @@ export function Landing() {
             </li>
           ))}
         </ol>
-      </Section>
-
-      {/* WORKSPACE: the real screen, not an illustration of one. */}
-      <Section id="workspace" className="pb-20 sm:pb-28">
-        <div className="max-w-[62ch]">
-          <h2 className="text-[28px] font-semibold leading-tight tracking-[-0.015em] text-fg sm:text-[36px]">
-            The list your team actually works in.
-          </h2>
-          <p className="mt-4 text-[15px] leading-relaxed text-fg-muted">
-            Search the whole set, filter by trust, open a prospect, mark it contacted. Notes and
-            status stay on the row, and a later pipeline run never overwrites them.
-          </p>
-        </div>
-        <figure className="card mt-10 overflow-hidden p-1.5 sm:p-2">
-          <img
-            src="/workspace.png"
-            alt="The AuthorityScout prospects table, showing high trust rows with contacts, geography, and competitor flags."
-            width={2560}
-            height={1440}
-            loading="lazy"
-            className="w-full rounded-[9px]"
-          />
-        </figure>
       </Section>
 
       {/* PRECISION: asymmetric bento, four cells for four claims. */}

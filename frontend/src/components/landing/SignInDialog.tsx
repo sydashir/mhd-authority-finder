@@ -34,13 +34,18 @@ export function SignInDialog({ open, onClose }: { open: boolean; onClose: () => 
 
   if (!open) return null
 
-  async function submit(e: FormEvent) {
+  async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (busy) return
+    // Read the DOM, not React state: browsers autofill credentials without firing onChange,
+    // which would otherwise submit an empty password against a form that looks filled in.
+    const data = new FormData(e.currentTarget)
+    const submittedUser = String(data.get('username') ?? '').trim()
+    const submittedPass = String(data.get('password') ?? '')
     setBusy(true)
     setError(null)
     try {
-      await postLogin(username, password)
+      await postLogin(submittedUser, submittedPass)
       setPassword('')
       await queryClient.invalidateQueries({ queryKey: ['me'] })
     } catch (err) {
@@ -93,6 +98,7 @@ export function SignInDialog({ open, onClose }: { open: boolean; onClose: () => 
             </label>
             <input
               id="username"
+              name="username"
               ref={usernameRef}
               value={username}
               onChange={(e) => setUsername(e.target.value)}
@@ -110,6 +116,7 @@ export function SignInDialog({ open, onClose }: { open: boolean; onClose: () => 
             </label>
             <input
               id="password"
+              name="password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
