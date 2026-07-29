@@ -46,6 +46,7 @@ from authority_finder.page_detector.orchestrator import detect_for_geo
 from authority_finder.pipeline import PipelineFunnel, run_pipeline
 from authority_finder.population.census import CensusClient
 from authority_finder.scheduler.runner import run_scheduler, scheduled_tick
+from backend.auth import hash_password
 
 
 @asynccontextmanager
@@ -719,6 +720,28 @@ def schedule(interval_hours: int | None, run_now: bool, once: bool) -> None:
         f"scheduler starting: every {interval}h, run_now={run_now}. Ctrl-C to stop.", err=True
     )
     asyncio.run(run_scheduler(interval_hours=interval, run_now=run_now))
+
+
+@cli.command("create-user")
+@click.option("--username", required=True, help="Sign-in name (case-insensitive).")
+@click.option(
+    "--password",
+    prompt=True,
+    hide_input=True,
+    confirmation_prompt=True,
+    help="Prompted for (hidden) if omitted, so it never lands in your shell history.",
+)
+def create_user(username: str, password: str) -> None:
+    """Mint an AUTH_USERS entry for a teammate (ADR-026).
+
+    Prints one `username:hash` pair. Append it to AUTH_USERS in .env, comma-separated.
+    The password itself is never stored or printed.
+    """
+    name = username.strip().lower()
+    if not name:
+        raise click.ClickException("username cannot be blank")
+    click.echo("\nAdd this to AUTH_USERS in your .env (comma-separate multiple users):\n")
+    click.echo(f"{name}:{hash_password(password)}\n")
 
 
 if __name__ == "__main__":

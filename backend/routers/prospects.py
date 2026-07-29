@@ -81,7 +81,7 @@ async def set_outreach(
 ) -> ProspectOut:
     """Set a prospect's outreach status/notes; records the signed-in user as who changed it."""
     row = await update_outreach_status(
-        session, prospect_id, status=body.status, notes=body.notes, user_email=user.email
+        session, prospect_id, status=body.status, notes=body.notes, user_email=user.username
     )
     if row is None:
         raise HTTPException(status_code=404, detail="prospect not found")

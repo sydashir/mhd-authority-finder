@@ -35,7 +35,7 @@ async def trigger(pg_url: str) -> AsyncGenerator[Trigger]:
     # get_session/get_sessionmaker then yield fresh sessions per request (no staleness),
     # so polling GET /runs/{id} reflects what the background task committed.
     app.state.sessionmaker = sm
-    app.dependency_overrides[get_current_user] = lambda: AuthUser(email="test@authorityscout.dev")
+    app.dependency_overrides[get_current_user] = lambda: AuthUser(username="test")
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac, app, sm

@@ -1,70 +1,107 @@
-"""Auth endpoints (ADR-018): Google sign-in, current user, logout.
+"""Auth endpoints (ADR-026): password sign-in, current user, logout.
 
-``POST /auth/google`` and ``GET /health`` are the only public routes; everything
-else requires a session. The Google verifier is a dependency so tests can inject
-a fake and never call Google.
+``POST /auth/login`` and ``GET /health`` are the only public routes; everything else
+requires a session. Sign-in failures are throttled per client, because a password form
+is brute-forceable in a way a third-party identity provider was not.
 """
 
-import asyncio
-from typing import Annotated
+import time
+from dataclasses import dataclass, field
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Request, Response, status
+from pydantic import BaseModel, Field
 
 from authority_finder.config import Settings
 from backend.auth import (
     SESSION_COOKIE,
-    AuthError,
     AuthUser,
     CurrentUser,
-    GoogleVerifier,
-    is_allowed,
+    authenticate,
     mint_session,
-    verify_google_id_token,
+    parse_users,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+# One message for every failure mode, so the form never reveals which usernames exist.
+_REJECTED = "Incorrect username or password."
 
-class GoogleLoginBody(BaseModel):
-    credential: str  # the ID token from @react-oauth/google's <GoogleLogin> onSuccess
+
+class LoginBody(BaseModel):
+    username: str = Field(max_length=64)
+    password: str = Field(max_length=256)
+
+
+@dataclass
+class _Attempts:
+    """In-process failed-login counter. Per worker: a restart clears it, and a multi-worker
+    deploy throttles per worker. That is acceptable for an internal tool of a few users;
+    a shared store (Redis) is the upgrade if this ever faces the open internet."""
+
+    failures: dict[str, tuple[int, float]] = field(default_factory=dict[str, tuple[int, float]])
+
+    def locked_for(self, key: str, *, limit: int, window_s: float) -> float:
+        count, first_at = self.failures.get(key, (0, 0.0))
+        if count < limit:
+            return 0.0
+        remaining = window_s - (time.monotonic() - first_at)
+        if remaining <= 0:
+            self.failures.pop(key, None)  # window elapsed, start fresh
+            return 0.0
+        return remaining
+
+    def record_failure(self, key: str, *, window_s: float) -> None:
+        count, first_at = self.failures.get(key, (0, 0.0))
+        now = time.monotonic()
+        if count == 0 or now - first_at > window_s:
+            self.failures[key] = (1, now)
+        else:
+            self.failures[key] = (count + 1, first_at)
+
+    def clear(self, key: str) -> None:
+        self.failures.pop(key, None)
 
 
 def _settings(request: Request) -> Settings:
     return request.app.state.settings
 
 
-def get_verifier(request: Request) -> GoogleVerifier:
-    """The real Google verifier bound to our client id; overridden in tests."""
-    client_id = _settings(request).google_oauth_client_id
-
-    def _verify(credential: str) -> AuthUser:
-        return verify_google_id_token(credential, client_id)
-
-    return _verify
-
-
-VerifierDep = Annotated[GoogleVerifier, Depends(get_verifier)]
+def _attempts_for(request: Request) -> _Attempts:
+    """The failed-login counter, stored per app instance (not module-global, so tests and
+    multiple apps in one process never share a lockout)."""
+    store: _Attempts | None = getattr(request.app.state, "login_attempts", None)
+    if store is None:
+        store = _Attempts()
+        request.app.state.login_attempts = store
+    return store
 
 
-@router.post("/google", response_model=AuthUser)
-async def login_google(
-    body: GoogleLoginBody, request: Request, response: Response, verify: VerifierDep
-) -> AuthUser:
-    """Verify the Google token server-side, enforce the allowlist, set a session cookie."""
-    try:
-        user = await asyncio.to_thread(verify, body.credential)  # blocking cert I/O
-    except AuthError as exc:
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED, "Google sign-in could not be verified"
-        ) from exc
+def _client_key(request: Request, username: str) -> str:
+    host = request.client.host if request.client else "unknown"
+    return f"{host}:{username.strip().lower()}"
 
+
+@router.post("/login", response_model=AuthUser)
+async def login(body: LoginBody, request: Request, response: Response) -> AuthUser:
+    """Verify credentials against ``AUTH_USERS`` and set the session cookie."""
     settings = _settings(request)
-    if not is_allowed(user.email, settings.allowed_emails):
+    attempts = _attempts_for(request)
+    window_s = settings.auth_lockout_minutes * 60
+    key = _client_key(request, body.username)
+
+    locked = attempts.locked_for(key, limit=settings.auth_max_failed_logins, window_s=window_s)
+    if locked > 0:
         raise HTTPException(
-            status.HTTP_403_FORBIDDEN, "This account isn't authorized — contact your admin."
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            f"Too many failed attempts. Try again in {int(locked // 60) + 1} minutes.",
         )
 
+    user = authenticate(body.username, body.password, parse_users(settings.auth_users))
+    if user is None:
+        attempts.record_failure(key, window_s=window_s)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, _REJECTED)
+
+    attempts.clear(key)
     token = mint_session(
         user, secret=settings.jwt_secret.get_secret_value(), hours=settings.auth_session_hours
     )

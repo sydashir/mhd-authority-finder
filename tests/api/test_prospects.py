@@ -146,7 +146,7 @@ async def test_patch_outreach_updates_and_records_user(
     body = resp.json()
     assert body["outreach_status"] == "contacted"
     assert body["outreach_notes"] == "called the director"
-    assert body["outreach_updated_by"] == "test@authorityscout.dev"  # the fixture's signed-in user
+    assert body["outreach_updated_by"] == "test"  # the fixture's signed-in user
     assert body["contacted_at"] is not None
     # persisted
     assert (await client.get(f"/prospects/{pid}")).json()["outreach_status"] == "contacted"

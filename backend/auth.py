@@ -1,19 +1,24 @@
-"""App authentication (ADR-018): verify a Google ID token SERVER-SIDE, enforce an
-email allowlist, and carry a signed app-session JWT in an httpOnly cookie.
+"""App authentication (ADR-026): local username + password, no third-party identity.
 
-The pipeline, CLI, and scheduler are separate entry points that never touch the
-HTTP API, so they are unaffected — auth guards only the API's data routes.
+Replaces the Google sign-in of ADR-018. Teams were unwilling to hand a Google account
+to the tool, and a Google project + per-teammate test-user allowlist is heavy machinery
+for a handful of internal users. Credentials live in ``AUTH_USERS`` as
+``username:<scrypt hash>`` pairs; the plaintext password is never stored or logged.
+
+Everything downstream is unchanged: a successful login mints the same signed app-session
+JWT carried in the same httpOnly cookie, and ``get_current_user`` still guards the data
+routes. The pipeline, CLI, and scheduler never touch the HTTP API, so they are unaffected.
 """
 
+import base64
+import hashlib
+import secrets
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated
 
 import jwt
 from fastapi import Depends, HTTPException, Request, status
-from google.auth.exceptions import GoogleAuthError
-from google.auth.transport import requests as google_requests
-from google.oauth2 import id_token
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
@@ -21,73 +26,109 @@ if TYPE_CHECKING:
 
 SESSION_COOKIE = "session"
 _ALGORITHM = "HS256"
-_ACCEPTED_ISSUERS = {"accounts.google.com", "https://accounts.google.com"}
-# google-auth ships no stubs; alias its module behind Any so the dynamic call surface
-# doesn't leak "unknown type" errors (same pattern as the Sheets writer).
-_id_token: Any = id_token
-# One transport, reused: it caches Google's public signing certs (per Cache-Control).
-_GOOGLE_REQUEST = google_requests.Request()
+
+# scrypt parameters (RFC 7914). n=2**14 with r=8/p=1 is the interactive-login preset:
+# ~16MB of memory per attempt, which makes offline brute force expensive while keeping
+# a real login well under 100ms.
+_SCRYPT_N = 16384
+_SCRYPT_R = 8
+_SCRYPT_P = 1
+_SALT_BYTES = 16
+_KEY_BYTES = 32
+_SCHEME = "scrypt"
+_ENCODED_PARTS = 6
+
+# Verifying against this costs the same as a real hash, so an unknown username takes the
+# same time as a wrong password (no user enumeration by timing).
+_DUMMY_HASH = (
+    f"{_SCHEME}${_SCRYPT_N}${_SCRYPT_R}${_SCRYPT_P}$"
+    "AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+)
 
 
 class AuthUser(BaseModel):
-    """The signed-in user (from a verified Google token, then from our session JWT)."""
+    """The signed-in user. ``username`` is the identity recorded on outreach edits."""
 
-    email: str
+    username: str
     name: str = ""
-    picture: str = ""
-    sub: str = ""
 
 
 class AuthError(Exception):
-    """A Google credential or session token could not be verified."""
+    """A session token could not be verified."""
 
 
-def verify_google_id_token(credential: str, client_id: str) -> AuthUser:
-    """Verify a Google ID token against Google's keys and our client id (audience).
+def _derive(password: str, salt: bytes, *, n: int, r: int, p: int) -> bytes:
+    return hashlib.scrypt(password.encode(), salt=salt, n=n, r=r, p=p, dklen=_KEY_BYTES)
 
-    google-auth validates the RS256 signature, ``aud == client_id``, and ``exp``;
-    we additionally enforce a trusted issuer and ``email_verified``. Raises
-    :class:`AuthError` on any failure (the route maps it to 401). Does BLOCKING
-    cert I/O — call it via ``asyncio.to_thread`` from an async route.
+
+def hash_password(password: str) -> str:
+    """Hash a password for storage: ``scrypt$n$r$p$<salt b64>$<key b64>``.
+
+    A fresh random salt per call, so identical passwords never share a hash.
     """
-    try:
-        claims = _id_token.verify_oauth2_token(
-            credential, _GOOGLE_REQUEST, client_id, clock_skew_in_seconds=10
-        )
-    except (ValueError, GoogleAuthError) as exc:
-        # ValueError: bad signature / wrong audience / expired.
-        # GoogleAuthError: wrong issuer (NOT a ValueError subclass — catch both).
-        raise AuthError(str(exc)) from exc
-
-    if claims.get("iss") not in _ACCEPTED_ISSUERS:
-        raise AuthError("untrusted token issuer")
-    if claims.get("email_verified") is not True:
-        raise AuthError("email not verified")
-    email = str(claims.get("email", "")).strip().lower()
-    if not email:
-        raise AuthError("token carries no email")
-
-    return AuthUser(
-        email=email,
-        name=str(claims.get("name", "")),
-        picture=str(claims.get("picture", "")),
-        sub=str(claims.get("sub", "")),
+    salt = secrets.token_bytes(_SALT_BYTES)
+    key = _derive(password, salt, n=_SCRYPT_N, r=_SCRYPT_R, p=_SCRYPT_P)
+    return "$".join(
+        [
+            _SCHEME,
+            str(_SCRYPT_N),
+            str(_SCRYPT_R),
+            str(_SCRYPT_P),
+            base64.b64encode(salt).decode(),
+            base64.b64encode(key).decode(),
+        ]
     )
 
 
-def is_allowed(email: str, allowed: list[str]) -> bool:
-    """The allowlist gate — a verified email must be explicitly listed."""
-    return email.strip().lower() in allowed
+def verify_password(password: str, encoded: str) -> bool:
+    """Constant-time check of ``password`` against a stored hash. Malformed → ``False``."""
+    parts = encoded.split("$")
+    if len(parts) != _ENCODED_PARTS or parts[0] != _SCHEME:
+        return False
+    try:
+        n, r, p = int(parts[1]), int(parts[2]), int(parts[3])
+        salt = base64.b64decode(parts[4], validate=True)
+        expected = base64.b64decode(parts[5], validate=True)
+        candidate = _derive(password, salt, n=n, r=r, p=p)
+    except (ValueError, TypeError):
+        return False
+    return secrets.compare_digest(candidate, expected)
+
+
+def parse_users(entries: list[str]) -> dict[str, str]:
+    """``["admin:scrypt$..."]`` → ``{"admin": "scrypt$..."}``.
+
+    Split on the FIRST colon only: the hash itself contains ``$`` and base64.
+    """
+    users: dict[str, str] = {}
+    for entry in entries:
+        username, separator, encoded = entry.strip().partition(":")
+        if not separator or not username.strip() or not encoded.strip():
+            continue
+        users[username.strip().lower()] = encoded.strip()
+    return users
+
+
+def authenticate(username: str, password: str, users: dict[str, str]) -> AuthUser | None:
+    """The signed-in user for these credentials, or ``None``.
+
+    An unknown username still runs a verify against a dummy hash so the work (and so the
+    response time) does not reveal which usernames exist.
+    """
+    name = username.strip().lower()
+    encoded = users.get(name)
+    if verify_password(password, encoded if encoded is not None else _DUMMY_HASH):
+        return AuthUser(username=name, name=name) if encoded is not None else None
+    return None
 
 
 def mint_session(user: AuthUser, *, secret: str, hours: int) -> str:
-    """A signed app-session JWT (HS256) — the app's own session, not Google's token."""
+    """A signed app-session JWT (HS256) — the app's own session."""
     now = datetime.now(UTC)
     payload = {
-        "sub": user.sub or user.email,
-        "email": user.email,
+        "sub": user.username,
+        "username": user.username,
         "name": user.name,
-        "picture": user.picture,
         "iat": now,
         "exp": now + timedelta(hours=hours),
     }
@@ -100,23 +141,15 @@ def decode_session(token: str, *, secret: str) -> AuthUser:
         claims = jwt.decode(token, secret, algorithms=[_ALGORITHM], options={"require": ["exp"]})
     except jwt.ExpiredSignatureError as exc:
         raise AuthError("session expired") from exc
-    except jwt.InvalidTokenError as exc:
+    except jwt.PyJWTError as exc:
+        # PyJWTError (not just InvalidTokenError) so a key problem surfaces as 401, not 500.
         raise AuthError("invalid session") from exc
-    return AuthUser(
-        email=str(claims.get("email", "")),
-        name=str(claims.get("name", "")),
-        picture=str(claims.get("picture", "")),
-        sub=str(claims.get("sub", "")),
-    )
+    return AuthUser(username=str(claims.get("username", "")), name=str(claims.get("name", "")))
 
 
 def get_current_user(request: Request) -> AuthUser:
-    """Dependency: the signed-in user from the session cookie (Bearer fallback), or 401."""
+    """Dependency: the signed-in user from the session cookie, or 401."""
     token = request.cookies.get(SESSION_COOKIE)
-    if not token:
-        header = request.headers.get("Authorization", "")
-        if header.startswith("Bearer "):
-            token = header.removeprefix("Bearer ")
     if not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "not authenticated")
     settings: Settings = request.app.state.settings
@@ -128,5 +161,5 @@ def get_current_user(request: Request) -> AuthUser:
 
 CurrentUser = Annotated[AuthUser, Depends(get_current_user)]
 
-# (email, name, picture) verifier — injectable so tests don't hit Google.
-GoogleVerifier = Callable[[str], AuthUser]
+# (username, password) -> user or None. Injectable so tests can swap the credential source.
+Authenticator = Callable[[str, str], AuthUser | None]

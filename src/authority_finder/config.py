@@ -142,26 +142,26 @@ class Settings(BaseSettings):
         description="Root log level for structlog and the stdlib logging shim.",
     )
 
-    google_oauth_client_id: str = Field(
-        default="",
-        description=(
-            "Google OAuth Web client ID (GOOGLE_OAUTH_CLIENT_ID). Public — also the frontend's "
-            "VITE_GOOGLE_CLIENT_ID. The audience the backend verifies Google ID tokens against."
-        ),
-    )
-    google_oauth_client_secret: SecretStr = Field(
-        default=SecretStr(""),
-        description=(
-            "Google OAuth client secret (GOOGLE_OAUTH_CLIENT_SECRET). Not needed to VERIFY ID "
-            "tokens (the flow used here); stored for a possible future auth-code exchange."
-        ),
-    )
-    allowed_emails: Annotated[list[str], NoDecode] = Field(
+    auth_users: Annotated[list[str], NoDecode] = Field(
         default_factory=list,
         description=(
-            "Allowlist of Google emails permitted to sign in (ALLOWED_EMAILS, comma-separated). "
-            "Enforced server-side after Google verification; a non-listed email gets 403 (ADR-018)."
+            "Sign-in credentials (AUTH_USERS, comma-separated ``username:hash`` pairs, ADR-026). "
+            "The hash is scrypt — mint one with `python -m authority_finder.cli create-user`. "
+            "Plaintext passwords are never stored. Empty = nobody can sign in."
         ),
+    )
+    auth_max_failed_logins: int = Field(
+        default=8,
+        ge=1,
+        description=(
+            "Failed sign-ins from one client before it is temporarily locked out "
+            "(AUTH_MAX_FAILED_LOGINS) — brute-force protection for password auth."
+        ),
+    )
+    auth_lockout_minutes: int = Field(
+        default=15,
+        ge=1,
+        description="How long a locked-out client must wait (AUTH_LOCKOUT_MINUTES).",
     )
     jwt_secret: SecretStr = Field(
         default=SecretStr(""),
@@ -180,13 +180,13 @@ class Settings(BaseSettings):
         ),
     )
 
-    @field_validator("allowed_emails", mode="before")
+    @field_validator("auth_users", mode="before")
     @classmethod
-    def _split_allowed_emails(cls, value: object) -> object:
-        # ALLOWED_EMAILS is a comma-separated string in the env, not JSON; NoDecode hands it
-        # here raw so we split + normalise (lowercased, stripped, blanks dropped).
+    def _split_auth_users(cls, value: object) -> object:
+        # AUTH_USERS is a comma-separated string in the env, not JSON; NoDecode hands it here
+        # raw. Only commas separate entries — the scrypt hash itself contains '$' and base64.
         if isinstance(value, str):
-            return [e.strip().lower() for e in value.split(",") if e.strip()]
+            return [entry.strip() for entry in value.split(",") if entry.strip()]
         return value
 
 

@@ -1,239 +1,121 @@
-"""Auth (ADR-018): server-side Google-token verification, email allowlist, and a
-signed app-session JWT in an httpOnly cookie. Google is mocked (an injected
-verifier / a monkeypatched verify call) — these assert OUR logic, not Google's.
+"""Auth routes (ADR-026): password sign-in, session cookie, guarded routes, lockout.
+
+No third party is involved, so these exercise the REAL credential path end to end:
+a real scrypt hash in settings, a real login, the real cookie, the real guard.
 """
 
-from collections.abc import AsyncGenerator, Callable
-from datetime import UTC, datetime, timedelta
+from collections.abc import AsyncGenerator
 
-import jwt
-import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from authority_finder.config import Settings
-from authority_finder.db.models import SourceTag, TrustBand
-from authority_finder.db.repository import ProspectIn, upsert_prospect
-from backend import auth as auth_mod
 from backend.app import create_app
-from backend.auth import (
-    AuthError,
-    AuthUser,
-    decode_session,
-    is_allowed,
-    mint_session,
-    verify_google_id_token,
-)
-from backend.deps import get_session
-from backend.routers.auth import get_verifier
+from backend.auth import SESSION_COOKIE, AuthUser, hash_password, mint_session
 
-_SECRET = "test-secret-0123456789-abcdefghij"
-
-
-def _claims(**over: object) -> dict[str, object]:
-    base: dict[str, object] = {
-        "iss": "https://accounts.google.com",
-        "aud": "client-123",
-        "sub": "google-sub-1",
-        "email": "User@Example.com",
-        "email_verified": True,
-        "name": "Test User",
-        "picture": "https://pic",
-        "exp": 9999999999,
-    }
-    base.update(over)
-    return base
-
-
-def _stub(claims: dict[str, object]) -> Callable[..., dict[str, object]]:
-    """A fake for google id_token.verify_oauth2_token returning fixed claims."""
-
-    def _verify(*_a: object, **_k: object) -> dict[str, object]:
-        return claims
-
-    return _verify
-
-
-# ---- core: verify_google_id_token ----------------------------------------------
-
-
-def test_verify_returns_user_and_lowercases_email(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(auth_mod.id_token, "verify_oauth2_token", _stub(_claims()))
-    user = verify_google_id_token("tok", "client-123")
-    assert user.email == "user@example.com"  # lowercased
-    assert user.name == "Test User"
-    assert user.sub == "google-sub-1"
-
-
-def test_verify_rejects_unverified_email(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        auth_mod.id_token, "verify_oauth2_token", _stub(_claims(email_verified=False))
-    )
-    with pytest.raises(AuthError):
-        verify_google_id_token("tok", "client-123")
-
-
-def test_verify_rejects_bad_issuer(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(auth_mod.id_token, "verify_oauth2_token", _stub(_claims(iss="evil.com")))
-    with pytest.raises(AuthError):
-        verify_google_id_token("tok", "client-123")
-
-
-def test_verify_maps_library_valueerror_to_autherror(monkeypatch: pytest.MonkeyPatch) -> None:
-    def _boom(*_a: object, **_k: object) -> dict[str, object]:
-        raise ValueError("bad audience")
-
-    monkeypatch.setattr(auth_mod.id_token, "verify_oauth2_token", _boom)
-    with pytest.raises(AuthError):
-        verify_google_id_token("tok", "client-123")
-
-
-# ---- core: allowlist + session jwt ---------------------------------------------
-
-
-def test_is_allowed_is_case_insensitive() -> None:
-    assert is_allowed("Jake@X.com", ["jake@x.com"])
-    assert not is_allowed("nope@x.com", ["jake@x.com"])
-
-
-def test_session_round_trip() -> None:
-    user = AuthUser(email="a@b.com", name="A", picture="p", sub="s1")
-    token = mint_session(user, secret=_SECRET, hours=1)
-    back = decode_session(token, secret=_SECRET)
-    assert back.email == "a@b.com"
-    assert back.name == "A"
-    assert back.sub == "s1"
-
-
-def test_decode_rejects_tampered_token() -> None:
-    token = mint_session(AuthUser(email="a@b.com"), secret=_SECRET, hours=1)
-    with pytest.raises(AuthError):
-        decode_session(token, secret="a-different-secret-0123456789-abcdef")
-
-
-def test_decode_rejects_expired_token() -> None:
-    past = datetime.now(UTC) - timedelta(hours=1)
-    token = jwt.encode({"email": "a@b.com", "exp": past}, _SECRET, algorithm="HS256")
-    with pytest.raises(AuthError):
-        decode_session(token, secret=_SECRET)
-
-
-# ---- routes --------------------------------------------------------------------
+PASSWORD = "adminuser123"
+Client = tuple[AsyncClient, FastAPI]
 
 
 def _settings() -> Settings:
     return Settings(
         cors_allow_origins=["http://localhost:5173"],
-        allowed_emails=["allowed@example.com"],
-        jwt_secret=SecretStr(_SECRET),
-        auth_session_hours=1,
+        jwt_secret=SecretStr("test-secret-0123456789-abcdefghij"),
+        auth_users=[f"admin:{hash_password(PASSWORD)}"],
+        auth_max_failed_logins=3,
+        auth_lockout_minutes=15,
     )
 
 
 @pytest_asyncio.fixture
-async def auth_client(session: AsyncSession) -> AsyncGenerator[tuple[AsyncClient, FastAPI]]:
+async def client() -> AsyncGenerator[Client]:
     app = create_app(_settings())
-
-    async def _override_session() -> AsyncGenerator[AsyncSession]:
-        yield session
-
-    app.dependency_overrides[get_session] = _override_session  # data routes reach the test DB
-    # NOTE: get_current_user is NOT overridden here — we test the real auth behavior.
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac, app
-    app.dependency_overrides.clear()
 
 
-def _use_verifier(app: FastAPI, user_or_error: AuthUser | Exception) -> None:
-    def fake(_credential: str) -> AuthUser:
-        if isinstance(user_or_error, Exception):
-            raise user_or_error
-        return user_or_error
-
-    app.dependency_overrides[get_verifier] = lambda: fake
-
-
-async def test_login_allowed_sets_cookie_and_returns_user(
-    auth_client: tuple[AsyncClient, FastAPI],
-) -> None:
-    client, app = auth_client
-    _use_verifier(app, AuthUser(email="allowed@example.com", name="Al", sub="s"))
-
-    resp = await client.post("/auth/google", json={"credential": "tok"})
+async def test_login_sets_a_session_cookie_and_returns_the_user(client: Client) -> None:
+    ac, _ = client
+    resp = await ac.post("/auth/login", json={"username": "admin", "password": PASSWORD})
     assert resp.status_code == 200
-    assert resp.json()["email"] == "allowed@example.com"
-    assert "session=" in resp.headers.get("set-cookie", "")
+    assert resp.json()["username"] == "admin"
+    assert SESSION_COOKIE in resp.cookies
+    assert "httponly" in resp.headers["set-cookie"].lower()  # never readable by scripts
 
 
-async def test_login_non_allowlisted_is_403(auth_client: tuple[AsyncClient, FastAPI]) -> None:
-    client, app = auth_client
-    _use_verifier(app, AuthUser(email="stranger@example.com"))
-
-    resp = await client.post("/auth/google", json={"credential": "tok"})
-    assert resp.status_code == 403
-    assert "authorized" in resp.json()["detail"].lower()
+async def test_login_is_case_insensitive_on_username(client: Client) -> None:
+    ac, _ = client
+    resp = await ac.post("/auth/login", json={"username": "ADMIN", "password": PASSWORD})
+    assert resp.status_code == 200
 
 
-async def test_login_invalid_token_is_401(auth_client: tuple[AsyncClient, FastAPI]) -> None:
-    client, app = auth_client
-    _use_verifier(app, AuthError("bad token"))
-
-    resp = await client.post("/auth/google", json={"credential": "tok"})
+async def test_wrong_password_is_401_and_sets_no_cookie(client: Client) -> None:
+    ac, _ = client
+    resp = await ac.post("/auth/login", json={"username": "admin", "password": "wrong"})
     assert resp.status_code == 401
+    assert SESSION_COOKIE not in resp.cookies
 
 
-async def test_me_requires_session(auth_client: tuple[AsyncClient, FastAPI]) -> None:
-    client, _app = auth_client
-    assert (await client.get("/auth/me")).status_code == 401
+async def test_unknown_user_gets_the_same_message_as_a_wrong_password(client: Client) -> None:
+    # Identical responses, or the form tells an attacker which usernames exist.
+    ac, _ = client
+    bad_pw = await ac.post("/auth/login", json={"username": "admin", "password": "wrong"})
+    no_user = await ac.post("/auth/login", json={"username": "ghost", "password": "wrong"})
+    assert bad_pw.status_code == no_user.status_code == 401
+    assert bad_pw.json()["detail"] == no_user.json()["detail"]
 
 
-async def test_login_then_me_then_logout(auth_client: tuple[AsyncClient, FastAPI]) -> None:
-    client, app = auth_client
-    _use_verifier(app, AuthUser(email="allowed@example.com", name="Al"))
+async def test_repeated_failures_lock_the_client_out(client: Client) -> None:
+    ac, _ = client
+    for _ in range(3):  # auth_max_failed_logins
+        assert (
+            await ac.post("/auth/login", json={"username": "admin", "password": "wrong"})
+        ).status_code == 401
+    locked = await ac.post("/auth/login", json={"username": "admin", "password": PASSWORD})
+    assert locked.status_code == 429  # even the CORRECT password is refused while locked
+    assert "too many" in locked.json()["detail"].lower()
 
-    await client.post("/auth/google", json={"credential": "tok"})  # sets cookie on the client jar
-    me = await client.get("/auth/me")
+
+async def test_successful_login_clears_the_failure_count(client: Client) -> None:
+    ac, _ = client
+    await ac.post("/auth/login", json={"username": "admin", "password": "wrong"})
+    await ac.post("/auth/login", json={"username": "admin", "password": PASSWORD})
+    # Two more failures would trip the limit if the counter had not been reset.
+    for _ in range(2):
+        assert (
+            await ac.post("/auth/login", json={"username": "admin", "password": "wrong"})
+        ).status_code == 401
+
+
+async def test_me_requires_a_session_and_returns_the_user(client: Client) -> None:
+    ac, _ = client
+    assert (await ac.get("/auth/me")).status_code == 401
+    await ac.post("/auth/login", json={"username": "admin", "password": PASSWORD})
+    me = await ac.get("/auth/me")
     assert me.status_code == 200
-    assert me.json()["email"] == "allowed@example.com"
-
-    await client.post("/auth/logout")
-    assert (await client.get("/auth/me")).status_code == 401
+    assert me.json()["username"] == "admin"
 
 
-async def test_data_route_guarded(
-    auth_client: tuple[AsyncClient, FastAPI], session: AsyncSession
-) -> None:
-    client, app = auth_client
-    await upsert_prospect(
-        session,
-        ProspectIn(
-            website="a.gov",
-            specific_page="https://a.gov/x",
-            email="",
-            phone="",
-            contact_source="",
-            contact_trust=TrustBand.high,
-            organization_description="",
-            geo_served="G",
-            population=None,
-            competitor_links="—",
-            source_tag=SourceTag.MHD,
-            confidence=TrustBand.high,
-            date_added=datetime.now(UTC).date(),
-        ),
-    )
-    await session.commit()
+async def test_logout_clears_the_session(client: Client) -> None:
+    ac, _ = client
+    await ac.post("/auth/login", json={"username": "admin", "password": PASSWORD})
+    assert (await ac.post("/auth/logout")).status_code == 200
+    assert (await ac.get("/auth/me")).status_code == 401
 
-    assert (await client.get("/prospects")).status_code == 401  # no session
-    # the outreach write is guarded too — no session, no mutating the team's data
-    assert (
-        await client.patch("/prospects/1/outreach", json={"status": "contacted"})
-    ).status_code == 401
 
-    _use_verifier(app, AuthUser(email="allowed@example.com"))
-    await client.post("/auth/google", json={"credential": "tok"})
-    assert (await client.get("/prospects")).status_code == 200  # authed
+async def test_data_routes_are_guarded(client: Client) -> None:
+    ac, _ = client
+    for path in ("/prospects", "/runs", "/stats"):
+        assert (await ac.get(path)).status_code == 401
+
+
+async def test_a_forged_session_cookie_is_rejected(client: Client) -> None:
+    ac, _ = client
+    ac.cookies.set(SESSION_COOKIE, "not.a.jwt")
+    assert (await ac.get("/auth/me")).status_code == 401
+    # ...and one signed with the WRONG secret is rejected too.
+    forged = mint_session(AuthUser(username="admin"), secret="attacker-secret", hours=1)
+    ac.cookies.set(SESSION_COOKIE, forged)
+    assert (await ac.get("/auth/me")).status_code == 401

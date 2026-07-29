@@ -57,7 +57,7 @@ async def export_setup(
 
     app.dependency_overrides[get_session] = _override_session
     app.dependency_overrides[get_exporter] = lambda: fake
-    app.dependency_overrides[get_current_user] = lambda: AuthUser(email="test@authorityscout.dev")
+    app.dependency_overrides[get_current_user] = lambda: AuthUser(username="test")
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac, app, fake

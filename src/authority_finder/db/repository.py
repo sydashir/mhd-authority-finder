@@ -6,9 +6,10 @@ do NOT commit — the caller owns the transaction (unit of work). This is the su
 the backend API (Phase B) will call to render and filter prospects.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import ColumnElement, case, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -49,8 +50,9 @@ _OUTREACH_RANK = case(
 )
 
 # Columns the UI may sort by → the ORDER BY expression. Rank-based ones already encode
-# best-first, so ascending = best-first for those too.
-_SORTABLE: dict[str, ColumnElement[object]] = {
+# best-first, so ascending = best-first for those too. Values are Any: SQLAlchemy's
+# InstrumentedAttribute / Case do not unify under one precise ColumnElement parameter.
+_SORTABLE: Mapping[str, Any] = {
     "website": Prospect.website,
     "email": Prospect.email,
     "geo_served": Prospect.geo_served,
@@ -63,7 +65,7 @@ _SORTABLE: dict[str, ColumnElement[object]] = {
 }
 
 
-def _order_by(sort: str | None, sort_dir: str) -> list[ColumnElement[object]]:
+def _order_by(sort: str | None, sort_dir: str) -> list[Any]:
     """The ORDER BY: an explicit sortable column, else the default trust-first ordering
     (high→low, then population desc, then geo) so the dashboard opens on the best leads."""
     if sort and sort in _SORTABLE:
