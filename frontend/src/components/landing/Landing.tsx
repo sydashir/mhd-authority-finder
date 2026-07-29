@@ -78,36 +78,47 @@ const REJECTED = [
   { domain: 'iup.edu', actually: 'Pennsylvania', filedUnder: 'Indiana' },
 ]
 
+/**
+ * The three steps that emit a SIGNAL carry that signal's own colour from the product —
+ * rejection is rose, a graded contact is green, a competitor flag is amber. The three that
+ * only look stay brand, so the colour still means something when it appears.
+ */
 const STEPS = [
   {
     icon: Radar,
     title: 'Watch the sitemaps',
     body: 'Both directories are polled on a schedule. A newly published geo page starts a run on its own.',
+    tone: 'var(--brand)',
   },
   {
     icon: Search,
     title: 'Search that geography',
     body: 'Targeted queries per city, county, and state. Only .gov and .edu domains carry forward.',
+    tone: 'var(--brand)',
   },
   {
     icon: MapPin,
     title: 'Prove the geography',
     body: 'A domain that belongs to another state is rejected outright, not flagged and shipped anyway.',
+    tone: 'var(--flag-fg)',
   },
   {
     icon: FileSearch,
     title: 'Find the real page',
     body: 'The health department or student resource page, scored against the homepage it is not.',
+    tone: 'var(--brand)',
   },
   {
     icon: ShieldCheck,
     title: 'Pull a usable contact',
     body: 'Same domain inbox first, graded high, medium, or low so you know what you are sending to.',
+    tone: 'var(--high-fg)',
   },
   {
     icon: Link2,
     title: 'Flag the competition',
     body: 'Sixteen directories are checked. If the site already links to one, the row says which.',
+    tone: 'var(--med-fg)',
   },
 ]
 
@@ -242,7 +253,14 @@ export function Landing() {
         <ol className="mt-12 grid gap-x-10 gap-y-9 sm:grid-cols-2 lg:grid-cols-3">
           {STEPS.map((step) => (
             <li key={step.title} className="flex gap-4">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-brand">
+              <span
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
+                style={{
+                  color: step.tone,
+                  background: `color-mix(in srgb, ${step.tone} 11%, var(--surface))`,
+                  boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${step.tone} 26%, transparent)`,
+                }}
+              >
                 <step.icon size={16} strokeWidth={1.9} />
               </span>
               <div>
