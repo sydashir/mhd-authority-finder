@@ -115,6 +115,7 @@ journal/               session journals (gitignored — see working rules)
 - Playwright MCP is available — use it for real browser verification, do not trust raw HTML alone.
 - Every non-trivial decision gets an entry in `docs/decisions.md`.
 - End every working session by updating `docs/progress.md`.
+- Every push goes to BOTH remotes (personal + org) in one `git push origin main` — never only one. See Repo access.
 - No AI attribution on commits or PRs. Never add `Co-Authored-By: Claude`, "Generated with Claude Code", or any similar trailer/footer. Commits are authored by the human only.
 - Commit messages: short, conventional-commit style. Subject line ≤ 60 chars, lowercase, imperative ("add x" not "added x"). Body only when truly needed. No marketing language, no emojis.
 - Commit-by-commit workflow: one logical change per commit. If you touch two unrelated things, that's two commits. Easier to review, easier to revert. Never batch unrelated work.
@@ -204,9 +205,22 @@ Phase 2 (Ahrefs authority filter, competitor link checker, scheduled triggers) c
 
 ## Repo access
 
-Remote `origin` pushes to TWO private repos at once, so the same code lives in both places:
-`sydashir/mhd-authority-finder` (personal) and `hybrid-mediaworks/mhd-authority-finder` (org).
-A single `git push origin main` updates both; `git fetch` reads from the personal one.
+**ABSOLUTE RULE (user-stated, non-negotiable): every push goes to BOTH repos.** The same code
+must always exist in both places:
+
+- `sydashir/mhd-authority-finder` (personal, private)
+- `hybrid-mediaworks/mhd-authority-finder` (org, private, same repo name)
+
+`origin` is configured with two push URLs, so a single `git push origin main` updates both in one
+command (the output shows two `To github.com/...` lines — if you only see one, the dual push is
+broken, fix it before continuing). `git fetch` / `git pull` read from the personal repo.
+
+**Never push to only one of them.** After every push, confirm both are at the same commit:
+
+```bash
+git ls-remote https://github.com/sydashir/mhd-authority-finder.git main
+git ls-remote https://github.com/hybrid-mediaworks/mhd-authority-finder.git main
+```
 
 If the dual push is ever lost (fresh clone, re-added remote), restore it with:
 
