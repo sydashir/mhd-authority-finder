@@ -3,21 +3,33 @@
  * finds. It is the product's actual job in one image, and it extends the logomark
  * (a scope) rather than decorating around it.
  *
- * Every blip is a real domain from the live dataset. The sweep is one CSS rotation on a
- * gradient wedge; each blip pulses on the beat the sweep passes it, so the motion reads
- * as cause and effect instead of ambient shimmer. Static under reduced motion.
+ * Each blip ignites on the beat the sweep line crosses its bearing and then settles, so the
+ * motion reads as cause and effect rather than ambient shimmer. Two of the blips are real
+ * wrong-state rejections from the ADR-024 audit and ignite in rose with their domain struck
+ * through: the tool's most valuable behaviour is the row it refuses to write, so the hero
+ * shows a rejection rather than pretending everything found is a win.
+ *
+ * Delays are negative so every blip is already mid-cycle at t=0 — a positive delay would
+ * leave them unstyled (and wrongly bright) until their first pass came round.
  */
 
-// Real prospects, placed by angle so the sweep meets them in sequence.
+// Real prospects and real rejections, placed by angle so the sweep meets them in sequence.
 const BLIPS = [
-  { label: 'ucr.edu', angle: 18, radius: 0.74, trust: 'high' },
-  { label: 'pinellas.gov', angle: 68, radius: 0.5, trust: 'high' },
-  { label: 'tamut.edu', angle: 124, radius: 0.82, trust: 'high' },
-  { label: 'nau.edu', angle: 176, radius: 0.42, trust: 'medium' },
-  { label: 'astate.edu', angle: 222, radius: 0.68, trust: 'high' },
-  { label: 'goyff.az.gov', angle: 288, radius: 0.56, trust: 'medium' },
-  { label: 'alaska.edu', angle: 332, radius: 0.86, trust: 'high' },
+  { label: 'ucr.edu', angle: 18, radius: 0.74, kind: 'high' },
+  { label: 'pinellas.gov', angle: 62, radius: 0.5, kind: 'high' },
+  { label: 'cornell.edu', angle: 105, radius: 0.86, kind: 'rejected' },
+  { label: 'tamut.edu', angle: 145, radius: 0.66, kind: 'high' },
+  { label: 'nau.edu', angle: 186, radius: 0.44, kind: 'medium' },
+  { label: 'astate.edu', angle: 228, radius: 0.72, kind: 'high' },
+  { label: 'iup.edu', angle: 272, radius: 0.56, kind: 'rejected' },
+  { label: 'alaska.edu', angle: 322, radius: 0.84, kind: 'high' },
 ] as const
+
+const TONE = {
+  high: 'var(--brand)',
+  medium: 'var(--med-fg)',
+  rejected: 'var(--flag-fg)',
+} as const
 
 const SIZE = 420
 const CENTER = SIZE / 2
@@ -44,8 +56,8 @@ export function RadarScan() {
           </radialGradient>
           {/* Anchored at the centre so the trail fades with distance AND behind the line. */}
           <radialGradient id="sweep-fill" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="var(--brand)" stopOpacity="0.22" />
-            <stop offset="55%" stopColor="var(--brand)" stopOpacity="0.10" />
+            <stop offset="0%" stopColor="var(--brand)" stopOpacity="0.26" />
+            <stop offset="55%" stopColor="var(--brand)" stopOpacity="0.12" />
             <stop offset="100%" stopColor="var(--brand)" stopOpacity="0.01" />
           </radialGradient>
         </defs>
@@ -82,39 +94,53 @@ export function RadarScan() {
             x2={CENTER}
             y2={CENTER - EDGE}
             stroke="var(--brand)"
-            strokeOpacity="0.8"
             strokeWidth="1.5"
           />
         </g>
 
         {BLIPS.map((blip) => {
           const { x, y } = polar(blip.angle, blip.radius)
-          // Pulse exactly when the sweep line reaches this bearing.
-          const delay = `${(blip.angle / 360) * SWEEP_SECONDS}s`
+          // Negative so the cycle is already running; lands on 0% exactly as the line arrives.
+          const delay = `${(blip.angle / 360) * SWEEP_SECONDS - SWEEP_SECONDS}s`
           const anchorRight = blip.angle > 180
+          const tone = TONE[blip.kind]
+          const rejected = blip.kind === 'rejected'
           return (
-            <g key={blip.label} className="radar-blip" style={{ animationDelay: delay }}>
+            <g key={blip.label}>
               <circle
                 cx={x}
                 cy={y}
-                r="9"
-                fill="var(--brand)"
-                opacity="0.16"
-                className="radar-blip-halo"
+                r="4"
+                fill="none"
+                stroke={tone}
+                strokeWidth="1.5"
+                className="radar-blip-ring"
                 style={{ animationDelay: delay }}
               />
               <circle
                 cx={x}
                 cy={y}
-                r="3.2"
-                fill={blip.trust === 'high' ? 'var(--brand)' : 'var(--fg-subtle)'}
+                r="3.4"
+                fill={tone}
+                className="radar-blip-dot"
+                style={{ animationDelay: delay }}
               />
+              {rejected && (
+                <path
+                  d={`M${x - 2.1} ${y - 2.1}l4.2 4.2M${x + 2.1} ${y - 2.1}l-4.2 4.2`}
+                  stroke="var(--app)"
+                  strokeWidth="1.3"
+                  strokeLinecap="round"
+                />
+              )}
               <text
                 x={anchorRight ? x - 13 : x + 13}
                 y={y + 3.5}
                 textAnchor={anchorRight ? 'end' : 'start'}
-                className="hidden fill-fg-muted text-[10.5px] sm:inline" /* labels would clip at phone widths */
-                style={{ fontFamily: 'var(--font-mono)' }}
+                fill={tone}
+                textDecoration={rejected ? 'line-through' : undefined}
+                className="radar-blip-label hidden text-[10.5px] sm:inline" /* labels clip at phone widths */
+                style={{ fontFamily: 'var(--font-mono)', animationDelay: delay }}
               >
                 {blip.label}
               </text>

@@ -241,42 +241,57 @@
   .radar-sweep {
     animation: radar-rotate 8s linear infinite;
   }
-  .radar-blip {
-    animation: blip-flash 8s linear infinite;
-  }
-  .radar-blip-halo {
-    animation: blip-halo 8s linear infinite;
-  }
   @keyframes radar-rotate {
     to {
       transform: rotate(360deg);
     }
   }
-  /* Bright on the beat the sweep passes, then settling back rather than blinking off. */
-  @keyframes blip-flash {
-    0%,
-    4% {
-      opacity: 1;
-    }
-    60%,
-    100% {
-      opacity: 0.45;
-    }
+  /* A blip ignites on the beat the sweep line crosses it, then settles back. The three
+     elements share one delay so the dot, its ring and its label fire as a single event. */
+  .radar-blip-dot,
+  .radar-blip-ring {
+    transform-box: fill-box;
+    transform-origin: center;
   }
-  @keyframes blip-halo {
+  .radar-blip-dot {
+    animation: blip-ignite 8s linear infinite;
+  }
+  .radar-blip-ring {
+    animation: blip-ring 8s linear infinite;
+  }
+  .radar-blip-label {
+    animation: blip-label 8s linear infinite;
+  }
+  @keyframes blip-ignite {
     0% {
-      transform: scale(0.4);
-      opacity: 0.5;
+      transform: scale(2);
     }
-    18%,
+    14%,
     100% {
       transform: scale(1);
+    }
+  }
+  /* A contact echo pushing outward from the hit, the way a real scope acknowledges one. */
+  @keyframes blip-ring {
+    0% {
+      transform: scale(0.35);
+      opacity: 0.85;
+    }
+    26%,
+    100% {
+      transform: scale(3);
       opacity: 0;
     }
   }
-  .radar-blip-halo {
-    transform-box: fill-box;
-    transform-origin: center;
+  @keyframes blip-label {
+    0%,
+    8% {
+      opacity: 1;
+    }
+    50%,
+    100% {
+      opacity: 0.4;
+    }
   }
 
   /* A watched property is literally being scanned, so hovering one runs the radar's sweep
@@ -344,11 +359,19 @@
 
   @media (prefers-reduced-motion: reduce) {
     .radar-sweep,
-    .radar-blip,
-    .radar-blip-halo,
+    .radar-blip-dot,
+    .radar-blip-ring,
+    .radar-blip-label,
     .marquee-track,
     .live-dot {
       animation: none;
+    }
+    /* Every blip reads as found, rather than frozen mid-ignite. */
+    .radar-blip-label {
+      opacity: 1;
+    }
+    .radar-blip-ring {
+      opacity: 0;
     }
     .scan-card::after {
       display: none;
