@@ -3,6 +3,7 @@ import {
   CircleCheck,
   FileSearch,
   Link2,
+  Lock,
   MapPin,
   Moon,
   Radar,
@@ -154,6 +155,19 @@ export function Landing() {
               <Logo size={22} />
             </span>
             AuthorityScout
+          </span>
+          {/* Not a marketing site: this is a private tool and the door says so. */}
+          <span
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.13em]"
+            style={{
+              color: 'var(--flag-fg)',
+              background: 'var(--flag-bg)',
+              boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--flag-fg) 28%, transparent)',
+            }}
+          >
+            <Lock size={10} strokeWidth={2.6} />
+            <span className="hidden sm:inline">Internal use only</span>
+            <span className="sm:hidden">Internal</span>
           </span>
           <div className="ml-auto hidden items-center gap-7 text-[13px] text-fg-muted md:flex">
             <a href="#how" className="transition-colors hover:text-fg">
