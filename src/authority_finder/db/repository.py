@@ -29,6 +29,14 @@ from authority_finder.db.models import (
 
 # Trust/confidence sort by VALUE, not the enum's alphabetical order (which would put "low"
 # before "medium"). 0 = best, so ascending on the rank = best-first (ADR-025).
+# Proven behaviour, not an inferred property: an org that already lists a competing
+# directory has demonstrated it will list one (ADR-011). Ranks above everything else.
+# "—" is the sheet's placeholder for "none" and must not count as evidence.
+_LINKS_RANK = case(
+    (Prospect.competitor_links.in_(("", "—", "-")), 1),
+    (Prospect.competitor_links.is_(None), 1),
+    else_=0,
+)
 _TRUST_RANK = case(
     {TrustBand.high: 0, TrustBand.medium: 1, TrustBand.low: 2}, value=Prospect.contact_trust
 )
@@ -66,13 +74,15 @@ _SORTABLE: Mapping[str, Any] = {
 
 
 def _order_by(sort: str | None, sort_dir: str) -> list[Any]:
-    """The ORDER BY: an explicit sortable column, else the default trust-first ordering
-    (high→low, then population desc, then geo) so the dashboard opens on the best leads."""
+    """The ORDER BY: an explicit sortable column, else the default ordering — orgs that
+    already link to a competing directory first, then trust high→low, then population desc,
+    then geo — so the dashboard opens on the leads most likely to say yes."""
     if sort and sort in _SORTABLE:
         col = _SORTABLE[sort]
         primary = col.desc() if sort_dir == "desc" else col.asc()
         return [primary, Prospect.website.asc()]  # stable tiebreak
     return [
+        _LINKS_RANK.asc(),
         _TRUST_RANK.asc(),
         Prospect.population.desc().nulls_last(),
         Prospect.geo_served.asc(),
