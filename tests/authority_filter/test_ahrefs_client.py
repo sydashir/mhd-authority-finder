@@ -159,3 +159,40 @@ async def test_missing_dr_is_none_not_zero(tmp_path: Path) -> None:
     ratings = await client.domain_ratings(["unknown.org"])
 
     assert ratings["unknown.org"].dr is None
+
+
+@pytest.mark.asyncio
+async def test_referring_domains_sends_a_dr_band_filter(tmp_path: Path) -> None:
+    """Ordering by DR alone misses local orgs entirely — the band filter is the point."""
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(
+            200,
+            json={"refdomains": [{"domain": "ncala.org", "domain_rating": 34.0}]},
+            headers={"x-api-units-cost-total": "3500"},
+        )
+
+    client = _client(httpx.MockTransport(handler), tmp_path)
+    rows = await client.referring_domains("rehabnet.com", dr_min=5, dr_max=45)
+
+    where = json.loads(dict(calls[0].url.params)["where"])
+    assert {"field": "domain_rating", "is": ["gte", 5]} in where["and"]
+    assert {"field": "domain_rating", "is": ["lte", 45]} in where["and"]
+    assert rows[0]["domain"] == "ncala.org"
+    assert client.units_spent == 3500
+
+
+@pytest.mark.asyncio
+async def test_referring_domains_omits_where_when_unfiltered(tmp_path: Path) -> None:
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json={"refdomains": []})
+
+    client = _client(httpx.MockTransport(handler), tmp_path)
+    await client.referring_domains("rehabnet.com")
+
+    assert "where" not in dict(calls[0].url.params)

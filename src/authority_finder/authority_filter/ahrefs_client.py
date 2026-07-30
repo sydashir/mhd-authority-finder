@@ -34,6 +34,7 @@ from tenacity import AsyncRetrying, retry_if_exception_type, stop_after_attempt,
 
 BATCH_URL = "https://api.ahrefs.com/v3/batch-analysis/batch-analysis"
 USAGE_URL = "https://api.ahrefs.com/v3/subscription-info/limits-and-usage"
+REFDOMAINS_URL = "https://api.ahrefs.com/v3/site-explorer/refdomains"
 BATCH_LIMIT = 100
 DEFAULT_CACHE_DIR = Path("data/cache/ahrefs")
 DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
@@ -246,3 +247,47 @@ class AhrefsClient:
         tmp = path.with_suffix(".tmp")
         tmp.write_text(json.dumps(data, sort_keys=True))
         tmp.replace(path)
+
+    async def referring_domains(
+        self,
+        target: str,
+        *,
+        limit: int = 250,
+        dr_min: int | None = None,
+        dr_max: int | None = None,
+        order_by: str = "links_to_target:desc",
+    ) -> list[dict[str, Any]]:
+        """Referring domains for ``target`` — the brief's method for finding the target class.
+
+        The brief says to "check ahrefs backlink data on rehabnet.com to see the types of
+        good local authority websites we need to fetch". Ordering matters enormously and is
+        not a detail: ``domain_rating:desc`` returns national media and cloud infrastructure,
+        ``domain_rating:asc`` returns bare IP addresses at DR 0. Neither contains the local
+        organizations. Pass ``dr_min``/``dr_max`` to sample the band in between, which is
+        where they actually sit.
+        """
+        params: dict[str, str] = {
+            "target": target,
+            "mode": "domain",
+            "limit": str(limit),
+            "select": "domain,domain_rating,links_to_target,traffic_domain,is_spam",
+            "order_by": order_by,
+        }
+        if dr_min is not None or dr_max is not None:
+            clauses: list[dict[str, Any]] = []
+            if dr_min is not None:
+                clauses.append({"field": "domain_rating", "is": ["gte", dr_min]})
+            if dr_max is not None:
+                clauses.append({"field": "domain_rating", "is": ["lte", dr_max]})
+            params["where"] = json.dumps({"and": clauses})
+
+        if self._max_calls is not None and self.call_count >= self._max_calls:
+            raise AhrefsQuotaExceededError(f"Ahrefs call cap reached ({self._max_calls})")
+
+        response = await self._http.get(REFDOMAINS_URL, params=params, headers=self._headers)
+        self.call_count += 1
+        self.units_spent += int(response.headers.get("x-api-units-cost-total") or 0)
+        if response.status_code != HTTPStatus.OK:
+            raise AhrefsError(f"Ahrefs refdomains {response.status_code}: {response.text[:200]}")
+        payload: dict[str, Any] = response.json()
+        return cast("list[dict[str, Any]]", payload.get("refdomains") or [])
