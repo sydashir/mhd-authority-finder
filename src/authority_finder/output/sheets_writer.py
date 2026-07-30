@@ -171,6 +171,13 @@ class SheetsWriter:
     def _ensure_header(self, values_api: Any, existing: list[list[str]]) -> bool:
         if existing and existing[0] == OUTPUT_HEADER:
             return False
+        if existing and not is_safe_header_change(existing[0], OUTPUT_HEADER):
+            raise SheetsError(
+                f"refusing to rewrite the header of {self._tab}: the tab's columns are "
+                f"{existing[0]!r}, which is not a prefix of {OUTPUT_HEADER!r}. Overwriting it "
+                "would misalign every existing row (they are read positionally). Fix the tab, "
+                "or export to a fresh tab."
+            )
         self._call(
             values_api.update(
                 spreadsheetId=self._sheet_id,
@@ -201,6 +208,18 @@ class SheetsWriter:
         if status == HTTPStatus.TOO_MANY_REQUESTS:
             return SheetsError("429 — Sheets API quota exceeded; retry with backoff")
         return SheetsError(f"Sheets API call failed: {exc}")
+
+
+def is_safe_header_change(existing_header: list[str], target: list[str]) -> bool:
+    """True when moving the tab from ``existing_header`` to ``target`` cannot misalign rows.
+
+    Only an append is safe. Every existing column must keep its index, because the 589 live
+    rows are read positionally — a reorder, rename or removal would shift every cell in the
+    deliverable without changing the row count, so the ADR-025 shrink guard would not catch it.
+    """
+    if not existing_header:
+        return True
+    return target[: len(existing_header)] == existing_header
 
 
 def _existing_keys(existing: list[list[str]]) -> set[tuple[str, str]]:
