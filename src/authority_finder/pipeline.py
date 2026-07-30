@@ -13,6 +13,8 @@ from datetime import datetime
 import structlog
 from pydantic import BaseModel
 
+from authority_finder.authority_filter.ahrefs_client import AhrefsClient
+from authority_finder.authority_filter.discover import authority_candidates_for_geo
 from authority_finder.contact_extractor.models import ExtractionResult
 from authority_finder.contact_extractor.orchestrator import extract_for_geo
 from authority_finder.discovery.discover import discover_many
@@ -95,10 +97,36 @@ async def run_pipeline(
     fetcher: PageFetcher,
     census_client: CensusClient,
     now: datetime,
+    ahrefs_client: AhrefsClient | None = None,
 ) -> tuple[list[OutputRow], PipelineFunnel]:
-    """Run the full chain over geos; return assembled rows + a funnel summary."""
+    """Run the full chain over geos; return assembled rows + a funnel summary.
+
+    When ``ahrefs_client`` is supplied, component 3's unrestricted authority candidates are
+    merged into each geo's discovery result BEFORE detection, so they run the identical
+    downstream gates as .gov/.edu candidates. Absent it, the pipeline is unchanged.
+    """
     _log.info("pipeline.start", geos=len(geos))
     discovery_results = await discover_many(geos, client=serp_client)
+
+    authority_added = 0
+    if ahrefs_client is not None:
+        by_url = {g.url: g for g in geos}
+        for discovery in discovery_results:
+            geo_page = by_url.get(discovery.geo.url)
+            if geo_page is None:
+                continue
+            try:
+                extra, _ratings = await authority_candidates_for_geo(
+                    geo_page, serp_client=serp_client, ahrefs_client=ahrefs_client, now=now
+                )
+            except Exception as exc:
+                _log.error("pipeline.authority_failed", geo=discovery.geo.url, error=str(exc))
+                continue
+            known = {c.registrable_domain for c in discovery.candidates}
+            fresh = [c for c in extra if c.registrable_domain not in known]
+            discovery.candidates.extend(fresh)
+            authority_added += len(fresh)
+        _log.info("pipeline.authority_merged", added=authority_added)
 
     rows: list[OutputRow] = []
     candidates = detected = with_email = with_phone = population_found = 0
