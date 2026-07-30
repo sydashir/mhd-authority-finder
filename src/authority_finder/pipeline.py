@@ -109,6 +109,7 @@ async def run_pipeline(
     discovery_results = await discover_many(geos, client=serp_client)
 
     authority_added = 0
+    domain_ratings: dict[str, float] = {}
     if ahrefs_client is not None:
         by_url = {g.url: g for g in geos}
         for discovery in discovery_results:
@@ -116,7 +117,7 @@ async def run_pipeline(
             if geo_page is None:
                 continue
             try:
-                extra, _ratings = await authority_candidates_for_geo(
+                extra, ratings = await authority_candidates_for_geo(
                     geo_page, serp_client=serp_client, ahrefs_client=ahrefs_client, now=now
                 )
             except Exception as exc:
@@ -126,6 +127,10 @@ async def run_pipeline(
             fresh = [c for c in extra if c.registrable_domain not in known]
             discovery.candidates.extend(fresh)
             authority_added += len(fresh)
+            # DR is computed here and would otherwise be thrown away; carry it to row build.
+            for domain, rating in ratings.items():
+                if rating.dr is not None:
+                    domain_ratings[domain] = rating.dr
         _log.info("pipeline.authority_merged", added=authority_added)
 
     rows: list[OutputRow] = []
@@ -148,7 +153,13 @@ async def run_pipeline(
         with_phone += extraction.with_phone
         for outcome, link_result in zip(extraction.outcomes, link_results, strict=True):
             cell = "; ".join(link_result.competitor_domains) or "—"
-            row = build_row(outcome, population=population, now=now, competitor_links=cell)
+            row = build_row(
+                outcome,
+                population=population,
+                now=now,
+                competitor_links=cell,
+                domain_rating=domain_ratings.get(outcome.candidate.registrable_domain),
+            )
             rows.append(row)
             if row.population is not None:
                 population_found += 1

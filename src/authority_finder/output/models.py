@@ -30,6 +30,9 @@ OUTPUT_HEADER: list[str] = [
     "Source Tag",
     "Date Added",
     "Confidence",
+    # APPEND-ONLY. The live master tab holds 589 rows and _existing_keys reads Website and
+    # Geo Served positionally, so a new column may only go on the end (ADR-027).
+    "Domain Rating",
 ]
 
 _SOURCE_TAGS = {"mhd": "MHD", "ah": "AH"}
@@ -52,6 +55,9 @@ class OutputRow(BaseModel):
     source_tag: str
     date_added: str
     confidence: str
+    # Ahrefs DR for authority-sourced rows. None for .gov/.edu, which are deliberately never
+    # scored (ADR-027) — blank means "not measured"; 0 would be a false claim of no authority.
+    domain_rating: float | None = None
 
     @property
     def dedupe_key(self) -> tuple[str, str]:
@@ -73,6 +79,7 @@ class OutputRow(BaseModel):
             self.source_tag,
             self.date_added,
             self.confidence,
+            "" if self.domain_rating is None else f"{self.domain_rating:g}",
         ]
 
 
@@ -92,6 +99,7 @@ def build_row(
     population: PopulationResult,
     now: datetime,
     competitor_links: str = "—",
+    domain_rating: float | None = None,
 ) -> OutputRow:
     """Assemble one :class:`OutputRow` from the chained per-candidate outputs.
 
@@ -120,4 +128,5 @@ def build_row(
         source_tag=_SOURCE_TAGS.get(geo.site_id, geo.site_id.upper()),
         date_added=now.date().isoformat(),
         confidence=outcome.page_confidence,
+        domain_rating=domain_rating,
     )
