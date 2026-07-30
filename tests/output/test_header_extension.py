@@ -12,8 +12,10 @@ import pytest
 
 from authority_finder.output.models import OUTPUT_HEADER, OutputRow, build_row
 from authority_finder.output.sheets_writer import (
+    _RANGE,
     SheetsError,
     SheetsWriter,
+    _last_column_letter,
     is_safe_header_change,
 )
 
@@ -131,3 +133,22 @@ class TestPipelinePropagation:
         assert "domain_rating" in sig.parameters
         source = inspect.getsource(build_row)
         assert "domain_rating=domain_rating" in source, "accepted but never assigned"
+
+
+class TestReadRangeTracksTheHeader:
+    """A hard-coded read range truncates the moment a column is added.
+
+    That is not cosmetic: the truncated read makes `existing[0] != OUTPUT_HEADER` permanently
+    true, so every write takes the destructive full-rewrite path instead of appending, forever.
+    Found live when "Domain Rating" became column N while _RANGE was still "A:M".
+    """
+
+    def test_range_covers_every_header_column(self) -> None:
+        assert f"A:{_last_column_letter(len(OUTPUT_HEADER))}" == _RANGE
+
+    def test_column_letters_are_correct(self) -> None:
+        assert _last_column_letter(1) == "A"
+        assert _last_column_letter(13) == "M"
+        assert _last_column_letter(14) == "N"
+        assert _last_column_letter(26) == "Z"
+        assert _last_column_letter(27) == "AA"

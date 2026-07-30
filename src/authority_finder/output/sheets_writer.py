@@ -31,7 +31,21 @@ _discovery: Any = discovery
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 _WEBSITE_COL = 0
 _GEO_COL = 7  # "Geo Served" index in OUTPUT_HEADER (after the Contact Source/Trust columns)
-_RANGE = "A:M"
+
+
+def _last_column_letter(count: int) -> str:
+    """1 -> A, 13 -> M, 14 -> N. Sheets ranges are 1-indexed letters."""
+    letters = ""
+    while count:
+        count, rem = divmod(count - 1, 26)
+        letters = chr(ord("A") + rem) + letters
+    return letters
+
+
+# Derived from the header, never hard-coded: a literal range silently truncates the read the
+# moment a column is added, which makes the header comparison permanently unequal and forces
+# every write down the full-rewrite path (found the hard way when "Domain Rating" became N).
+_RANGE = f"A:{_last_column_letter(len(OUTPUT_HEADER))}"
 
 _log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
