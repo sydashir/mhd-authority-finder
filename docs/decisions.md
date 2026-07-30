@@ -1314,3 +1314,50 @@ Responses are cached to `data/cache/ahrefs/` (ADR-005 pattern), so re-runs cost 
 The brief says DR 40+. We ship DR as a signal with no threshold. The justification is the two
 evidence sets above. `AHREFS_DR_THRESHOLD` remains configurable if the client wants a floor
 reinstated. **This is a deliberate, documented deviation and needs client ratification.**
+
+## ADR-028 — Geo derivation for non-.gov candidates
+
+**Status:** accepted (2026-07-30, session 36). Extends ADR-020.
+
+**Context.** ADR-020 derived a candidate's state only from `.gov`/`.us` domains, which was
+correct while every candidate came from `site:.gov OR site:.edu` discovery. Component 3
+(ADR-027) added an unrestricted authority source whose candidates are overwhelmingly `.org`
+and `.com`, so **the domain-level geo check did nothing for the majority of new candidates** —
+only the weaker text heuristic applied.
+
+The defect was not theoretical. `mhaorangeny.com` — the Mental Health Association of Orange
+County **New York** — reached output filed under **Orange County, California**.
+
+**Decision.** `candidate_state()` now derives a state from non-.gov registrable domains, by
+two rules, both refusing rather than guessing:
+
+1. **Full state name** appearing in the label (`northalabamamentalhealthcoalition.org` → AL,
+   `thearcoftexas.org` → TX). Two different state names in one label (`montana-...-in-ohio`)
+   asserts nothing.
+2. **A two-letter code as an anchored SUFFIX**, restricted to a small allowlist.
+
+Rule 2's allowlist is the important part. Most state codes are ordinary English word endings,
+and a wrong assertion causes a *hard reject* — it deletes a real prospect. The traps are real,
+drawn from live data:
+
+```
+txcouncil.com   ends in "il" -> would file the Texas Council under ILLINOIS
+lacounty-vendor ends in "or" -> Oregon        information -> "in" Indiana
+medicare        ends in "re"; "me" Maine      pathways    -> "pa" Pennsylvania
+identity        -> "id" Idaho                 community   -> "co" Colorado
+```
+
+So only codes that essentially never terminate an English word are read as bare suffixes:
+`ny nc tx nj nv wy sc vt wv mn az nm nh sd`. A *leading* code (`txcouncil`, `nccdd`) is never
+read — that would be the substring match this ADR exists to avoid. `.edu` remains excluded;
+its geography comes from the College Scorecard dataset (ADR-024).
+
+**Measured on the 213 real end-to-end rows:** 46 domains now positively confirm their target
+geo (a signal that did not previously exist), exactly **1 contradiction is caught —
+`mhaorangeny.com`** — and **0 legitimate orgs are wrongly contradicted**.
+
+**Known limitation, recorded not hidden.** A full state name used as a street or personal name
+(`delaware-street-clinic.org`) resolves to that state. Full names are a much stronger signal
+than two-letter codes and are worth keeping, but they cannot distinguish a state from a street.
+Pinned by a test so the trade-off is visible. If it appears in real data, require the name to
+sit adjacent to an org token rather than anywhere in the label.
