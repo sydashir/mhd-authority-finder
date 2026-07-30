@@ -70,6 +70,7 @@ _SORTABLE: Mapping[str, Any] = {
     "contact_trust": _TRUST_RANK,
     "confidence": _CONFIDENCE_RANK,
     "outreach_status": _OUTREACH_RANK,
+    "domain_rating": Prospect.domain_rating,
 }
 
 

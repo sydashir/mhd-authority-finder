@@ -107,3 +107,34 @@ describe('ProspectsTable', () => {
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ website: 'high.gov' }))
   })
 })
+
+describe('Domain Rating column', () => {
+  it('renders a dash, never 0, when the row was not scored', () => {
+    // .gov/.edu are deliberately never scored (ADR-027). Rendering 0 would claim
+    // "no authority" when the truth is "not measured".
+    render(
+      <ProspectsTable
+        prospects={[makeProspect({ id: 9, website: 'hhs.nd.gov', domain_rating: null })]}
+        selectedId={null}
+        onSelect={vi.fn()}
+        sort={null}
+        onSort={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('hhs.nd.gov')).toBeInTheDocument()
+    expect(screen.queryByText('0')).not.toBeInTheDocument()
+  })
+
+  it('renders the rating for an authority-sourced row', () => {
+    render(
+      <ProspectsTable
+        prospects={[makeProspect({ id: 10, website: 'ncala.org', domain_rating: 34 })]}
+        selectedId={null}
+        onSelect={vi.fn()}
+        sort={null}
+        onSort={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('34')).toBeInTheDocument()
+  })
+})

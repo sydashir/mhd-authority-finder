@@ -15,6 +15,7 @@ export type ColKey =
   | 'source_tag'
   | 'competitors'
   | 'population'
+  | 'domain_rating'
   | 'confidence'
 
 export interface SortState {
@@ -128,6 +129,23 @@ const COLUMNS: Column[] = [
     right: true,
     render: (p) => (
       <span className="tnum whitespace-nowrap text-fg">{formatPopulation(p.population)}</span>
+    ),
+  },
+  {
+    key: 'domain_rating',
+    label: 'DR',
+    sortable: true,
+    right: true,
+    render: (p) => (
+      // Blank, never 0: .gov/.edu are deliberately unscored, and 0 would read as
+      // "no authority" rather than "not measured" (ADR-027).
+      <span className="tnum whitespace-nowrap text-fg">
+        {p.domain_rating === null ? (
+          <span className="text-fg-subtle">—</span>
+        ) : (
+          Math.round(p.domain_rating)
+        )}
+      </span>
     ),
   },
   {

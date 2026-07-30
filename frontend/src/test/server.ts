@@ -13,7 +13,7 @@ export const authUser: AuthUser = {
 }
 
 export function makeProspect(over: Partial<Prospect> = {}): Prospect {
-  return {
+  const base: Prospect = {
     id: 1,
     website: 'ochealthinfo.gov',
     specific_page: 'https://ochealthinfo.gov/behavioral-health',
@@ -25,6 +25,7 @@ export function makeProspect(over: Partial<Prospect> = {}): Prospect {
     geo_served: 'Orange County, California',
     population: 3_165_820,
     competitor_links: '—',
+    domain_rating: null,
     source_tag: 'MHD',
     confidence: 'high',
     date_added: '2026-06-30',
@@ -37,8 +38,8 @@ export function makeProspect(over: Partial<Prospect> = {}): Prospect {
     contacted_at: null,
     outreach_updated_at: null,
     outreach_updated_by: null,
-    ...over,
   }
+  return { ...base, ...over }
 }
 
 export function makeRun(over: Partial<Run> = {}): Run {
