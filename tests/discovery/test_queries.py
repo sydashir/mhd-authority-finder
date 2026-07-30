@@ -79,3 +79,43 @@ def test_county_level_without_county_slug_raises() -> None:
 def test_city_level_without_city_slug_raises() -> None:
     with pytest.raises(ValueError, match="city-level geo"):
         build_queries(_geo("city", "california", county="orange-county"))
+
+
+class TestWidenedDepth:
+    """Depth is pure volume on the source that already works (S30).
+
+    Every added theme must be a DISTINCT angle — duplicating a theme spends a billed
+    search to re-fetch the same page-1 results.
+    """
+
+    def _geo(self, level: str) -> GeoPage:
+        return GeoPage(
+            site_id="mhd",
+            url="https://inpatientmentalhealthfinder.com/serving/texas/travis/austin/",
+            level=level,  # pyright: ignore[reportArgumentType]
+            state="texas",
+            county="travis",
+            city="austin",
+            first_seen=datetime(2026, 7, 30, tzinfo=UTC),
+        )
+
+    def test_each_level_has_at_least_eight_queries(self) -> None:
+        for level in ("state", "county", "city"):
+            assert len(build_queries(self._geo(level))) >= 8, level
+
+    def test_queries_are_unique_within_a_level(self) -> None:
+        for level in ("state", "county", "city"):
+            queries = build_queries(self._geo(level))
+            assert len(queries) == len(set(queries)), level
+
+    def test_every_query_keeps_the_gov_edu_restriction(self) -> None:
+        """Discovery stays scoped; the unrestricted source is authority_filter's job."""
+        for level in ("state", "county", "city"):
+            for query in build_queries(self._geo(level)):
+                assert "site:" in query, f"{level}: {query}"
+
+    def test_themes_do_not_merely_repeat_one_keyword(self) -> None:
+        """Guards against padding the list with near-duplicates of 'mental health'."""
+        queries = build_queries(self._geo("state"))
+        mental = sum(1 for q in queries if "mental health" in q.lower())
+        assert mental <= len(queries) // 2

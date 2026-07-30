@@ -14,6 +14,7 @@ from authority_finder.discovery.discover import (
     discover_many,
     parse_organic_results,
 )
+from authority_finder.discovery.queries import STATE_QUERIES
 from authority_finder.discovery.serpapi_client import QuotaExceededError, SerpApiClient
 from authority_finder.geo_monitor.models import GeoPage
 
@@ -81,8 +82,8 @@ async def test_discover_for_geo_end_to_end(tmp_path: Path) -> None:
     client = _serp_client(httpx.MockTransport(handler), tmp_path)
     result = await discover_for_geo(CALIFORNIA, client=client)
 
-    assert result.queries_run == 4
-    assert result.billed_searches == 4
+    assert result.queries_run == len(STATE_QUERIES)
+    assert result.billed_searches == len(STATE_QUERIES)
     assert result.errors == []
     assert result.geo.state == "california"
     # Fixture has 10 organic results: 9 distinct .gov orgs + UCLA. The two
@@ -91,7 +92,7 @@ async def test_discover_for_geo_end_to_end(tmp_path: Path) -> None:
     assert result.counts_by_class == {"gov": 9, "edu": 1, "us_local": 0, "other": 0}
     domains = {c.registrable_domain for c in result.candidates}
     assert {"mentalhealth.ca.gov", "dhcs.ca.gov", "ucla.edu", "lacounty.gov"} <= domains
-    assert all(len(c.source_queries) == 4 for c in result.candidates)
+    assert all(len(c.source_queries) == len(STATE_QUERIES) for c in result.candidates)
 
 
 async def test_discover_for_geo_isolates_query_failures(tmp_path: Path) -> None:
@@ -103,8 +104,8 @@ async def test_discover_for_geo_isolates_query_failures(tmp_path: Path) -> None:
     client = _serp_client(httpx.MockTransport(handler), tmp_path)
     result = await discover_for_geo(CALIFORNIA, client=client)
 
-    assert result.queries_run == 4
-    assert result.billed_searches == 3
+    assert result.queries_run == len(STATE_QUERIES)
+    assert result.billed_searches == len(STATE_QUERIES) - 1
     assert len(result.errors) == 1
     assert "substance" in result.errors[0].query
     assert len(result.candidates) == 10

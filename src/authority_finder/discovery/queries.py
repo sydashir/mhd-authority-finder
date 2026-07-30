@@ -16,12 +16,24 @@ STATE_QUERIES = (
     "{state} department of health behavioral health site:.gov",
     "{state} substance abuse services site:.gov",
     "{state} university student counseling site:.edu",
+    "{state} opioid response overdose prevention site:.gov",
+    "{state} medicaid behavioral health providers site:.gov",
+    "{state} crisis services 988 lifeline site:.gov",
+    "{state} veterans behavioral health site:.gov",
+    "{state} community health centers site:.gov",
+    "{state} university psychology clinic site:.edu",
 )
 
 COUNTY_QUERIES = (
     '"{county} County" {state} health department site:.gov',
     '"{county} County" {state} mental health resources (site:.gov OR site:.edu)',
     '"{county} County" {state} probation department site:.gov',
+    '"{county} County" {state} human services department site:.gov',
+    '"{county} County" {state} community services board site:.gov',
+    '"{county} County" {state} drug court diversion program site:.gov',
+    '"{county} County" {state} public health substance use site:.gov',
+    '"{county} County" {state} crisis intervention team site:.gov',
+    '"{county} County" {state} community college counseling site:.edu',
 )
 
 CITY_QUERIES = (
@@ -29,6 +41,11 @@ CITY_QUERIES = (
     '"{city}" {state} mental health resources (site:.gov OR site:.edu)',
     '"{city}" {state} probation OR "community services" site:.gov',
     '"{city}" {state} university student health site:.edu',
+    '"{city}" {state} human services assistance programs site:.gov',
+    '"{city}" {state} homeless services outreach site:.gov',
+    '"{city}" {state} police crisis response site:.gov',
+    '"{city}" {state} recreation community center programs site:.gov',
+    '"{city}" {state} college student counseling center site:.edu',
 )
 
 
