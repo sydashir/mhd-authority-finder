@@ -78,6 +78,20 @@ _DATA_AGGREGATORS = (
     "caring.com",
     "seniorly.com",
     "aplaceformom.com",
+    "psychologytoday.com",
+    "grantforward.com",
+    "navigateresources.net",
+)
+
+# Local/regional news surfaced by the unrestricted queries. A blocklist cannot enumerate every
+# outlet in the US, so this is the observed tail only — the general case needs a content
+# heuristic, which is tracked as a known residual rather than pretended solved.
+_LOCAL_NEWS = (
+    "yellowhammernews.com",
+    "stpetecatalyst.com",
+    "voiceofoc.org",
+    "dallasnews.com",
+    "tarheels.live",
 )
 
 _TRADE_PRESS = (
@@ -127,6 +141,7 @@ PLATFORM_DOMAINS: frozenset[str] = frozenset(
     + _TRADE_PRESS
     + _JOB_BOARDS
     + _GENERIC_HOSTS
+    + _LOCAL_NEWS
 )
 
 _extract = tldextract.TLDExtract(suffix_list_urls=())
