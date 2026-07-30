@@ -16,6 +16,7 @@ from typing import NamedTuple
 import tldextract
 
 from authority_finder.authority_filter.ahrefs_client import DomainRating
+from authority_finder.authority_filter.platforms import is_platform
 from authority_finder.domains import COMPETITOR_DOMAINS, FEDERAL_DOMAINS
 
 # Calibrated against 20 real behavioral-health orgs (ADR-026), not inherited from the
@@ -32,6 +33,7 @@ class Scoreable(NamedTuple):
     skipped_domain_class: list[str]
     skipped_competitor: list[str]
     skipped_federal: list[str]
+    skipped_platform: list[str]
 
 
 class ThresholdOutcome(NamedTuple):
@@ -58,28 +60,47 @@ def _normalise(target: str) -> str:
 
 
 def select_scoreable(domains: Sequence[str]) -> Scoreable:
-    """Partition candidates into what needs paying for and what does not."""
+    """Partition candidates into what needs paying for and what does not.
+
+    Candidates collapse to their registrable domain first, so one organization costs one
+    lookup — ``account.texashealth.org`` and ``texashealth.org`` burned two slots before.
+    Ordering matters for cost: every skip branch is evaluated BEFORE the Ahrefs call, so a
+    platform or a competitor never consumes units.
+    """
     scoreable: list[str] = []
     by_class: list[str] = []
     competitor: list[str] = []
     federal: list[str] = []
+    platform: list[str] = []
+    seen: set[str] = set()
 
-    for raw in dict.fromkeys(_normalise(d) for d in domains if d.strip()):
-        root = registrable(raw)
-        if raw.endswith(_PASS_ON_CLASS):
-            by_class.append(raw)
+    for host in dict.fromkeys(_normalise(d) for d in domains if d.strip()):
+        # Class is decided on the full host: collapsing first would turn hhs.nd.gov into
+        # nd.gov and lose which agency was seen.
+        if host.endswith(_PASS_ON_CLASS):
+            by_class.append(host)
+            continue
+
+        root = registrable(host)
+        if root in seen:
+            continue
+        seen.add(root)
+
+        if is_platform(root):
+            platform.append(root)
         elif root in COMPETITOR_DOMAINS:
-            competitor.append(raw)
+            competitor.append(root)
         elif root in FEDERAL_DOMAINS:
-            federal.append(raw)
+            federal.append(root)
         else:
-            scoreable.append(raw)
+            scoreable.append(root)
 
     return Scoreable(
         scoreable=scoreable,
         skipped_domain_class=by_class,
         skipped_competitor=competitor,
         skipped_federal=federal,
+        skipped_platform=platform,
     )
 
 
