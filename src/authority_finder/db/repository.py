@@ -106,6 +106,7 @@ class ProspectIn:
     source_tag: SourceTag
     confidence: TrustBand
     date_added: date
+    domain_rating: float | None = None
     run_id: int | None = None
     geo_id: int | None = None
 

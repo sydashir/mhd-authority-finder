@@ -30,6 +30,7 @@ class ProspectOut(BaseModel):
     geo_served: str
     population: int | None
     competitor_links: str
+    domain_rating: float | None = None
     source_tag: SourceTag
     confidence: TrustBand
     date_added: date

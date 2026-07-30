@@ -19,6 +19,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     String,
     Text,
@@ -133,6 +134,9 @@ class Prospect(Base):
     geo_served: Mapped[str] = mapped_column(String(128))
     population: Mapped[int | None]
     competitor_links: Mapped[str] = mapped_column(Text, default="")
+    # Ahrefs DR for authority-sourced rows (ADR-027). NULL for .gov/.edu, which are never
+    # scored by design — NULL means "not measured"; 0.0 would falsely claim no authority.
+    domain_rating: Mapped[float | None] = mapped_column(Float, nullable=True)
     source_tag: Mapped[SourceTag] = mapped_column(_source_tag)
     confidence: Mapped[TrustBand] = mapped_column(_trust_band)
     date_added: Mapped[date] = mapped_column(Date)
