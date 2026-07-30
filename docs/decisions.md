@@ -1200,3 +1200,117 @@ Password auth puts credential handling on us rather than on Google: no MFA, and 
 a direct compromise. For an internal tool of a few users behind an admin-created account, the drop in
 friction is worth it. Sessions still cannot be revoked before expiry (a P1 item carried over from the
 QA audit), and passkeys remain the natural upgrade once the tool is hosted over HTTPS.
+
+## ADR-027 — Component 3: authority filter (DR as a signal, not a gate)
+
+**Status:** accepted (2026-07-30, sessions 27–32). Supersedes the component-3 approach sketched
+in the brief's Challenge 3.
+
+**Context.** Component 3 — "high authority resource sites like ncala.org" — was the one brief
+component never built, skipped since ADR-003 for lack of an Ahrefs API key. Jake supplied a key,
+so it became buildable. The brief's mitigation reads: *"Ahrefs API — filter by Domain Rating
+above an agreed threshold (e.g., DR 40+)."*
+
+### Decision 1 — unrestricted queries are required, and they are a new problem
+
+Discovery's templates are scoped `(site:.gov OR site:.edu)`, so they can never return an
+organization like ncala.org. That is why ADR-006's `other` classification bucket was
+instrumented, counted, and returned zero on every run for months. Component 3 therefore needs
+its own unrestricted query set (`authority_filter/queries.py`).
+
+Dropping the `site:` filter admits the open web. A DR threshold cannot clean that up: the live
+Alabama/Texas run returned facebook.com at DR 100, instagram.com 100, linkedin.com 99, yelp.com
+94, prnewswire.com 92, guidestar.org 91. **The failure mode is wrong TYPE, not low authority**,
+and raising the floor makes it worse — it keeps every social network and cuts the small local
+orgs we want. Hence `platforms.py`, applied BEFORE any Ahrefs call so junk never costs units.
+
+### Decision 2 — DR is a displayed signal, not a pass/fail gate
+
+Two independent bodies of evidence, both against the brief's DR 40.
+
+*Calibration* (20 real behavioral-health orgs): ncala.org 34, txcouncil.com 32, calbhbc.org 29 —
+real state-level bodies, all rejected at 40, while every national org clears it easily. For a
+geo-targeted tool that is backwards: a state coalition is worth more than a national body,
+because the national one is not specific to the geo page.
+
+*Ground truth* (`docs/competitor-backlink-analysis.md`) — mining the referring domains of
+rehabnet.com, recovery.com and addictioncenter.com, which is the method the brief itself
+specifies. Of 531 candidate-class referring domains in the DR 5–45 band:
+
+```
+min 5 | p25 11 | median 20 | p75 30 | max 45
+DR>=40  8%   DR>=25  40%   DR>=20  50%   DR>=10  79%
+```
+
+**The median organization that demonstrably links to a working directory scores DR 20.** DR 40
+would discard 92% of them.
+
+So DR does not gate. Selection is by type (blocklist + commercial filter) and geography (the
+existing ADR-020/024 gates). DR rides along as a value for the outreach rep.
+
+A sampling lesson worth recording: on a backlink profile, ordering by `domain_rating:desc`
+returns national media and cloud infrastructure, `:asc` returns bare IP addresses. Local
+organizations live in neither tail — always band-filter with `where`.
+
+### Decision 3 — commercial treatment providers are filtered on content, not by domain
+
+With DR removed, for-profit facilities dominated the residual junk (~57% precision). They are
+real orgs, with real pages, in the right geo, so every existing gate passes them — but a
+facility marketing its own treatment services competes for the same backlinks. It is a
+competitor, not a prospect.
+
+A domain list cannot express this: `txcouncil.com` is the Texas Council of Community Centers
+and `whitesandstreatment.com` is a for-profit rehab. So `commercial.py` reuses the ADR-024
+technique and judges the page by what it says about itself, with **asymmetric grading** because
+the errors do not cost the same — losing a real coalition is worse than admitting one facility:
+
+- a facility self-description ("treatment center", "residential treatment", "levels of care")
+  is decisive alone;
+- a direct-response CTA is not — real nonprofits publish phones and say "get help" — so two are
+  required.
+
+It runs on title+snippet, so rejecting a facility costs no fetch. Result: precision 57% → ~82%
+with **zero false positives** across the 5 validation geos; 12/12 must-keep orgs retained,
+including northalabamamentalhealthcoalition.org at DR 8.
+
+One miss is accepted and pinned by a test rather than hidden: `markbehavioral.com`
+("Mental Health Treatment in Clearwater | Call MBH Today"). Catching it requires treating
+"mental health treatment" as decisive, which a real nonprofit could legitimately say.
+
+### Decision 4 — the primary ranking signal is proven directory-listing behaviour
+
+`link_checker` (ADR-011) already detects orgs linking to the 16 competitor directories. An org
+that already lists a directory has **demonstrated** it will list one — stronger than any
+inferred property such as contact trust or DR. Those rows now sort first in both the sheet
+(`csv_writer._sort_key`) and Postgres (`repository._order_by`), ahead of the ADR-024 trust-first
+order. On the live 589-row dataset, 82 rows carry a competitor link and now lead.
+
+### Decision 5 — gate reuse is structural, not promised
+
+Authority candidates are emitted as ordinary `CandidateSite` objects with
+`domain_class="other"` and merged into `DiscoveryResult.candidates` **before** detection. There
+is no separate authority code path, so wrong-state validation, junk-page detection, the hotline
+blocklist and contact-trust banding cannot be bypassed. The feature skips cleanly when no
+Ahrefs key is configured.
+
+### Correction recorded
+
+`ncala.org` was assumed (by me, in session 27) to be an Alabama addiction council. It is the
+**North Carolina Assisted Living Association** — assisted living, North Carolina. The brief
+pairs it with dbhdduniversity.com, so the target class is **care-adjacent local organizations**
+(assisted-living and health-care associations, developmental-disability councils, aging
+services, provider networks), not only addiction councils. Query themes were widened
+accordingly, after which ncala.org surfaces at DR 34.
+
+### Cost
+
+Ahrefs bills `max(50, per_row_cost * rows)`, and `/site-explorer/domain-rating` accepts no
+`select`, so it always floors at 50 units **for one domain**. `/batch-analysis` takes 100
+targets and measured 60 units for 20 — roughly **17× cheaper per domain**. Always batch.
+Responses are cached to `data/cache/ahrefs/` (ADR-005 pattern), so re-runs cost nothing.
+
+### Deviation from the brief, stated plainly
+
+The brief says DR 40+. We ship DR as a signal with no threshold. The justification is the two
+evidence sets above. `AHREFS_DR_THRESHOLD` remains configurable if the client wants a floor
+reinstated. **This is a deliberate, documented deviation and needs client ratification.**
