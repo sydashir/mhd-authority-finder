@@ -111,8 +111,53 @@ def candidate_state(url: str) -> str | None:
         # Municipal .us encodes the state in the suffix: co.orange.ca.us → ca.
         return ABBR_TO_SLUG.get(parts[-2]) if len(parts) >= _MIN_US_HOST_PARTS else None
     if tld != "gov":
-        return None
+        # ADR-028: component 3's authority candidates are mostly .org/.com, so the .gov-only
+        # rule left the majority of new candidates with no domain-level geo check at all —
+        # mhaorangeny.com (Orange County NEW YORK) reached output under Orange County CA.
+        # .edu stays excluded: its geography comes from the College Scorecard set (ADR-024).
+        if tld == "edu":
+            return None
+        return _org_state(registrable_domain(url))
     registrable = registrable_domain(url)
     if registrable in _KNOWN_GOV_STATES:
         return _KNOWN_GOV_STATES[registrable]
     return _gov_state(registrable.split(".")[0])
+
+
+# Two-letter codes that are safe to read as a bare domain SUFFIX. Most codes are common
+# English word-endings and would assert a wrong state — which causes a hard reject, i.e.
+# deletes a real prospect. Excluded for exactly that reason, with the trap in brackets:
+#   il [txcouncIL]  or [vendOR]  in [informatION]  me [medicaRE-like]  ct [produCT]
+#   ia [medIA]  ut [aboUT]  ak [breAK]  nd [fuND]  ks [plurals]  ri [safaRI]  ok  co  la
+#   ma  pa  hi  de  id  al  ca  va  wa  ga  mo  ne  ar  mt
+# What remains are codes that essentially never terminate an English word.
+_SAFE_SUFFIX_ABBRS = frozenset(
+    {"ny", "nc", "tx", "nj", "nv", "wy", "sc", "vt", "wv", "mn", "az", "nm", "nh", "sd"}
+)
+_MIN_STEM = 2  # a code needs a real stem in front of it, so "ny.org" alone asserts nothing
+
+_LABEL_SPLIT = re.compile(r"[^a-z]+")
+
+
+def _name_state(label: str) -> str | None:
+    """A single unambiguous full state name inside the label, else ``None``.
+
+    Two different state names (``montana-themed-cafe-in-ohio``) means the domain is not
+    telling us where the org is, so it asserts nothing.
+    """
+    found = {slug for name, slug in _NAME_TO_SLUG.items() if name in label}
+    return next(iter(found)) if len(found) == 1 else None
+
+
+def _suffix_abbr_state(label: str) -> str | None:
+    """A safe-listed two-letter code at the very END of the label, else ``None``."""
+    stem, code = label[:-2], label[-2:]
+    if len(stem) < _MIN_STEM or code not in _SAFE_SUFFIX_ABBRS:
+        return None
+    return ABBR_TO_SLUG.get(code)
+
+
+def _org_state(registrable: str) -> str | None:
+    """State from a non-.gov registrable domain, only where genuinely derivable (ADR-028)."""
+    label = _LABEL_SPLIT.sub("", registrable.rsplit(".", 1)[0])
+    return _name_state(label) or _suffix_abbr_state(label)
