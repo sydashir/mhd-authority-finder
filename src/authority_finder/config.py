@@ -62,10 +62,16 @@ class Settings(BaseSettings):
     )
 
     ahrefs_dr_threshold: int = Field(
-        default=40,
+        default=25,
         ge=0,
         le=100,
-        description="Minimum Domain Rating for a non-.gov/.edu site to be retained.",
+        description=(
+            "Minimum Domain Rating for a non-.gov/.edu site to be retained. DEVIATES from "
+            "the brief's 'e.g. DR 40+' on calibration evidence (ADR-026): the brief's own "
+            "named example ncala.org scores 34, txcouncil.com 32 and calbhbc.org 29, so 40 "
+            "rejects exactly the state-level orgs component 3 exists to find. Provisional "
+            "pending client ratification."
+        ),
     )
 
     run_interval_hours: int = Field(
