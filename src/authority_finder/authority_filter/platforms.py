@@ -71,6 +71,13 @@ _DATA_AGGREGATORS = (
     "zippia.com",
     "opencorporates.com",
     "bizapedia.com",
+    # Service-locator directories: they aggregate providers, they are not providers.
+    "findhelp.org",
+    "networkofcare.org",
+    "agingcare.com",
+    "caring.com",
+    "seniorly.com",
+    "aplaceformom.com",
 )
 
 _TRADE_PRESS = (

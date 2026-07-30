@@ -16,11 +16,21 @@ Ahrefs units on.
 from authority_finder.discovery.queries import county_display, slug_to_display
 from authority_finder.geo_monitor.models import GeoPage
 
+# The brief's two named examples are ncala.org (North Carolina Assisted Living
+# Association) and dbhdduniversity.com (behavioral health AND developmental disabilities).
+# Neither is an addiction council, so themes scoped only to addiction/mental health miss
+# the class the client actually asked for: care-adjacent trade associations, provider
+# networks, aging and disability services. Breadth here is deliberate — the platform
+# blocklist and the DR floor do the narrowing, not the query.
 STATE_QUERIES = (
     "{state} mental health coalition",
     "{state} behavioral health association",
     "{state} addiction recovery organization",
     "{state} substance abuse council",
+    "{state} assisted living association",
+    "{state} health care association senior services",
+    "{state} developmental disabilities association",
+    "{state} council on aging services",
 )
 
 COUNTY_QUERIES = (
