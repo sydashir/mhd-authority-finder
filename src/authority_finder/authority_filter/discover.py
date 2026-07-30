@@ -22,6 +22,7 @@ from datetime import datetime
 import structlog
 
 from authority_finder.authority_filter.ahrefs_client import AhrefsClient, DomainRating
+from authority_finder.authority_filter.commercial import is_commercial_provider
 from authority_finder.authority_filter.filter import registrable, select_scoreable
 from authority_finder.authority_filter.queries import build_authority_queries
 from authority_finder.discovery.models import CandidateSite, GeoRef, SearchResult
@@ -88,9 +89,15 @@ async def authority_candidates_for_geo(
         by_root.setdefault(registrable(host), result)
 
     candidates: list[CandidateSite] = []
+    commercial_dropped: list[str] = []
     for root in selection.scoreable:
         result = by_root.get(root)
         if result is None:
+            continue
+        # A facility marketing its own treatment services competes for the same backlinks —
+        # it is a competitor, not a prospect. Judged on the search text, so no fetch is spent.
+        if is_commercial_provider(title=result.title, snippet=result.snippet):
+            commercial_dropped.append(root)
             continue
         candidates.append(
             CandidateSite(
@@ -103,5 +110,12 @@ async def authority_candidates_for_geo(
                 source_queries=list(dict.fromkeys(queries_by_domain.get(str(result.link), []))),
                 discovered_at=now,
             )
+        )
+    if commercial_dropped:
+        _log.info(
+            "authority.commercial_dropped",
+            geo=geo.url,
+            count=len(commercial_dropped),
+            domains=commercial_dropped[:10],
         )
     return candidates, ratings
