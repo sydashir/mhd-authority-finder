@@ -1361,3 +1361,34 @@ geo (a signal that did not previously exist), exactly **1 contradiction is caugh
 than two-letter codes and are worth keeping, but they cannot distinguish a state from a street.
 Pinned by a test so the trade-off is visible. If it appears in real data, require the name to
 sit adjacent to an org token rather than anywhere in the label.
+
+## ADR-030 — Scheduler moves from an interval to day-of-week cron
+
+**Status:** accepted (2026-07-31).
+
+**Context.** The scheduler fired on `IntervalTrigger(hours=RUN_INTERVAL_HOURS)`. An interval is
+not what an operator means by a schedule: a 24h interval started at 14:00 keeps firing at
+14:00, and every container restart permanently moves the slot. The client asked for Mondays and
+Wednesdays.
+
+**Decision.** `CronTrigger` with named days at a fixed local time, configurable, defaults
+`RUN_DAYS=mon,wed` and `RUN_TIME=03:00`.
+
+Parsing lives in `scheduler/schedule.py`, separate from APScheduler, so the rules are testable
+without a scheduler running. An unknown day or malformed time raises rather than defaulting —
+a typo must never yield a scheduler that silently never fires.
+
+**Timezone is the client's, not the server's.** `RUN_TIMEZONE` defaults to `America/New_York`,
+NOT UTC. The run exists to have fresh prospects waiting at the start of the client's business
+day. Under UTC a 03:00 job lands at 22:00 or 23:00 their previous evening depending on season,
+and shifts twice a year as US daylight saving moves while UTC does not. Pinning to an IANA zone
+makes 03:00 mean 03:00 to the people reading the output, summer and winter.
+
+`RUN_INTERVAL_HOURS` is retained in settings as deprecated so an existing `.env` keeps loading,
+but no longer drives anything. The `--interval-hours` CLI flag was REMOVED rather than left
+inert — a flag in `--help` that changes nothing is a lie. `--days` and `--at` override per
+invocation.
+
+**Unchanged:** every cost rail survives — zero spend when no new geos, `MAX_NEW_GEOS_PER_RUN`,
+the `MAX_BILLED_SEARCHES_PER_RUN` circuit breaker, the daily ceiling, and the no-concurrent-run
+guard. This ADR changes only *when* a tick fires, never what a tick may spend.
