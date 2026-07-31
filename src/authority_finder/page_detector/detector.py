@@ -22,6 +22,7 @@ import structlog
 from authority_finder.discovery.classify import dedupe_key
 from authority_finder.discovery.models import CandidateSite, GeoRef
 from authority_finder.fetching import FetchError, PageContent, PageFetcher
+from authority_finder.page_detector.blocked import classify_block
 from authority_finder.page_detector.models import CandidateOutcome, DetectedPage
 from authority_finder.page_detector.prefilter import junk_url_reason, prefilter_candidate
 from authority_finder.page_detector.scorer import (
@@ -118,6 +119,8 @@ async def process_candidate(
     tried: set[str] = set()
     contents: dict[str, PageContent] = {}
 
+    last_error = ""
+
     async def attempt(url: str) -> DetectedPage | WrongState | None:
         nonlocal fetches, failures
         if url in tried or fetches >= MAX_FETCHES_PER_CANDIDATE:
@@ -127,8 +130,10 @@ async def process_candidate(
         try:
             content = await fetcher.fetch(url)
         except (FetchError, RobotsDisallowedError) as exc:
+            nonlocal last_error
             failures += 1
-            _log.debug("detect.fetch_failed", url=url, error=str(exc))
+            last_error = str(exc)
+            _log.debug("detect.fetch_failed", url=url, error=last_error)
             return None
         if dedupe_key(content.final_url) != domain:
             # Redirect shell: a .gov URL 301ing to a third party (observed live:
@@ -186,7 +191,12 @@ async def process_candidate(
             candidate=candidate, status="detected", detected=best, fetches_used=fetches
         )
     if fetches > 0 and failures == fetches:
-        return CandidateOutcome(candidate=candidate, status="fetch_failed", fetches_used=fetches)
+        return CandidateOutcome(
+            candidate=candidate,
+            status="fetch_failed",
+            fetches_used=fetches,
+            block_reason=classify_block(last_error).value,
+        )
     reason = "junk_url" if verdict.url_is_junk else "no_viable_page"
     return CandidateOutcome(
         candidate=candidate, status="rejected", rejection_reason=reason, fetches_used=fetches

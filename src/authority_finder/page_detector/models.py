@@ -53,6 +53,10 @@ class CandidateOutcome(BaseModel):
     rejection_reason: RejectionReason | None = None
     detected: DetectedPage | None = None
     fetches_used: int = 0
+    # Why the fetch failed, when status is "fetch_failed". Kept so a candidate blocked by a
+    # CAPTCHA or a hard 403 can be COUNTED and handed to the client for a manual visit
+    # instead of vanishing (ADR-006's uncounted-drop lesson).
+    block_reason: str | None = None
 
 
 class DetectionResult(BaseModel):
