@@ -46,6 +46,7 @@ from authority_finder.page_detector.orchestrator import detect_for_geo
 from authority_finder.pipeline import PipelineFunnel, run_pipeline
 from authority_finder.population.census import CensusClient
 from authority_finder.scheduler.runner import run_scheduler, scheduled_tick
+from authority_finder.scheduler.schedule import parse_schedule
 from backend.auth import hash_password
 
 
@@ -675,12 +676,6 @@ def _print_funnel(funnel: PipelineFunnel) -> None:
 
 @cli.command()
 @click.option(
-    "--interval-hours",
-    type=int,
-    default=None,
-    help="Override RUN_INTERVAL_HOURS (hours between incremental runs).",
-)
-@click.option(
     "--run-now/--no-run-now",
     default=True,
     show_default=True,
@@ -692,7 +687,9 @@ def _print_funnel(funnel: PipelineFunnel) -> None:
     default=False,
     help="Run a single tick and exit (no scheduler loop) — for cron or a smoke test.",
 )
-def schedule(interval_hours: int | None, run_now: bool, once: bool) -> None:
+@click.option("--days", default=None, help="Override RUN_DAYS, e.g. 'mon,wed'.")
+@click.option("--at", default=None, help="Override RUN_TIME, HH:MM 24h, e.g. '03:00'.")
+def schedule(run_now: bool, once: bool, days: str | None, at: str | None) -> None:
     """Run the scheduler: periodically process newly-published geo pages → live Sheet."""
     configure_logging("INFO")
     settings = get_settings()
@@ -715,11 +712,17 @@ def schedule(interval_hours: int | None, run_now: bool, once: bool) -> None:
             )
         return
 
-    interval = interval_hours or settings.run_interval_hours
+    try:
+        spec = parse_schedule(
+            days or settings.run_days, at or settings.run_time, settings.run_timezone
+        )
+    except ValueError as exc:
+        click.echo(f"bad schedule: {exc}", err=True)
+        sys.exit(2)
     click.echo(
-        f"scheduler starting: every {interval}h, run_now={run_now}. Ctrl-C to stop.", err=True
+        f"scheduler starting: {spec.describe()}, run_now={run_now}. Ctrl-C to stop.", err=True
     )
-    asyncio.run(run_scheduler(interval_hours=interval, run_now=run_now))
+    asyncio.run(run_scheduler(spec=spec, run_now=run_now))
 
 
 @cli.command("create-user")

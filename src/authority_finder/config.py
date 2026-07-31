@@ -77,7 +77,30 @@ class Settings(BaseSettings):
     run_interval_hours: int = Field(
         default=24,
         ge=1,
-        description="Scheduler interval between incremental runs (RUN_INTERVAL_HOURS).",
+        description=(
+            "DEPRECATED: superseded by RUN_DAYS/RUN_TIME cron scheduling. Retained so an "
+            "existing .env keeps loading; no longer drives the scheduler."
+        ),
+    )
+
+    run_days: str = Field(
+        default="mon,wed",
+        description="Days the scheduler runs, comma-separated (RUN_DAYS), e.g. 'mon,wed'.",
+    )
+
+    run_time: str = Field(
+        default="03:00",
+        description="Local time of day the scheduler runs, HH:MM 24h (RUN_TIME).",
+    )
+
+    run_timezone: str = Field(
+        default="America/New_York",
+        description=(
+            "IANA timezone the schedule is interpreted in (RUN_TIMEZONE). Defaults to US "
+            "Eastern, NOT the server's UTC: the client is US-based and a 03:00 run is meant "
+            "to land before their business day. Under UTC the run would drift across their "
+            "working hours twice a year as US daylight saving shifts."
+        ),
     )
 
     database_url: str = Field(

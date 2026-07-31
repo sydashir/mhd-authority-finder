@@ -19,7 +19,7 @@ import httpx
 import sentry_sdk
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.interval import IntervalTrigger
+from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from authority_finder.config import Settings, get_settings
@@ -38,6 +38,7 @@ from authority_finder.pipeline import run_pipeline
 from authority_finder.population.census import CensusClient
 from authority_finder.scheduler.incremental import RunAndWrite, run_incremental
 from authority_finder.scheduler.models import IncrementalRunResult, RunOutcome
+from authority_finder.scheduler.schedule import ScheduleSpec
 
 _log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -169,15 +170,20 @@ async def scheduled_tick(
 
 
 async def run_scheduler(
-    *, interval_hours: int, run_now: bool = True, state_dir: Path = DEFAULT_STATE_DIR
+    *, spec: ScheduleSpec, run_now: bool = True, state_dir: Path = DEFAULT_STATE_DIR
 ) -> None:
-    """Start the in-process scheduler and run until SIGINT/SIGTERM."""
+    """Start the in-process scheduler on a day-of-week cron and run until SIGINT/SIGTERM.
+
+    Named days at a fixed LOCAL time, not an interval: an interval drifts with every restart,
+    and it is not what "Mondays and Wednesdays at 3am" means. The timezone is the client's,
+    not the server's — see :mod:`authority_finder.scheduler.schedule`.
+    """
     settings = get_settings()
     # APScheduler ships no type stubs; contain its dynamic surface behind Any.
     scheduler: Any = AsyncIOScheduler()
     scheduler.add_job(
         lambda: scheduled_tick(settings=settings, state_dir=state_dir),
-        IntervalTrigger(hours=interval_hours),
+        CronTrigger(**spec.as_cron_kwargs()),
         id="incremental",
         next_run_time=datetime.now() if run_now else None,  # local tz (APScheduler), run-once now
         max_instances=1,
@@ -186,7 +192,7 @@ async def run_scheduler(
         replace_existing=True,
     )
     scheduler.start()
-    _log.info("scheduler.started", interval_hours=interval_hours, run_now=run_now)
+    _log.info("scheduler.started", schedule=spec.describe(), run_now=run_now)
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
