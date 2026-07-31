@@ -31,7 +31,12 @@ services:
     image: mhd-authority-finder:latest
     restart: unless-stopped
     env_file:
+      # .env is ALSO auto-loaded by Compose for ${VAR} substitution, and that pass expands the
+      # $ characters inside the scrypt hash ($OXY... vanished, truncating AUTH_USERS from 92 to
+      # 78 chars and silently breaking container login). secrets.env is referenced ONLY here,
+      # so Compose passes it through verbatim. Listed last so it wins.
       - .env
+      - secrets.env
     environment:
       # Container chromium can't use the setuid sandbox; force --no-sandbox regardless of .env.
       PLAYWRIGHT_NO_SANDBOX: "1"
@@ -43,6 +48,26 @@ services:
     volumes:
       - ./service-account.json:/app/service-account.json:ro
       - ./data:/app/data
+
+  # The API, so a container login can be proven end to end (the scrypt hash in AUTH_USERS
+  # contains $ and Compose expands those unless they are escaped in secrets.env).
+  api:
+    build: .
+    image: mhd-authority-finder:latest
+    restart: unless-stopped
+    entrypoint: ["/app/.venv/bin/uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000"]
+    env_file:
+      - .env
+      - secrets.env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-authority}:${POSTGRES_PASSWORD:-authority}@postgres:5432/${POSTGRES_DB:-authority}
+    ports:
+      - "8001:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./service-account.json:/app/service-account.json:ro
 
 volumes:
   authority-pgdata:
