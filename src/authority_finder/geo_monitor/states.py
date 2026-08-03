@@ -5,8 +5,8 @@ AH's geo URL pattern (``/{state}/...``) matches any top-level path including
 against this set is the cheapest way to reject non-geo paths without
 maintaining a blacklist of marketing pages that grows over time. See ADR-004.
 
-If either site adds DC or US territories in the future, add the corresponding
-slug here. The list is intentionally hardcoded (US-only project scope per
+DC and the US territories are included: MHD publishes ``/serving/`` pages for
+them. The list is intentionally hardcoded (US-only project scope per
 ``CLAUDE.md``).
 """
 
@@ -64,5 +64,18 @@ US_STATE_SLUGS: frozenset[str] = frozenset(
         "west-virginia",
         "wisconsin",
         "wyoming",
+        # DC and the US territories. MHD publishes /serving/ pages for all of these, so they
+        # are in scope; the unparsed-URL instrumentation (ADR-031) is what surfaced them —
+        # before that they returned None and vanished silently.
+        "district-of-columbia",
+        # MHD's own URL says "colombia" (the country) rather than "columbia". Accepting both
+        # is deliberate: it is their published URL, and losing a real page to someone else's
+        # typo is worse than carrying a second slug.
+        "district-of-colombia",
+        "puerto-rico",
+        "guam",
+        "virgin-islands",
+        "northern-mariana-islands",
+        "american-samoa",
     }
 )
