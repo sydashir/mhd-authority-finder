@@ -129,6 +129,7 @@ async def upsert_prospect(session: AsyncSession, data: ProspectIn) -> int:
         geo_served=data.geo_served,
         population=data.population,
         competitor_links=data.competitor_links,
+        domain_rating=data.domain_rating,
         source_tag=data.source_tag,
         confidence=data.confidence,
         date_added=data.date_added,
@@ -150,6 +151,8 @@ async def upsert_prospect(session: AsyncSession, data: ProspectIn) -> int:
             "organization_description": stmt.excluded.organization_description,
             "population": stmt.excluded.population,
             "competitor_links": stmt.excluded.competitor_links,
+            # Pipeline-owned, so it refreshes on a re-run — unlike the outreach fields above.
+            "domain_rating": stmt.excluded.domain_rating,
             "source_tag": stmt.excluded.source_tag,
             "confidence": stmt.excluded.confidence,
             "date_added": stmt.excluded.date_added,

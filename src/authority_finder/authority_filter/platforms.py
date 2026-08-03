@@ -83,15 +83,63 @@ _DATA_AGGREGATORS = (
     "navigateresources.net",
 )
 
-# Local/regional news surfaced by the unrestricted queries. A blocklist cannot enumerate every
-# outlet in the US, so this is the observed tail only — the general case needs a content
-# heuristic, which is tracked as a known residual rather than pretended solved.
+# Membership / event / course / email SaaS. Real orgs RUN on these, so the platform outranks
+# the org it hosts — wildapricot.org DR 88, thinkific.com 91, govdelivery.com 90. Derived from
+# the 1,105 authority domains the 99-state run actually produced.
+_ORG_SAAS = (
+    "wildapricot.org",
+    "memberclicks.net",
+    "glueup.com",
+    "thinkific.com",
+    "clientsecure.me",
+    "eventleaf.com",
+    "govdelivery.com",
+    "communityos.org",
+    "mailchimp.com",
+    "constantcontact.com",
+    "surveymonkey.com",
+    "jotform.com",
+    "typeform.com",
+)
+
+# Academic publishers and B2B data vendors. Maximum authority, zero outreach value.
+_PUBLISHERS_AND_DATA = (
+    "sagepub.com",
+    "ebsco.com",
+    "springer.com",
+    "elsevier.com",
+    "jstor.org",
+    "researchgate.net",
+    "zoominfo.com",
+    "builtin.com",
+    "bloomberg.com",
+)
+
 _LOCAL_NEWS = (
     "yellowhammernews.com",
     "stpetecatalyst.com",
     "voiceofoc.org",
     "dallasnews.com",
     "tarheels.live",
+    # Observed in the 99-state run. A blocklist cannot enumerate every US outlet — this is the
+    # observed tail, and the general case remains a known residual needing a content heuristic.
+    "cincinnati.com",
+    "theadvocate.com",
+    "inforum.com",
+    "mississippitoday.org",
+    "nbcmontana.com",
+    "juneauempire.com",
+    "montanafreepress.org",
+    "wvpublic.org",
+    "ctnewsjunkie.com",
+    "encyclopediaofarkansas.net",
+    "mcknightsseniorliving.com",
+)
+
+# Commercial services with no plausible link relationship to a behavioral-health directory.
+_UNRELATED_COMMERCIAL = (
+    "unitedvanlines.com",
+    "opencounseling.com",
 )
 
 _TRADE_PRESS = (
@@ -142,6 +190,9 @@ PLATFORM_DOMAINS: frozenset[str] = frozenset(
     + _JOB_BOARDS
     + _GENERIC_HOSTS
     + _LOCAL_NEWS
+    + _ORG_SAAS
+    + _PUBLISHERS_AND_DATA
+    + _UNRELATED_COMMERCIAL
 )
 
 _extract = tldextract.TLDExtract(suffix_list_urls=())

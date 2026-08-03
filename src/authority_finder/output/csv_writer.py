@@ -51,9 +51,14 @@ def dedupe_and_sort(rows: list[OutputRow]) -> list[OutputRow]:
     return out
 
 
-def write_csv(rows: list[OutputRow], path: Path) -> int:
-    """Write deduped, sorted rows to ``path`` with the canonical header. Returns count."""
+def write_csv(rows: list[OutputRow], path: Path | str) -> int:
+    """Write deduped, sorted rows to ``path`` with the canonical header. Returns count.
+
+    Accepts ``str`` as well as ``Path``: this is the last line of a run that can take hours,
+    and it once died there on a type mismatch, losing everything in memory.
+    """
     final = dedupe_and_sort(rows)
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)

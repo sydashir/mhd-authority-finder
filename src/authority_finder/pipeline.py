@@ -8,6 +8,7 @@ rows. Writing (CSV or Sheets) is the caller's job — this returns the assembled
 """
 
 import asyncio
+from collections.abc import Callable
 from datetime import datetime
 
 import structlog
@@ -18,7 +19,7 @@ from authority_finder.authority_filter.discover import authority_candidates_for_
 from authority_finder.contact_extractor.models import ExtractionResult
 from authority_finder.contact_extractor.orchestrator import extract_for_geo
 from authority_finder.discovery.discover import discover_many
-from authority_finder.discovery.models import GeoRef
+from authority_finder.discovery.models import DiscoveryResult, GeoRef
 from authority_finder.discovery.serpapi_client import SerpApiClient
 from authority_finder.fetching import PageFetcher
 from authority_finder.fetching.models import FetchTier
@@ -90,6 +91,49 @@ def _geo_page(ref: GeoRef, *, now: datetime) -> GeoPage:
     )
 
 
+async def _merge_authority_candidates(
+    discovery_results: list[DiscoveryResult],
+    *,
+    geos: list[GeoPage],
+    serp_client: SerpApiClient,
+    ahrefs_client: AhrefsClient | None,
+    now: datetime,
+) -> dict[str, float]:
+    """Merge component 3's authority candidates into each geo's discovery result, in place.
+
+    Emitting ordinary ``CandidateSite`` objects and merging them BEFORE detection is what makes
+    gate reuse structural (ADR-027): there is no second code path that could skip a gate.
+    Returns the Domain Ratings so row assembly can carry them — they were being computed and
+    discarded before.
+    """
+    if ahrefs_client is None:
+        return {}
+
+    domain_ratings: dict[str, float] = {}
+    added = 0
+    by_url = {g.url: g for g in geos}
+    for discovery in discovery_results:
+        geo_page = by_url.get(discovery.geo.url)
+        if geo_page is None:
+            continue
+        try:
+            extra, ratings = await authority_candidates_for_geo(
+                geo_page, serp_client=serp_client, ahrefs_client=ahrefs_client, now=now
+            )
+        except Exception as exc:  # one geo's authority failure must not lose the batch
+            _log.error("pipeline.authority_failed", geo=discovery.geo.url, error=str(exc))
+            continue
+        known = {c.registrable_domain for c in discovery.candidates}
+        fresh = [c for c in extra if c.registrable_domain not in known]
+        discovery.candidates.extend(fresh)
+        added += len(fresh)
+        for domain, rating in ratings.items():
+            if rating.dr is not None:
+                domain_ratings[domain] = rating.dr
+    _log.info("pipeline.authority_merged", added=added)
+    return domain_ratings
+
+
 async def run_pipeline(
     geos: list[GeoPage],
     *,
@@ -98,6 +142,7 @@ async def run_pipeline(
     census_client: CensusClient,
     now: datetime,
     ahrefs_client: AhrefsClient | None = None,
+    on_geo_rows: Callable[[GeoRef, list[OutputRow]], None] | None = None,
 ) -> tuple[list[OutputRow], PipelineFunnel]:
     """Run the full chain over geos; return assembled rows + a funnel summary.
 
@@ -108,30 +153,13 @@ async def run_pipeline(
     _log.info("pipeline.start", geos=len(geos))
     discovery_results = await discover_many(geos, client=serp_client)
 
-    authority_added = 0
-    domain_ratings: dict[str, float] = {}
-    if ahrefs_client is not None:
-        by_url = {g.url: g for g in geos}
-        for discovery in discovery_results:
-            geo_page = by_url.get(discovery.geo.url)
-            if geo_page is None:
-                continue
-            try:
-                extra, ratings = await authority_candidates_for_geo(
-                    geo_page, serp_client=serp_client, ahrefs_client=ahrefs_client, now=now
-                )
-            except Exception as exc:
-                _log.error("pipeline.authority_failed", geo=discovery.geo.url, error=str(exc))
-                continue
-            known = {c.registrable_domain for c in discovery.candidates}
-            fresh = [c for c in extra if c.registrable_domain not in known]
-            discovery.candidates.extend(fresh)
-            authority_added += len(fresh)
-            # DR is computed here and would otherwise be thrown away; carry it to row build.
-            for domain, rating in ratings.items():
-                if rating.dr is not None:
-                    domain_ratings[domain] = rating.dr
-        _log.info("pipeline.authority_merged", added=authority_added)
+    domain_ratings = await _merge_authority_candidates(
+        discovery_results,
+        geos=geos,
+        serp_client=serp_client,
+        ahrefs_client=ahrefs_client,
+        now=now,
+    )
 
     rows: list[OutputRow] = []
     candidates = detected = with_email = with_phone = population_found = 0
@@ -151,6 +179,7 @@ async def run_pipeline(
         detected += len(extraction.outcomes)
         with_email += extraction.with_email
         with_phone += extraction.with_phone
+        geo_rows: list[OutputRow] = []
         for outcome, link_result in zip(extraction.outcomes, link_results, strict=True):
             cell = "; ".join(link_result.competitor_domains) or "—"
             row = build_row(
@@ -161,11 +190,18 @@ async def run_pipeline(
                 domain_rating=domain_ratings.get(outcome.candidate.registrable_domain),
             )
             rows.append(row)
+            geo_rows.append(row)
             if row.population is not None:
                 population_found += 1
             if link_result.links_found:
                 competitor_rows += 1
                 competitor_links_total += len(link_result.links_found)
+
+        if on_geo_rows is not None:
+            try:
+                on_geo_rows(discovery.geo, geo_rows)
+            except Exception as exc:  # a checkpoint failure must never lose the run
+                _log.error("pipeline.checkpoint_failed", geo=discovery.geo.url, error=str(exc))
 
     funnel = PipelineFunnel(
         geos=len(discovery_results),
