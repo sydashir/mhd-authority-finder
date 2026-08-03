@@ -110,7 +110,11 @@ class SitemapFetcher:
                 continue
             for entry in result:
                 path = urlparse(entry.loc).path
-                if config.geo_url_regex.match(path):
+                # Every known shape, not just the primary: filtering on geo_url_regex alone
+                # discarded the topic-prefixed geo pages before the parser could see them,
+                # which is how 2,848 MHD pages stayed invisible (ADR-031).
+                patterns = (config.geo_url_regex, *config.topic_url_regexes)
+                if any(pattern.match(path) for pattern in patterns):
                     geo_entries.append(entry)
         _log.info("sitemap.geo_entries_collected", site_id=config.id, count=len(geo_entries))
         return geo_entries

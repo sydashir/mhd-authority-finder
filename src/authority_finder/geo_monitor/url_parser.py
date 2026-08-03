@@ -13,21 +13,36 @@ from urllib.parse import urlparse
 
 from authority_finder.geo_monitor.models import GeoLevel, GeoPage, SiteConfig
 from authority_finder.geo_monitor.states import US_STATE_SLUGS
+from authority_finder.page_detector.geography import ABBR_TO_SLUG
+
+_ABBR_LEN = 2
 
 
 def parse_geo_url(url: str, config: SiteConfig, *, now: datetime) -> GeoPage | None:
     """Parse one URL into a :class:`GeoPage`, or return ``None`` if it isn't a geo page."""
     parsed = urlparse(url)
     path = parsed.path
-    match = config.geo_url_regex.match(path)
-    if match is None:
-        return None
 
-    state = match.group("state")
-    county = match.group("county")
-    city = match.group("city")
+    # Try every shape and keep the first that yields a VALID state. Matching alone is not
+    # enough: AH's primary pattern happily matches /support-groups/california/orange-county/
+    # as state="support-groups", so stopping at the first regex hit would reject the page
+    # before the topic patterns were ever tried.
+    state = county = city = None
+    for pattern in (config.geo_url_regex, *config.topic_url_regexes):
+        match = pattern.match(path)
+        if match is None:
+            continue
+        groups = match.groupdict()
+        candidate = groups.get("state") or ""
+        # Topic pages abbreviate the state (/ocd-treatment/tn/…) while /serving/ spells it
+        # out; expand before the whitelist check or every topic page is rejected.
+        if len(candidate) == _ABBR_LEN:
+            candidate = ABBR_TO_SLUG.get(candidate.lower(), candidate)
+        if candidate in US_STATE_SLUGS:
+            state, county, city = candidate, groups.get("county"), groups.get("city")
+            break
 
-    if state not in US_STATE_SLUGS:
+    if state is None:
         return None
 
     level: GeoLevel = "city" if city else "county" if county else "state"

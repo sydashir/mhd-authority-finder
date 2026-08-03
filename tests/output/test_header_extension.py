@@ -12,10 +12,10 @@ import pytest
 
 from authority_finder.output.models import OUTPUT_HEADER, OutputRow, build_row
 from authority_finder.output.sheets_writer import (
-    _RANGE,
+    _RANGE,  # pyright: ignore[reportPrivateUsage]  - the range rule IS the thing under test
     SheetsError,
     SheetsWriter,
-    _last_column_letter,
+    _last_column_letter,  # pyright: ignore[reportPrivateUsage]
     is_safe_header_change,
 )
 

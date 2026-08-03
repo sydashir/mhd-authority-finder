@@ -27,6 +27,10 @@ class SiteConfig(BaseModel):
     base_url: str
     sitemap_index_url: str
     geo_url_regex: re.Pattern[str]
+    # Additional shapes tried in order after the primary. Both sites publish geo pages under
+    # content-type prefixes (/support-groups/…, /ocd-treatment/…) that the primary never
+    # matched, hiding thousands of pages (ADR-031).
+    topic_url_regexes: tuple[re.Pattern[str], ...] = ()
     slug_field_order: tuple[SlugField, ...]
 
 

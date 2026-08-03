@@ -11,9 +11,11 @@ been processed (ADR-012). ``run_monitor`` keeps its original behaviour: detect
 then immediately persist the full current set.
 """
 
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import NamedTuple
+from urllib.parse import urlparse
 
 import structlog
 
@@ -26,6 +28,52 @@ from authority_finder.geo_monitor.models import (
 from authority_finder.geo_monitor.sitemap_fetcher import SitemapFetcher, SitemapSource
 from authority_finder.geo_monitor.state import DEFAULT_STATE_DIR, load_state, save_state
 from authority_finder.geo_monitor.url_parser import parse_geo_url
+
+_SUSPICIOUS_MIN_COUNT = 5
+_SUSPICIOUS_MIN_DEPTH = 2
+
+
+@dataclass(frozen=True)
+class UnparsedShape:
+    """One family of URLs the parser could not read, grouped by first path segment.
+
+    A dataclass rather than a NamedTuple: ``count`` would shadow ``tuple.count``.
+    """
+
+    count: int
+    example: str
+    max_depth: int
+    suspicious: bool
+
+
+def summarise_unparsed(urls: list[str]) -> dict[str, UnparsedShape]:
+    """Group unparsable URLs by first path segment, flagging shapes that look like geo pages.
+
+    Non-geo pages (/contact/, /facilites/...) are legitimately unparsed and swamp a flat list,
+    so the useful signal is a REPEATED, MULTI-SEGMENT prefix — exactly what a geo URL family
+    the parser does not know looks like (ADR-031).
+    """
+    counts: dict[str, int] = {}
+    examples: dict[str, str] = {}
+    depths: dict[str, int] = {}
+    for url in urls:
+        parts = [p for p in urlparse(url).path.split("/") if p]
+        if not parts:
+            continue
+        head = parts[0]
+        counts[head] = counts.get(head, 0) + 1
+        examples.setdefault(head, url)
+        depths[head] = max(depths.get(head, 0), len(parts))
+    return {
+        head: UnparsedShape(
+            count=count,
+            example=examples[head],
+            max_depth=depths[head],
+            suspicious=count >= _SUSPICIOUS_MIN_COUNT and depths[head] >= _SUSPICIOUS_MIN_DEPTH,
+        )
+        for head, count in counts.items()
+    }
+
 
 _log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -53,10 +101,29 @@ async def diff_sitemap(
     entries = await fetcher.fetch_all_geo_entries(config)
 
     parsed: list[GeoPage] = []
+    unparsed: list[str] = []
     for entry in entries:
         page = parse_geo_url(entry.loc, config, now=started_at)
         if page is not None:
             parsed.append(page)
+        else:
+            unparsed.append(entry.loc)
+
+    # COUNT and NAME what we could not parse. An unrecognised URL used to vanish, which made
+    # "no such pages exist" indistinguishable from "we cannot read them" (ADR-031).
+    shapes = summarise_unparsed(unparsed)
+    suspicious = {k: asdict(v) for k, v in shapes.items() if v.suspicious}
+    _log.info(
+        "sitemap.unparsed",
+        site_id=config.id,
+        unparsed=len(unparsed),
+        parsed=len(parsed),
+        shapes=len(shapes),
+    )
+    if suspicious:
+        # A repeated multi-segment prefix is what a missed geo type looks like. Loud on
+        # purpose: this is the signal that the site published a URL shape we do not know.
+        _log.warning("sitemap.unparsed_suspicious", site_id=config.id, shapes=suspicious)
 
     current_urls = {page.url for page in parsed}
     new_pages = [page for page in parsed if page.url not in state.known_urls]

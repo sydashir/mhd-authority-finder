@@ -1,9 +1,9 @@
 """Registry lookup, tested against domains the LIVE dataset actually found (ADR-029)."""
 
-from authority_finder.discovery.registry import domains_for_geo, load_registry
+from authority_finder.discovery.registry import GovDomain, domains_for_geo, load_registry
 
 
-def _names(rows: list) -> set[str]:
+def _names(rows: list[GovDomain]) -> set[str]:
     return {r.domain for r in rows}
 
 
