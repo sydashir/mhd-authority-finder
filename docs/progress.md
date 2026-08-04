@@ -1359,3 +1359,74 @@ DB→Sheet (`scratch/finalize_s25.py`): **593 → 589 rows**.
   edits with `prettier --single-quote --no-semi --print-width 100`, never bare `prettier --write`.
 - `runs.geos_processed/rows_written/billed_searches` are NOT NULL — a hand-seeded run row needs them.
 - The session tmpfs fills during Playwright + workflows (ENOSPC) — set `CLAUDE_CODE_TMPDIR` to `scratch/tmp`.
+
+---
+
+## 2026-08-04 — Session 46: Competitor link provenance (client-reported bug)
+
+### Done
+
+**Investigated before changing anything.** The client reported row 1 of the master Sheet
+(`ucr.edu`) as a false positive: `Competitor Links = addictionresource.net; samhsa.gov`, but
+opening `Specific Page = https://counseling.ucr.edu/` shows no competitor links. Drove both
+pages with Playwright first:
+
+| Page | Links | External | Competitor hits |
+|---|---|---|---|
+| `counseling.ucr.edu/` | 112 | 17 | **0** |
+| `counseling.ucr.edu/resources-support-…` | 378 | 164 | **3** |
+
+The three are `findtreatment.samhsa.gov`, `samhsa.gov`, `addictionresource.net` — exactly the
+stored value. **Detection correct, provenance invisible.** ADR-011 checks the detected page
+plus one resources hop by design, and `CompetitorLink.found_on_url` had been captured on every
+link since S10 and read by nothing.
+
+- **New column `Competitor Links Found On`** (ADR-032), appended so every existing index holds.
+  Populated only when it differs from `Specific Page`; blank keeps meaning "the same page".
+  `Specific Page` deliberately STAYS the contact page — it is the outreach target.
+- Carried the whole path: `LinkCheckResult.found_on_pages()` → `OutputRow` → Postgres
+  (additive migration `a3f2c9d81b47`) → upsert INSERT **and** conflict `set_` → API → drawer.
+- **Backfill, 0 billed:** re-checked all 268 competitor-linked rows. **100 (37%)** have their
+  links on a page other than the one shown — every one would have read as a false positive.
+  The re-check also corroborated the original detection: **266/268 domain sets matched
+  exactly**, 1 fetch failure, 1 page changed since the run. Provenance was written only where
+  the links were still confirmed, never asserted from a fetch that could not verify them.
+- **Structural guard (`tests/output/test_field_paths.py`).** Third field captured and dropped
+  before the client saw it (the `other` bucket, `domain_rating`, now `found_on_url`), each
+  found by a human reading the output, twice by the client. Asserts header width, `build_row`
+  assigning every parameter it accepts, and every pipeline-owned field present in BOTH the
+  INSERT and the conflict `set_` — with outreach fields asserted ABSENT, so the guard cannot
+  be satisfied by weakening ADR-022. Written first; it immediately caught this same field
+  missing from the DB path.
+- **Found a fourth instance while looking:** the frontend CSV export is its own hand-written
+  column list and had been missing **Domain Rating since that column shipped**. Fixed, plus a
+  test counting HEADER against the deliverable fields on `Prospect`.
+- Backfilled **ADR-029** (CISA registry) and **ADR-031** (topic sitemap URLs) — cited 11 times
+  across `src` and `tests` but never written. Log re-sorted by number.
+- Cleared 3 pre-existing strict-pyright errors in `tests/scheduler/test_runner_persist.py`.
+
+### Verified
+
+- **679 backend** (588 unit + 91 db/api/scheduler) + **41 frontend**; ruff, ruff format,
+  strict pyright (0 errors), tsc, oxlint, vite build all clean.
+- Master Sheet re-exported from Postgres: **2,291 rows, 14 → 15 cols**, not a shrink, guard
+  untouched. Full cell-level reconciliation DB↔Sheet across 2,291 × 15: **0 differences**.
+- **ADR-022 proven live on the production DB**: seeded `ucr.edu` as `interested` with a note,
+  ran the real upsert with changed discovery data — status, note and author survived while
+  discovery refreshed. Reset to pristine (**0 actioned rows**).
+- Playwright on the live app: the drawer now reads "Found on <resources URL>, not the contact
+  page above" under the competitor chips.
+
+### Gotcha
+
+While resetting the ADR-022 test I blanked `ucr.edu`'s real email (`counseling@ucr.edu`) by
+resetting to `""` instead of its stored value. Caught it against the pre-write Sheet backup and
+restored it; the full DB↔Sheet reconciliation above is what proves nothing else drifted. **Take
+the row snapshot BEFORE seeding a live test, and restore from that snapshot.**
+
+### Next
+
+- P1 hosting: prod compose for API + frontend, DB backups, migrations on boot, loopback
+  Postgres with a real password, `AUTH_COOKIE_SECURE=true`, Sentry DSNs, session revocation.
+- Open with the client: DR-as-signal still needs Jake's ratification; county (~$377) / city
+  (~$677) corpus scope undecided.
