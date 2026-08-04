@@ -54,6 +54,43 @@ Append-only. Newest entries at the bottom. Each ADR captures: decision, alternat
 
 ---
 
+## ADR-002 — Commit hygiene: no AI attribution, conventional commits, atomic commits
+
+**Date:** 2026-05-21
+**Status:** Accepted
+**Context:** Session 2 — tightening rules before any feature code lands.
+
+(Numbering note: ADR-002 lands after ADR-003 chronologically because both were decided in the same session; numbers reflect topic ordering in `CLAUDE.md`'s working-rules section, not commit timeline.)
+
+### Decision
+
+1. **No AI attribution on commits or PRs.** No `Co-Authored-By: Claude`, no "Generated with Claude Code" footer, no emoji robot, no model name in commit metadata. Commits are authored by the human. Globally enforced via `~/.claude/settings.json` (`attribution.commit = ""`, `attribution.pr = ""`).
+2. **Conventional-commit style, short.** Subject ≤ 60 chars, lowercase, imperative mood (`add x`, not `added x`). Type prefix from the fixed set: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `perf`, `build`. Body only when the diff itself doesn't explain *why*. No marketing language. No emojis.
+3. **Atomic / commit-by-commit.** One logical change per commit. Two unrelated edits = two commits. If a refactor surfaces a bug fix, that's still two commits. The CLAUDE.md-rules edit and the Hunter-drop edit landed as two commits this session — that's the standard.
+
+### Rationale
+
+- Clean git history is a debugging tool, not a vanity exercise. `git bisect` only works when each commit is one thing. `git revert` only works without collateral damage when each commit is one thing.
+- AI attribution in the commit trailer pollutes `git blame`, leaks tooling details into a permanent record, and conflates authorship. The human runs the IDE; the human owns the commit. (Pattern used by [Linus on subsystem maintainers](https://lwn.net/Articles/669976/), and the rationale for the [Conventional Commits spec](https://www.conventionalcommits.org/).)
+- Short subject lines render properly in `git log --oneline`, GitHub PR lists, and every code-review UI. Long subjects truncate and lose meaning.
+- Atomic commits make code review faster: reviewers can approve or reject a discrete change without untangling it from three other changes.
+
+### Alternatives considered
+
+| Choice | Considered | Why not |
+|---|---|---|
+| Keep AI attribution trailers | yes | Pollutes blame; provides no information that isn't already in the file history. |
+| Free-form commit messages | yes | Loses the affordances of conventional commits (changelog tooling, type filtering). The cost of imposing structure is one prefix; the benefit is permanent. |
+| Squash unrelated work into "WIP" commits and tidy later | yes | "Tidy later" never happens. Easier to write atomic in the first place than to rewrite history. |
+
+### Enforcement
+
+- `~/.claude/settings.json` global override removes the default trailer.
+- The three rules are appended to `CLAUDE.md`'s working-rules section so every future session reads them at start.
+- Violations are user-correctable via `git commit --amend` before push; if pushed, fix forward rather than rewriting history.
+
+---
+
 ## ADR-003 — Drop Hunter.io / Apollo from MVP scope
 
 **Date:** 2026-05-21
@@ -89,43 +126,6 @@ Append-only. Newest entries at the bottom. Each ADR captures: decision, alternat
 - `architecture.md` updated (component table, mermaid, scope boundaries).
 - The Phase 1 next-step list in `CLAUDE.md` should describe contact extraction as direct-scrape only.
 - `Settings.hunter_api_key` exists but is unused. When we revisit, ADR-003 supersession will be added here, not edited in place.
-
----
-
-## ADR-002 — Commit hygiene: no AI attribution, conventional commits, atomic commits
-
-**Date:** 2026-05-21
-**Status:** Accepted
-**Context:** Session 2 — tightening rules before any feature code lands.
-
-(Numbering note: ADR-002 lands after ADR-003 chronologically because both were decided in the same session; numbers reflect topic ordering in `CLAUDE.md`'s working-rules section, not commit timeline.)
-
-### Decision
-
-1. **No AI attribution on commits or PRs.** No `Co-Authored-By: Claude`, no "Generated with Claude Code" footer, no emoji robot, no model name in commit metadata. Commits are authored by the human. Globally enforced via `~/.claude/settings.json` (`attribution.commit = ""`, `attribution.pr = ""`).
-2. **Conventional-commit style, short.** Subject ≤ 60 chars, lowercase, imperative mood (`add x`, not `added x`). Type prefix from the fixed set: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `perf`, `build`. Body only when the diff itself doesn't explain *why*. No marketing language. No emojis.
-3. **Atomic / commit-by-commit.** One logical change per commit. Two unrelated edits = two commits. If a refactor surfaces a bug fix, that's still two commits. The CLAUDE.md-rules edit and the Hunter-drop edit landed as two commits this session — that's the standard.
-
-### Rationale
-
-- Clean git history is a debugging tool, not a vanity exercise. `git bisect` only works when each commit is one thing. `git revert` only works without collateral damage when each commit is one thing.
-- AI attribution in the commit trailer pollutes `git blame`, leaks tooling details into a permanent record, and conflates authorship. The human runs the IDE; the human owns the commit. (Pattern used by [Linus on subsystem maintainers](https://lwn.net/Articles/669976/), and the rationale for the [Conventional Commits spec](https://www.conventionalcommits.org/).)
-- Short subject lines render properly in `git log --oneline`, GitHub PR lists, and every code-review UI. Long subjects truncate and lose meaning.
-- Atomic commits make code review faster: reviewers can approve or reject a discrete change without untangling it from three other changes.
-
-### Alternatives considered
-
-| Choice | Considered | Why not |
-|---|---|---|
-| Keep AI attribution trailers | yes | Pollutes blame; provides no information that isn't already in the file history. |
-| Free-form commit messages | yes | Loses the affordances of conventional commits (changelog tooling, type filtering). The cost of imposing structure is one prefix; the benefit is permanent. |
-| Squash unrelated work into "WIP" commits and tidy later | yes | "Tidy later" never happens. Easier to write atomic in the first place than to rewrite history. |
-
-### Enforcement
-
-- `~/.claude/settings.json` global override removes the default trailer.
-- The three rules are appended to `CLAUDE.md`'s working-rules section so every future session reads them at start.
-- Violations are user-correctable via `git commit --amend` before push; if pushed, fix forward rather than rewriting history.
 
 ---
 
@@ -1362,6 +1362,29 @@ than two-letter codes and are worth keeping, but they cannot distinguish a state
 Pinned by a test so the trade-off is visible. If it appears in real data, require the name to
 sit adjacent to an org token rather than anywhere in the label.
 
+## ADR-029
+
+**The `.gov` half of discovery is a lookup, not a search.**
+
+Discovery was paying Google, per geo, to answer "which `.gov` sites exist here?" — while CISA
+publishes the complete list of US `.gov` domains for free. Vendored as `data/gov_domains.csv`
+(16,406 rows) behind `discovery/registry.py`, which collapses the `site:.gov` queries to zero
+billed searches and leaves the paid budget for the `.org`/`.com` authority source, where an
+enumerable registry does not exist.
+
+Validated against the live 589-row dataset BEFORE building, not after: all 266 `.gov` domains
+discovery had ever found are present — 208 exact, 58 as their parent (`hhs.nd.gov` → `nd.gov`),
+zero missing. The parent-domain case costs nothing because `page_detector`'s bounded crawl
+already walks a root down to the department page, which is precisely what the paid query was
+buying.
+
+**Vendored, not fetched at runtime.** A 3am scheduled run must not fail because an external
+host is down. Refresh is a documented manual command in the module docstring.
+
+Matching rules were derived from the real data rather than assumed: a County row's `City`
+field holds the county SEAT (`pinellas.gov` is City=Clearwater), so counties match on
+`Organization name` and cities on `City`.
+
 ## ADR-030 — Scheduler moves from an interval to day-of-week cron
 
 **Status:** accepted (2026-07-31).
@@ -1392,3 +1415,80 @@ invocation.
 **Unchanged:** every cost rail survives — zero spend when no new geos, `MAX_NEW_GEOS_PER_RUN`,
 the `MAX_BILLED_SEARCHES_PER_RUN` circuit breaker, the daily ceiling, and the no-concurrent-run
 guard. This ADR changes only *when* a tick fires, never what a tick may spend.
+
+## ADR-031
+
+**Sitemap coverage: match topic-prefixed geo URLs, and count what the parser cannot read.**
+
+Both sites publish geo pages under content-type prefixes (`/support-groups/…`,
+`/ocd-treatment/…`) that the single primary `geo_url_regex` never matched. The corpus was
+reported as "AH is state-only" and accepted as fact until the user challenged it. It was wrong:
+**9 AH and 2,848 MHD geo pages were live and invisible**, and the corpus corrected 5,958 →
+6,263.
+
+Two changes, and the second matters more than the first:
+
+1. `SiteConfig.topic_url_regexes` — additional shapes tried in order after the primary. The
+   parser keeps the first VALID parse rather than the first regex MATCH, so a shape that
+   matches but yields a non-whitelisted state does not shadow one that would have parsed.
+
+2. **Unparsed URLs are counted and logged with an example** (`summarise_unparsed`). The real
+   defect was not the missing pattern — it was that a URL the parser could not read produced
+   silence, making "no such pages exist" indistinguishable from "we cannot read them". A
+   filter that discards without counting cannot report its own blindness, which is why this
+   needed a human to notice. Same principle as ADR-006's drop-but-COUNT.
+
+US territories (PR, GU, VI, MP, AS) and DC were added to the state whitelist at the same time;
+the instrumentation is what surfaced them. The site's `district-of-colombia` misspelling is
+accepted alongside the correct one — their URL, not ours to correct.
+
+## ADR-032
+
+**Competitor link provenance: name the page the links are actually on.**
+
+The client opened row 1 of the master Sheet (`ucr.edu`), saw `Competitor Links =
+addictionresource.net; samhsa.gov`, opened `Specific Page = https://counseling.ucr.edu/`,
+found no competitor links anywhere on it, and reported the row as a false positive.
+
+Verified with Playwright before changing anything. The client was right about the page and
+wrong about the row:
+
+| Page | Links | External | Competitor hits |
+|---|---|---|---|
+| `counseling.ucr.edu/` | 112 | 17 | **0** |
+| `counseling.ucr.edu/resources-support-…` | 378 | 164 | **3** |
+
+The three are `findtreatment.samhsa.gov`, `samhsa.gov`, `addictionresource.net` — exactly the
+stored value. The detection was correct. **The deliverable just never named the page.**
+
+ADR-011 checks the detected page AND one resources hop, by design: an org's outbound links
+live on its resources page, not its contact page. So the two columns were describing different
+pages while sitting side by side, and the row could not be verified by the person reading it.
+
+**Decision: append `Competitor Links Found On`, populated only when it differs from
+`Specific Page`.** Blank keeps meaning "the same page", so blank needs no explanation and a
+value only appears when it tells the reader something they could not otherwise work out.
+
+`Specific Page` STAYS the contact page — it is the outreach target, and repointing it at the
+resources page would fix the audit at the cost of the column's actual job.
+
+**Scale of the problem:** re-checking all 268 competitor-linked rows found **100 (37%)** whose
+links are on a page other than the one shown. Every one of those would have read as a false
+positive. The re-check also corroborated the original detection: **266/268 domain sets matched
+exactly**, 1 fetch failure, 1 page changed since the run — so provenance was written only where
+the links were still confirmed, never asserted from a fetch that could not verify them.
+
+**The meta-decision — a structural guard, not a third patch.** This is the third field captured
+by the pipeline and silently dropped before the client saw it:
+
+1. the `other` discovery bucket (ADR-006) — counted, then discarded
+2. `domain_rating` — accepted by `build_row` and never assigned; later missing from
+   `upsert_prospect`'s explicit column list, so the CSV held 1,241 values and every DB row NULL
+3. `found_on_url` — set on every `CompetitorLink`, read by nothing
+
+Each was found by a human reading the output, twice by the client. `tests/output/test_field_paths.py`
+now asserts the wiring structurally: header width matches the model, `build_row` assigns every
+parameter it accepts, and every pipeline-owned field appears in BOTH the INSERT values and the
+on-conflict `set_`. Those tests were written first and immediately caught this same field
+missing from the DB path. The outreach fields are asserted ABSENT from the conflict set_, so
+the guard cannot be satisfied by weakening ADR-022.
