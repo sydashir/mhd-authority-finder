@@ -212,6 +212,7 @@ function DrawerContent({
   notify: (toast: ToastData) => void
 }) {
   const competitors = competitorList(p.competitor_links)
+  const foundOn = p.competitor_links_found_on.split('; ').filter(Boolean)
   return (
     <>
       <header className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
@@ -302,13 +303,36 @@ function DrawerContent({
               None detected — no links to competitor directories on this page.
             </div>
           ) : (
-            <ul className="flex flex-wrap gap-1.5">
-              {competitors.map((domain) => (
-                <li key={domain} className="badge badge-flag">
-                  {domain}
-                </li>
-              ))}
-            </ul>
+            <>
+              <ul className="flex flex-wrap gap-1.5">
+                {competitors.map((domain) => (
+                  <li key={domain} className="badge badge-flag">
+                    {domain}
+                  </li>
+                ))}
+              </ul>
+              {/* Without this the links look invented: the check also covers one resources hop
+                  (ADR-011), so opening Specific Page can show no competitor links at all. */}
+              {foundOn.length > 0 && (
+                <div className="mt-2.5 text-[12px] leading-relaxed text-fg-muted">
+                  Found on{' '}
+                  {foundOn.map((url, i) => (
+                    <span key={url}>
+                      {i > 0 && ', '}
+                      <a
+                        href={url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="break-all text-brand hover:underline"
+                      >
+                        {url}
+                      </a>
+                    </span>
+                  ))}
+                  , not the contact page above.
+                </div>
+              )}
+            </>
           )}
         </Section>
 

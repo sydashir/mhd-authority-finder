@@ -26,6 +26,7 @@ export interface Prospect {
   geo_served: string
   population: number | null
   competitor_links: string
+  competitor_links_found_on: string
   /** Ahrefs DR, authority-sourced rows only. null for .gov/.edu — never scored (ADR-027). */
   domain_rating: number | null
   source_tag: SourceTag

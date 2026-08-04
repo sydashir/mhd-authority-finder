@@ -134,6 +134,10 @@ class Prospect(Base):
     geo_served: Mapped[str] = mapped_column(String(128))
     population: Mapped[int | None]
     competitor_links: Mapped[str] = mapped_column(Text, default="")
+    # Which page the competitor links were actually on, when that is NOT specific_page. The
+    # check covers the detected page plus one resources hop (ADR-011), so links often live on
+    # a sub-page; showing only the contact URL made a correct row look like a false positive.
+    competitor_links_found_on: Mapped[str] = mapped_column(Text, default="", server_default="")
     # Ahrefs DR for authority-sourced rows (ADR-027). NULL for .gov/.edu, which are never
     # scored by design — NULL means "not measured"; 0.0 would falsely claim no authority.
     domain_rating: Mapped[float | None] = mapped_column(Float, nullable=True)

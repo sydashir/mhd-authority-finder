@@ -25,6 +25,7 @@ export function makeProspect(over: Partial<Prospect> = {}): Prospect {
     geo_served: 'Orange County, California',
     population: 3_165_820,
     competitor_links: '—',
+    competitor_links_found_on: '',
     domain_rating: null,
     source_tag: 'MHD',
     confidence: 'high',

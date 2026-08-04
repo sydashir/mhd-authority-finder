@@ -13,11 +13,31 @@ describe('ProspectDrawer', () => {
       email: 'bh@oc.gov',
       specific_page: 'https://oc.gov/behavioral-health',
       competitor_links: 'samhsa.gov; findtreatment.gov',
+      competitor_links_found_on: 'https://county.gov/resources',
     })
     renderWithProviders(<ProspectDrawer prospect={p} onClose={vi.fn()} notify={vi.fn()} />)
     expect(screen.getByText('bh@oc.gov')).toBeInTheDocument()
     expect(screen.getByText('samhsa.gov')).toBeInTheDocument()
     expect(screen.getByText('findtreatment.gov')).toBeInTheDocument()
+  })
+
+  it('names the page the competitor links are actually on when it is not the contact page', () => {
+    // The client-reported ucr.edu case: the contact page shows no competitor links because the
+    // check also covers one resources hop, so a correct row read as a false positive.
+    const p = makeProspect({
+      specific_page: 'https://counseling.ucr.edu/',
+      competitor_links: 'samhsa.gov',
+      competitor_links_found_on: 'https://counseling.ucr.edu/resources-support',
+    })
+    renderWithProviders(<ProspectDrawer prospect={p} onClose={vi.fn()} notify={vi.fn()} />)
+    const link = screen.getByRole('link', { name: 'https://counseling.ucr.edu/resources-support' })
+    expect(link).toHaveAttribute('href', 'https://counseling.ucr.edu/resources-support')
+  })
+
+  it('says nothing about provenance when the links are on the contact page itself', () => {
+    const p = makeProspect({ competitor_links: 'samhsa.gov', competitor_links_found_on: '' })
+    renderWithProviders(<ProspectDrawer prospect={p} onClose={vi.fn()} notify={vi.fn()} />)
+    expect(screen.queryByText(/Found on/)).not.toBeInTheDocument()
   })
 
   it('copies a contact value to the clipboard', async () => {
