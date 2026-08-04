@@ -1,7 +1,10 @@
 import type { Prospect } from '../api/types'
 
-// Mirrors the backend OUTPUT_HEADER (the deliverable column order).
-const HEADER = [
+// Mirrors the backend OUTPUT_HEADER (the deliverable column order). Kept in step by
+// csv.test.ts, which fails when a deliverable field on Prospect is missing here — this list
+// silently lagged Domain Rating by several releases, so the client's CSV export was short a
+// column nobody noticed.
+export const HEADER = [
   'Website',
   'Specific Page',
   'Email',
@@ -15,6 +18,8 @@ const HEADER = [
   'Source Tag',
   'Date Added',
   'Confidence',
+  'Domain Rating',
+  'Competitor Links Found On',
 ]
 
 function cell(value: string | number | null): string {
@@ -37,6 +42,8 @@ function row(p: Prospect): string {
     p.source_tag,
     p.date_added,
     p.confidence,
+    p.domain_rating,
+    p.competitor_links_found_on,
   ]
     .map(cell)
     .join(',')
