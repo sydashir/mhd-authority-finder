@@ -63,6 +63,13 @@ FEDERAL_DOMAINS: frozenset[str] = frozenset(
         "govinfo.gov",
         "gpo.gov",
         "regulations.gov",
+        # S47 hand-audit of the delivered 2,291 rows: each of these shipped as a LOCAL
+        # prospect for a named geo. A federal body has no geo and will never link locally.
+        "macpac.gov",  # served to Hawaii and to Massachusetts
+        "vaoig.gov",  # VA Inspector General, served to Pennsylvania
+        "archives.gov",  # trumpwhitehouse.archives.gov, served to South Carolina
+        "ntis.gov",  # a 1983 technical report, served to Brea, California
+        "usbr.gov",  # Bureau of Reclamation, served to Port Hueneme, California
         # likely to rank for health / treatment / justice queries
         "acf.gov",
         "ahrq.gov",

@@ -140,6 +140,10 @@ _LOCAL_NEWS = (
 _UNRELATED_COMMERCIAL = (
     "unitedvanlines.com",
     "opencounseling.com",
+    # S47 audit: real associations published under someone else's namespace, so the
+    # PLATFORM became the prospect. NJAMHAA on a marketing host, IABH as a lobbying profile.
+    "eggzack.com",
+    "legistorm.com",
 )
 
 _TRADE_PRESS = (
