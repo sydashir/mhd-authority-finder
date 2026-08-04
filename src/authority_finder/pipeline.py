@@ -188,6 +188,11 @@ async def run_pipeline(
                 now=now,
                 competitor_links=cell,
                 domain_rating=domain_ratings.get(outcome.candidate.registrable_domain),
+                # Blank when the links are on the contact page itself; populated only when
+                # the resources hop is where they actually live (ADR-011).
+                competitor_links_found_on="; ".join(
+                    link_result.found_on_pages(exclude=outcome.page_url)
+                ),
             )
             rows.append(row)
             geo_rows.append(row)

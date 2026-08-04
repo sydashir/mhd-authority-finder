@@ -32,3 +32,14 @@ class LinkCheckResult(BaseModel):
     def competitor_domains(self) -> list[str]:
         """Unique competitor domains found, sorted — the deliverable's cell summary."""
         return sorted({link.competitor_domain for link in self.links_found})
+
+    def found_on_pages(self, *, exclude: str = "") -> list[str]:
+        """Pages the links were actually found on, excluding ``exclude``.
+
+        The check covers the detected page AND one resources hop (ADR-011), so a link often
+        lives on a sub-page. Showing only the contact URL made a correct detection look like
+        a false positive to the client — the links were real, just on a page we never named.
+        """
+        seen = {link.found_on_url for link in self.links_found}
+        seen.discard(exclude)
+        return sorted(seen)

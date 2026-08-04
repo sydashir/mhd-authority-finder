@@ -30,9 +30,12 @@ OUTPUT_HEADER: list[str] = [
     "Source Tag",
     "Date Added",
     "Confidence",
-    # APPEND-ONLY. The live master tab holds 589 rows and _existing_keys reads Website and
-    # Geo Served positionally, so a new column may only go on the end (ADR-027).
+    # APPEND-ONLY. The live master tab is read positionally by _existing_keys (Website and
+    # Geo Served), so a new column may only go on the end (ADR-027).
     "Domain Rating",
+    # Blank means "same page as Specific Page" — so blank needs no explanation, and a value
+    # only appears when it tells the reader something they could not otherwise know.
+    "Competitor Links Found On",
 ]
 
 _SOURCE_TAGS = {"mhd": "MHD", "ah": "AH"}
@@ -58,6 +61,10 @@ class OutputRow(BaseModel):
     # Ahrefs DR for authority-sourced rows. None for .gov/.edu, which are deliberately never
     # scored (ADR-027) — blank means "not measured"; 0 would be a false claim of no authority.
     domain_rating: float | None = None
+    # Where the competitor links actually appear, when that is NOT the contact page. The
+    # check covers the detected page plus one resources hop (ADR-011), so links frequently
+    # live on a sub-page; showing only the contact URL made a correct row look wrong.
+    competitor_links_found_on: str = ""
 
     @property
     def dedupe_key(self) -> tuple[str, str]:
@@ -80,6 +87,7 @@ class OutputRow(BaseModel):
             self.date_added,
             self.confidence,
             "" if self.domain_rating is None else f"{self.domain_rating:g}",
+            self.competitor_links_found_on,
         ]
 
 
@@ -100,6 +108,7 @@ def build_row(
     now: datetime,
     competitor_links: str = "—",
     domain_rating: float | None = None,
+    competitor_links_found_on: str = "",
 ) -> OutputRow:
     """Assemble one :class:`OutputRow` from the chained per-candidate outputs.
 
@@ -129,4 +138,5 @@ def build_row(
         date_added=now.date().isoformat(),
         confidence=outcome.page_confidence,
         domain_rating=domain_rating,
+        competitor_links_found_on=competitor_links_found_on,
     )

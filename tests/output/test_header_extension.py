@@ -39,28 +39,36 @@ def _row() -> OutputRow:
     )
 
 
+# The header as the live master Sheet has held it since the Domain Rating write. Anything
+# already at one of these indices must STAY there — a new column is only ever appended after.
+# Deliberately a literal, not derived from OUTPUT_HEADER: a snapshot is the only thing that
+# can catch OUTPUT_HEADER itself being reordered.
+SHIPPED_COLUMNS = [
+    "Website",
+    "Specific Page",
+    "Email",
+    "Phone",
+    "Contact Source",
+    "Contact Trust",
+    "Organization Description",
+    "Geo Served",
+    "Population",
+    "Competitor Links",
+    "Source Tag",
+    "Date Added",
+    "Confidence",
+    "Domain Rating",
+]
+
+
 class TestColumnPositionsAreStable:
-    def test_the_new_column_is_appended_at_the_end(self) -> None:
+    def test_new_columns_are_appended_after_every_shipped_one(self) -> None:
         """Anywhere else shifts existing indices and misaligns the live rows."""
-        assert OUTPUT_HEADER[-1] == "Domain Rating"
+        assert OUTPUT_HEADER[: len(SHIPPED_COLUMNS)] == SHIPPED_COLUMNS
 
     def test_every_pre_existing_column_keeps_its_index(self) -> None:
-        previous = [
-            "Website",
-            "Specific Page",
-            "Email",
-            "Phone",
-            "Contact Source",
-            "Contact Trust",
-            "Organization Description",
-            "Geo Served",
-            "Population",
-            "Competitor Links",
-            "Source Tag",
-            "Date Added",
-            "Confidence",
-        ]
-        assert OUTPUT_HEADER[: len(previous)] == previous
+        for index, column in enumerate(SHIPPED_COLUMNS):
+            assert OUTPUT_HEADER.index(column) == index
 
     def test_cells_length_matches_the_header(self) -> None:
         assert len(_row().cells()) == len(OUTPUT_HEADER)
@@ -98,13 +106,16 @@ class TestHeaderChangeGuard:
 
 
 class TestDomainRatingCell:
+    # By name, not [-1]: the last column moves every time one is appended.
+    DR = OUTPUT_HEADER.index("Domain Rating")
+
     def test_dr_renders_as_a_plain_number(self) -> None:
-        assert _row().cells()[-1] == "34"
+        assert _row().cells()[self.DR] == "34"
 
     def test_unscored_gov_edu_is_blank_not_zero(self) -> None:
         """.gov/.edu are deliberately never scored — blank means 'not measured', 0 would lie."""
         row = _row().model_copy(update={"domain_rating": None})
-        assert row.cells()[-1] == ""
+        assert row.cells()[self.DR] == ""
 
 
 class TestGuardsWorkTogether:
