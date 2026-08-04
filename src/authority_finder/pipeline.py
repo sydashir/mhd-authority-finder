@@ -10,6 +10,7 @@ rows. Writing (CSV or Sheets) is the caller's job — this returns the assembled
 import asyncio
 from collections.abc import Callable
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 import structlog
 from pydantic import BaseModel
@@ -26,9 +27,13 @@ from authority_finder.fetching.models import FetchTier
 from authority_finder.geo_monitor.models import GeoPage
 from authority_finder.link_checker.models import LinkCheckResult
 from authority_finder.link_checker.orchestrator import check_links_for_candidate
+from authority_finder.output.blocked_writer import BlockedCandidate, collect_blocked
 from authority_finder.output.models import OutputRow, build_row
 from authority_finder.page_detector.orchestrator import detect_for_geo
 from authority_finder.population.census import CensusClient
+
+if TYPE_CHECKING:
+    from authority_finder.page_detector.models import DetectionResult
 
 _log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -48,6 +53,9 @@ class PipelineFunnel(BaseModel):
     fetches_used: int
     fetch_tiers: dict[FetchTier, int]
     billed_searches: int
+    # Real orgs the tool could not reach (CAPTCHA / hard 403) but a person can. Surfaced,
+    # never silently dropped — ncala.org, the brief's own example, is exactly this case.
+    blocked: list[BlockedCandidate] = []
 
 
 async def _check_links(
@@ -162,12 +170,14 @@ async def run_pipeline(
     )
 
     rows: list[OutputRow] = []
+    detections: list[DetectionResult] = []
     candidates = detected = with_email = with_phone = population_found = 0
     competitor_rows = competitor_links_total = 0
     for discovery in discovery_results:
         candidates += len(discovery.candidates)
         try:
             detection = await detect_for_geo(discovery, fetcher=fetcher)
+            detections.append(detection)
             extraction = await extract_for_geo(detection, fetcher=fetcher)
             population = await census_client.population_for(_geo_page(discovery.geo, now=now))
             link_results = await _check_links(extraction, fetcher=fetcher)
@@ -221,6 +231,7 @@ async def run_pipeline(
         fetches_used=fetcher.fetch_count,
         fetch_tiers=dict(fetcher.tier_counts),
         billed_searches=serp_client.billed_search_count,
+        blocked=collect_blocked(detections),
     )
     _log.info("pipeline.finish", **funnel.model_dump())
     return rows, funnel

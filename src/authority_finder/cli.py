@@ -39,6 +39,7 @@ from authority_finder.geo_monitor.state import load_state
 from authority_finder.geo_monitor.url_parser import parse_geo_url
 from authority_finder.logging import configure as configure_logging
 from authority_finder.monitoring import init_sentry
+from authority_finder.output.blocked_writer import write_blocked
 from authority_finder.output.csv_writer import write_csv
 from authority_finder.output.sheets_writer import SheetsWriter
 from authority_finder.page_detector.models import DetectionResult
@@ -637,6 +638,13 @@ async def _run_full(
         )
         result = await writer.write(rows)
         written, target_str = result.appended, f"Google Sheet {settings.google_sheet_id}"
+
+    if funnel.blocked:
+        # A CAPTCHA'd or 403'd org is a prospect a person can still reach by hand — hand it
+        # over by name rather than losing it silently (ADR-006's drop-but-COUNT discipline).
+        blocked_path = Path(f"data/output/blocked-{now:%Y%m%dT%H%M%S}.csv")
+        write_blocked(funnel.blocked, blocked_path)
+        click.echo(f"blocked (visit by hand): {len(funnel.blocked)} → {blocked_path}")
 
     db_note: str | None = None
     if persist_db:
