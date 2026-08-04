@@ -21,6 +21,11 @@ from authority_finder.output.sheets_writer import SheetsWriteResult
 from authority_finder.pipeline import PipelineFunnel
 from authority_finder.scheduler import runner
 
+# Deliberately reaching for the private closure factory: it IS the unit under test.
+from authority_finder.scheduler.runner import (
+    _make_run_and_write,  # pyright: ignore[reportPrivateUsage]
+)
+
 NOW = datetime(2026, 7, 22, tzinfo=UTC)
 
 
@@ -82,8 +87,8 @@ class _FakeWriter:
         return SheetsWriteResult(appended=len(rows), skipped_existing=0, header_written=False)
 
 
-@pytest.fixture
-def _patched(monkeypatch: pytest.MonkeyPatch) -> list[OutputRow]:
+@pytest.fixture(name="_patched")
+def patched_runner(monkeypatch: pytest.MonkeyPatch) -> list[OutputRow]:
     rows = [_row("uwyo.edu"), _row("wyo.gov", trust="low")]
 
     async def fake_pipeline(
@@ -100,7 +105,7 @@ def _patched(monkeypatch: pytest.MonkeyPatch) -> list[OutputRow]:
 async def test_scheduler_closure_persists_prospects_and_run(
     session_factory: async_sessionmaker[AsyncSession], _patched: list[OutputRow]
 ) -> None:
-    closure = runner._make_run_and_write(
+    closure = _make_run_and_write(
         settings=get_settings(), now=NOW, sessionmaker=session_factory, site="ah"
     )
     outcome = await closure([_geo()])
@@ -116,7 +121,7 @@ async def test_scheduler_closure_persists_prospects_and_run(
 async def test_scheduler_rerun_preserves_outreach(
     session_factory: async_sessionmaker[AsyncSession], _patched: list[OutputRow]
 ) -> None:
-    closure = runner._make_run_and_write(
+    closure = _make_run_and_write(
         settings=get_settings(), now=NOW, sessionmaker=session_factory, site="ah"
     )
     await closure([_geo()])
