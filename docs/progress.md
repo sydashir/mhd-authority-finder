@@ -1430,3 +1430,79 @@ the row snapshot BEFORE seeding a live test, and restore from that snapshot.**
   Postgres with a real password, `AUTH_COOKIE_SECURE=true`, Sentry DSNs, session revocation.
 - Open with the client: DR-as-signal still needs Jake's ratification; county (~$377) / city
   (~$677) corpus scope undecided.
+
+---
+
+## 2026-07-30 → 2026-08-03 — Sessions 37–45 (reconstructed 2026-08-04)
+
+Written retrospectively in Session 47 from commits, the live database and the cost document.
+These sessions ended without a progress entry or a journal, which is a direct cause of the two
+defects Session 47 had to fix: nobody re-checked the numbers they produced.
+
+### Done
+
+- **Cost analysis** (`docs/discovery-cost-options.md`, untracked): priced a full pass at
+  **$1,081** for 72,090 queries on a 5,958-geo corpus, and evaluated DataForSEO ($172),
+  Serper ($100), SerpApi Big Data ($825), IRS BMF and Overture Places. Corrected two
+  widely-quoted wrong figures (DataForSEO is 5x on operator queries, not flat).
+- **CISA `.gov` registry vendored** (`1b83bae`, `6f9a946`): `data/gov_domains.csv`, 16,406 rows,
+  plus `discovery/registry.py` and its tests. **Never imported by `discover.py`** — see ADR-033.
+- **Geo derivation for `.org`/`.com`** (`f018f89`, ADR-028): `candidate_state()` extended with
+  full state names and an anchored two-letter suffix allowlist.
+- **Blocked-domain reporting** (`6039aec`): `output/blocked_writer.py` + tests. **Never called**
+  — wired in Session 47.
+- **Day-of-week scheduling** (`103993e`, ADR-030): `RUN_DAYS`/`RUN_TIME`/`RUN_TIMEZONE`
+  replacing the interval; `--interval-hours` removed rather than left inert.
+- **Compose secret fix** (`c3ac4d9`): `.env` is auto-loaded for `${VAR}` substitution, which ate
+  the `$` in the scrypt hash and truncated `AUTH_USERS` from 92 to 78 chars, silently breaking
+  container login. Fixed by escaping `$` in a separate `secrets.env`.
+- **States corpus run** (run #13, 2026-08-03): 99 state geo-pages → 4,206 rows → 2,291 after
+  dedupe. **0 billed** — every state query was already cached, so the ~$27 approved was never
+  spent. Persisted prospects **without `geo_id`** (backfilled in Session 47).
+- **Production account** `admin@mhdfinder.com` created via `cli create-user`.
+
+### Not done, and it mattered
+
+No journal, no progress entry, no ADR for 029 or 031 despite 11 citations in code. The registry
+sat unwired for a week underwriting a cost case, and the states run's numbers went unverified
+until the Session 46 audit.
+
+---
+
+## 2026-08-04 — Session 47: registry wiring (reverted) + delivered-dataset precision
+
+### Done
+
+**Defect 1 — registry-first (ADR-033).** Wired, measured, reverted. All 573 delivered `.gov`
+rows ARE in the registry, but only **174 (30%)** are reachable by a state-level lookup; the rest
+are county/city agencies that paid state queries surface. County/city looked viable and holds
+99.9% of the cost, so it was implemented there and validated on the cached geos at **0 billed** —
+Orange County lost `cdph.ca.gov`/`cdss.ca.gov` and gained `octreasurer.gov`; Clearwater went
+37 → 118 candidates. Reverted. **Cost stands at $1,107.56**, counted query-by-query, not $510.
+
+**Structural guard.** `tests/test_module_reachability.py` fails on any product module the
+running program cannot reach, computed transitively from the real entry points. Found
+`output/blocked_writer.py` on its first run — the sixth instance of the same defect — now wired
+so a run writes `data/output/blocked-*.csv` naming the CAPTCHA'd and 403'd orgs.
+
+**Defect 2 — precision (ADR-034).** Hand-classified a stratified sample of **225 of 2,291**
+delivered rows. Blended **82.5% → 86.1%** after fixes; `.gov` 85.7%, `.edu` 94.3%, authority
+82.9%, `.us` 80.0%. High trust band **17/17 = 100%**. Junk is 78% systemic; fixed the federal
+leak (5 domains) and the platform leak (2), zero false positives, 12 live rows removed.
+
+**Housekeeping.** All 2,091 unlinked prospects backfilled with `geo_id` — the ambiguity was only
+MHD-vs-AH for the same state, resolved by `source_tag`. Sessions 37–45 documented above.
+
+### Verified
+
+**691 backend tests** (600 unit + 91 db/api/scheduler), ruff, ruff format, strict pyright
+(0 errors). Postgres 2,279 rows; Sheet re-exported with `allow_shrink=True` for the intentional
+12-row correction; row-level DB↔Sheet difference **0**; outreach-actioned **0**; prospects
+without `geo_id` **0**. Billed this session: **0**.
+
+### Next
+
+- **Query pruning by measured marginal yield** — the real cost lever, measurable on cached data.
+- National-vs-state-affiliate rule (32% of remaining junk; `mhanational.org` spans 16 geos).
+- The 11% of rows naming the right org but a weak Specific Page.
+- P1 hosting.

@@ -1492,3 +1492,117 @@ parameter it accepts, and every pipeline-owned field appears in BOTH the INSERT 
 on-conflict `set_`. Those tests were written first and immediately caught this same field
 missing from the DB path. The outreach fields are asserted ABSENT from the conflict set_, so
 the guard cannot be satisfied by weakening ADR-022.
+
+## ADR-033
+
+**Registry-first discovery: built, measured, and REVERTED.**
+
+ADR-029 claimed that for `.gov` the question "which sites exist in this geo?" is a lookup, not
+a search, and that vendoring the CISA registry would cut a full pass from $1,108 to about $276.
+The module, its tests, and the 16,406-row dataset shipped. **`discover.py` never imported it**,
+so the cost case was never real. It was wired this session, validated, and reverted.
+
+**Why it does not work.** The registry answers a different question than the one discovery asks.
+Discovery does not need "which `.gov` exist in Pinellas County" — it needs "which `.gov` here is
+about behavioral health". The registry has no topical signal: of the 497 distinct `.gov` domains
+in the delivered dataset, **16 have "health" anywhere in their registry organisation name**. The
+`Organization name` column is the registrant ("County of X"), not the function.
+
+**Measured, on the delivered 2,291 rows and the cached geos:**
+
+| Check | Result |
+|---|---|
+| Delivered `.gov` domains present in the registry | 573/573 — ADR-029's coverage claim HOLDS |
+| Reachable by a state-level lookup | **174/573 (30%)** |
+| Reachable if widened to all in-state rows | 77.5%, at ~216 domains/state (median 147, max 1,415) |
+
+The 70% gap is structural: paid state queries surface the county and city agencies
+(`lacounty.gov`, `wake.gov`, `chandleraz.gov`) that a state-kind lookup never returns, because
+Google ranks by relevance and the registry partitions by administrative level.
+
+County and city looked better (median 21–22 domains per geo), and that is where 99.9% of the
+money is, so registry-first was implemented there only and validated against the cached geos
+at 0 billed:
+
+| Geo | Paid-only survivors | Registry-first survivors | Lost |
+|---|---|---|---|
+| Orange County, CA | 37 | 32 | `cdph.ca.gov`, `cdss.ca.gov`, `bscc.ca.gov`, `santa-ana.gov`, `anaheim.gov` |
+| Clearwater, FL | 37 | **118** | `pinellassheriff.gov`, `dunedin.gov`, `mypinellasclerk.gov` |
+
+It trades the California Departments of Public Health and Social Services for
+`octreasurer.gov`, `ocunclaimed.gov` and `safecastrawberries.gov`, and at city level floods 3.2x
+with `drivebakedgetbustedfl.gov` and `endteenvapingfl.gov`. That is a quality regression bought
+with a fetch-load increase, so it is not shipped.
+
+**Cost therefore stands at $1,107.56** (73,837 billable queries, counted query-by-query against
+the real cache), not $510 and not $276. The honest lever is not the registry: it is **pruning
+query templates by measured marginal yield**, since the lost domains above came from the
+specific templates (`community services board`, `public health substance use`, `drug court`)
+while the generic ones repeat what the county government domain already covers. That is
+measurable on cached data and is the recommended next step.
+
+`registry.py` is retained but unwired, exempted by name in `tests/test_module_reachability.py`
+with this reason. The same table is the best available source of truth for which STATE a `.gov`
+belongs to, which is a **wrong-state** fix (ADR-020/028 still cannot derive state for many
+domains), not a discovery one. If that never gets built, delete the module.
+
+**The structural guard.** `tests/test_module_reachability.py` computes import-reachability
+transitively from the real entry points and fails on any product module the running program
+cannot reach. This is the fifth time something was built, tested, documented and never
+connected; `test_field_paths.py` guards captured DATA reaching the client, this guards a MODULE
+reaching the runtime. It found a sixth on its first run — `output/blocked_writer.py`, the
+blocked-domain reporting, which is now wired into the CLI.
+
+## ADR-034
+
+**Precision on the DELIVERED dataset: 86.1%, hand-measured.**
+
+The 83% figure in circulation was hand-counted on 99 authority rows from a 5-geo validation
+sample dated 2026-07-30 — a sample that is **not part of the delivered dataset** (run #13,
+2026-08-03). The `.gov`/`.edu` half, 48% of the deliverable, had never been audited at all. The
+"88%" figure has no supporting evidence anywhere in the repository.
+
+**Method.** A stratified random sample (seed 47) of **225 of the 2,291 delivered rows**, drawn
+across all four source classes and stratified within each by trust band: `.gov` 70, `.edu` 70,
+authority 70, `.us` 15 (all of them). Each row hand-classified against a fixed rule — WANTED is
+a real organisation, correctly located in the geo, of a type that could plausibly link out;
+JUNK is federal, wrong geo, commercial provider, aggregator, or not an organisation at all.
+Per-class margin at n=70 is about ±12 points at 95%; the blended figure is weighted by the true
+composition of the dataset, not by the sample.
+
+| Class | n | Precision before | Precision after fixes | Share of dataset |
+|---|---|---|---|---|
+| `.gov` | 70 | 77.1% | **85.7%** | 25.0% |
+| `.edu` | 70 | 94.3% | **94.3%** | 22.5% |
+| authority | 70 | 80.0% | **82.9%** | 51.8% |
+| `.us` | 15 | 80.0% | **80.0%** | 0.7% |
+| **Blended** | 225 | **82.5%** | **86.1%** | |
+
+By trust band: high **17/17 = 100%**, medium 86.0% (n=57), low 80.8% (n=151). The trust banding
+is doing real work — the rows the client is told to trust are the clean ones.
+
+A further **11% of rows (25/225) name the right organisation but a weak or off-topic Specific
+Page** (an HR page, a `/101/Services` index, an ethics hotline). Counted as WANTED because the
+prospect is real, but it is the largest remaining usability defect.
+
+**The junk is 78% systemic, not long-tail:**
+
+| Bucket | Share of junk | Fixed? |
+|---|---|---|
+| National / multi-state org served as a local prospect | 32% | **No** — top recommendation |
+| Wrong geo or name collision | 22% | No — ADR-020/028 residual |
+| Federal `.gov` served locally | 16% | **Yes** |
+| Target is not an organisation (statute, dataset, search app, press release) | 16% | No |
+| Platform published as the prospect | 5% | **Yes** |
+| Commercial provider | 3% | Long-tail, filter mostly working |
+
+Fixed this session: `macpac.gov`, `vaoig.gov`, `archives.gov`, `ntis.gov`, `usbr.gov` added to
+`FEDERAL_DOMAINS`; `eggzack.com`, `legistorm.com` to the platform blocklist. Zero false
+positives on the sample; 12 live rows removed, 2,291 → 2,279.
+
+**Not fixed, and named honestly.** The largest bucket is a national organisation's state-chapter
+page standing in for a local prospect: `mhanational.org` appears in 16 geos, `aahd.us` in three,
+plus `argentum.org`, `nacdd.org`, `ahcancal.org`, `abhw.org`, `smartrecovery.org`. This is the
+same defect as the S25 "same org ×N geos" finding. It needs a rule distinguishing a national
+body from a state affiliate, which cannot be written from a domain alone, so it was measured
+rather than guessed at.
