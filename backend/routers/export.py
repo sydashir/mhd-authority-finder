@@ -8,7 +8,7 @@ call and assert it receives the correctly-filtered rows.
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from authority_finder.config import get_settings
 from authority_finder.db.ingest import prospect_to_output_row
@@ -20,11 +20,33 @@ from backend.schemas import ExportOut, ExportRequest
 router = APIRouter(prefix="/export", tags=["export"])
 
 
+def resolve_export_target(*, export_id: str, master_id: str) -> str:
+    """The workbook on-demand exports write into, or refuse.
+
+    This used to fall back to the master, so every export added a tab to the workbook the
+    CLIENT opens — two stale 622-row tabs were sitting beside the deliverable when it went out
+    for review (ADR-035). Refusing is better than quietly writing into their file.
+    """
+    target = export_id.strip()
+    if not target or target == master_id.strip():
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "EXPORT_SHEET_ID is not configured, or points at the master sheet. Exports add "
+                "a tab to the workbook they target, so it must be a separate scratch workbook "
+                "shared with the service account — never the client's deliverable."
+            ),
+        )
+    return target
+
+
 def get_exporter() -> SheetExporter:
     settings = get_settings()
     return SheetExporter(
         credentials_path=settings.google_sheets_credentials_path,
-        spreadsheet_id=settings.export_sheet_id or settings.google_sheet_id,
+        spreadsheet_id=resolve_export_target(
+            export_id=settings.export_sheet_id, master_id=settings.google_sheet_id
+        ),
     )
 
 
