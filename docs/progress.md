@@ -1625,3 +1625,19 @@ redo it. Commit before reaching for checkout as an "undo".
 `EXPORT_SHEET_ID` needs a scratch workbook created and shared with the service account — the SA
 cannot create one (403, re-tested). Until then the dashboard's export button returns 503, which
 is the safe failure.
+
+### Session 49 addendum — a self-inflicted regression, caught by the end-to-end check
+
+Switching the writer to `valueInputOption="USER_ENTERED"` to make two columns numeric re-parsed
+**every** cell: it stripped the leading `+` from every phone (`+18666153047` → `18666153047`) and
+turned `Date Added` into a date serial. `RAW` stores each value with the JSON type it arrives as,
+so sending Population and Domain Rating as JSON numbers gets numeric sorting while leaving all
+thirteen other columns untouched.
+
+Only the full DB↔Sheet comparison found it — the unit tests passed throughout, because they
+tested the payload we build, not what Google stored. **Compare the live artefact back against
+the source of truth, not just the thing you sent.**
+
+A second display-only bug from the same change: a `"0"` number format ROUNDED Domain Rating, so
+DR 1.9 displayed as 2 on 63 rows. Fixed by dropping the explicit pattern — the values are numeric
+either way, so sorting is correct and Sheets renders each one faithfully.
