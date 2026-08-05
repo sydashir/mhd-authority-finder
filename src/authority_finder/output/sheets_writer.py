@@ -138,7 +138,7 @@ class SheetsWriter:
                 values_api.append(
                     spreadsheetId=self._sheet_id,
                     range=f"{self._tab}!{_RANGE}",
-                    valueInputOption="USER_ENTERED",
+                    valueInputOption="RAW",
                     insertDataOption="INSERT_ROWS",
                     body={"values": to_sheet_values(new_rows)},
                 )
@@ -183,7 +183,7 @@ class SheetsWriter:
             values_api.update(
                 spreadsheetId=self._sheet_id,
                 range=f"{self._tab}!A1",
-                valueInputOption="USER_ENTERED",
+                valueInputOption="RAW",
                 body={"values": body_rows},
             )
         )
@@ -223,7 +223,7 @@ class SheetsWriter:
             values_api.update(
                 spreadsheetId=self._sheet_id,
                 range=f"{self._tab}!A1",
-                valueInputOption="USER_ENTERED",
+                valueInputOption="RAW",
                 body={"values": [OUTPUT_HEADER]},
             )
         )
