@@ -33,9 +33,10 @@ OUTPUT_HEADER: list[str] = [
     # APPEND-ONLY. The live master tab is read positionally by _existing_keys (Website and
     # Geo Served), so a new column may only go on the end (ADR-027).
     "Domain Rating",
-    # Blank means "same page as Specific Page" — so blank needs no explanation, and a value
-    # only appears when it tells the reader something they could not otherwise know.
-    "Competitor Links Found On",
+    # Where the CONTACT came from, when that is not the same page as Specific Page. Specific
+    # Page is the page the client clicks, so it must be the page holding the competitor links
+    # (ADR-036); this column keeps the contact page, which is still needed for outreach.
+    "Contact Found On",
 ]
 
 _SOURCE_TAGS = {"mhd": "MHD", "ah": "AH"}
@@ -61,10 +62,9 @@ class OutputRow(BaseModel):
     # Ahrefs DR for authority-sourced rows. None for .gov/.edu, which are deliberately never
     # scored (ADR-027) — blank means "not measured"; 0 would be a false claim of no authority.
     domain_rating: float | None = None
-    # Where the competitor links actually appear, when that is NOT the contact page. The
-    # check covers the detected page plus one resources hop (ADR-011), so links frequently
-    # live on a sub-page; showing only the contact URL made a correct row look wrong.
-    competitor_links_found_on: str = ""
+    # The page the email/phone came from, when Specific Page is a different page. Blank when
+    # one page did both jobs, so a value only appears when it tells the reader something.
+    contact_found_on: str = ""
 
     @property
     def dedupe_key(self) -> tuple[str, str]:
@@ -87,8 +87,25 @@ class OutputRow(BaseModel):
             self.date_added,
             self.confidence,
             "" if self.domain_rating is None else f"{self.domain_rating:g}",
-            self.competitor_links_found_on,
+            self.contact_found_on,
         ]
+
+
+def choose_pages(*, detected_page: str, link_pages: list[str]) -> tuple[str, str]:
+    """Pick (Specific Page, Contact Found On) for one row.
+
+    The client opens Specific Page. If the competitor links live on a different page than the
+    one the contact came from, THAT is the page he needs, so it takes the column (ADR-036).
+    The contact page is not lost — it moves to its own column, because the email and phone
+    genuinely came from there and outreach still needs it.
+
+    Returns a blank second element when one page did both jobs, so a value in the sheet always
+    means something the reader could not otherwise work out.
+    """
+    for page in link_pages:
+        if page and page != detected_page:
+            return page, detected_page
+    return detected_page, ""
 
 
 def geo_served_label(*, level: str, state: str, county: str | None, city: str | None) -> str:
@@ -108,7 +125,8 @@ def build_row(
     now: datetime,
     competitor_links: str = "—",
     domain_rating: float | None = None,
-    competitor_links_found_on: str = "",
+    contact_found_on: str = "",
+    specific_page: str = "",
 ) -> OutputRow:
     """Assemble one :class:`OutputRow` from the chained per-candidate outputs.
 
@@ -123,7 +141,7 @@ def build_row(
 
     return OutputRow(
         website=candidate.registrable_domain,
-        specific_page=outcome.page_url,
+        specific_page=specific_page or outcome.page_url,
         email=contacts.best_email or "",
         phone=contacts.best_phone or "",
         contact_source=contact_source_label(contacts),
@@ -138,5 +156,5 @@ def build_row(
         date_added=now.date().isoformat(),
         confidence=outcome.page_confidence,
         domain_rating=domain_rating,
-        competitor_links_found_on=competitor_links_found_on,
+        contact_found_on=contact_found_on,
     )

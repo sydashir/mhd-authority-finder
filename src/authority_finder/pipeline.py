@@ -28,7 +28,7 @@ from authority_finder.geo_monitor.models import GeoPage
 from authority_finder.link_checker.models import LinkCheckResult
 from authority_finder.link_checker.orchestrator import check_links_for_candidate
 from authority_finder.output.blocked_writer import BlockedCandidate, collect_blocked
-from authority_finder.output.models import OutputRow, build_row
+from authority_finder.output.models import OutputRow, build_row, choose_pages
 from authority_finder.output.shared_phones import blank_shared_phones
 from authority_finder.page_detector.orchestrator import detect_for_geo
 from authority_finder.population.census import CensusClient
@@ -193,17 +193,21 @@ async def run_pipeline(
         geo_rows: list[OutputRow] = []
         for outcome, link_result in zip(extraction.outcomes, link_results, strict=True):
             cell = "; ".join(link_result.competitor_domains) or "—"
+            # Specific Page must be the page the client should OPEN. When the competitor
+            # links live on the resources hop rather than the contact page, that hop is the
+            # page he needs, and the contact page moves to its own column (ADR-036).
+            specific_page, contact_found_on = choose_pages(
+                detected_page=outcome.page_url,
+                link_pages=link_result.found_on_pages(exclude=""),
+            )
             row = build_row(
                 outcome,
                 population=population,
                 now=now,
                 competitor_links=cell,
                 domain_rating=domain_ratings.get(outcome.candidate.registrable_domain),
-                # Blank when the links are on the contact page itself; populated only when
-                # the resources hop is where they actually live (ADR-011).
-                competitor_links_found_on="; ".join(
-                    link_result.found_on_pages(exclude=outcome.page_url)
-                ),
+                specific_page=specific_page,
+                contact_found_on=contact_found_on,
             )
             rows.append(row)
             geo_rows.append(row)

@@ -19,7 +19,7 @@ export const HEADER = [
   'Date Added',
   'Confidence',
   'Domain Rating',
-  'Competitor Links Found On',
+  'Contact Found On',
 ]
 
 function cell(value: string | number | null): string {
@@ -43,7 +43,7 @@ function row(p: Prospect): string {
     p.date_added,
     p.confidence,
     p.domain_rating,
-    p.competitor_links_found_on,
+    p.contact_found_on,
   ]
     .map(cell)
     .join(',')

@@ -163,3 +163,20 @@ class TestReadRangeTracksTheHeader:
         assert _last_column_letter(14) == "N"
         assert _last_column_letter(26) == "Z"
         assert _last_column_letter(27) == "AA"
+
+
+class TestDeliberateHeaderChange:
+    """A rename is refused by default and possible when a human asks for it (ADR-036).
+
+    The guard exists to stop an ACCIDENTAL reorder silently shifting every cell. Renaming
+    "Competitor Links Found On" to "Contact Found On" is a deliberate schema change made
+    against Postgres as the source of truth, so it needs an escape hatch, not a bypass —
+    the same shape as ADR-025's allow_shrink.
+    """
+
+    def test_a_rename_is_still_refused_by_default(self) -> None:
+        old = [*OUTPUT_HEADER[:-1], "Competitor Links Found On"]
+        assert not is_safe_header_change(old, OUTPUT_HEADER)
+
+    def test_the_shrink_guard_is_unaffected(self) -> None:
+        assert is_safe_header_change(OUTPUT_HEADER[:-1], OUTPUT_HEADER)

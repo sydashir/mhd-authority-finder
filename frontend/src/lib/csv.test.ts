@@ -39,11 +39,11 @@ describe('prospectsToCsv', () => {
     const csv = prospectsToCsv([
       makeProspect({
         domain_rating: 34,
-        competitor_links_found_on: 'https://county.gov/resources',
+        contact_found_on: 'https://county.gov/resources',
       }),
     ])
     expect(csv).toContain('Domain Rating')
-    expect(csv).toContain('Competitor Links Found On')
+    expect(csv).toContain('Contact Found On')
     expect(csv).toContain('34')
     expect(csv).toContain('https://county.gov/resources')
   })

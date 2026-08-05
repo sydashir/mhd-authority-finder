@@ -96,22 +96,35 @@ class SheetsWriter:
         self._tab = tab
 
     async def write(
-        self, rows: list[OutputRow], *, replace: bool = False, allow_shrink: bool = False
+        self,
+        rows: list[OutputRow],
+        *,
+        replace: bool = False,
+        allow_shrink: bool = False,
+        allow_header_change: bool = False,
     ) -> SheetsWriteResult:
         """Append new (deduped) rows; ``replace=True`` rewrites the whole tab in place.
 
         A destructive rewrite that would SHRINK the tab is refused unless ``allow_shrink=True``
         (ADR-025): a client editing the header, or a short run, must never wipe the deliverable.
+        A header change that is not a pure append is refused unless ``allow_header_change=True``
+        (ADR-036) — both are escape hatches for a deliberate correction, never a default.
         Runs the sync google client off the event loop.
         """
         if not self._sheet_id:
             raise SheetsError("GOOGLE_SHEET_ID is not set")
         if not self._creds_path.exists():
             raise SheetsError(f"service-account file not found: {self._creds_path}")
-        return await asyncio.to_thread(self._write_sync, rows, replace, allow_shrink)
+        return await asyncio.to_thread(
+            self._write_sync, rows, replace, allow_shrink, allow_header_change
+        )
 
     def _write_sync(
-        self, rows: list[OutputRow], replace: bool, allow_shrink: bool
+        self,
+        rows: list[OutputRow],
+        replace: bool,
+        allow_shrink: bool,
+        allow_header_change: bool = False,
     ) -> SheetsWriteResult:
         values_api: Any = self._service().spreadsheets().values()
         existing = self._read(values_api)
@@ -130,7 +143,9 @@ class SheetsWriter:
                 reason="replace" if replace else "migration",
             )
 
-        header_written = self._ensure_header(values_api, existing)
+        header_written = self._ensure_header(
+            values_api, existing, allow_header_change=allow_header_change
+        )
         existing_keys = _existing_keys(existing)
         new_rows = [r for r in final if r.dedupe_key not in existing_keys]
         if new_rows:
@@ -209,10 +224,16 @@ class SheetsWriter:
         )
         return cast("list[list[str]]", resp.get("values", []))
 
-    def _ensure_header(self, values_api: Any, existing: list[list[str]]) -> bool:
+    def _ensure_header(
+        self, values_api: Any, existing: list[list[str]], *, allow_header_change: bool = False
+    ) -> bool:
         if existing and existing[0] == OUTPUT_HEADER:
             return False
-        if existing and not is_safe_header_change(existing[0], OUTPUT_HEADER):
+        if (
+            existing
+            and not allow_header_change
+            and not is_safe_header_change(existing[0], OUTPUT_HEADER)
+        ):
             raise SheetsError(
                 f"refusing to rewrite the header of {self._tab}: the tab's columns are "
                 f"{existing[0]!r}, which is not a prefix of {OUTPUT_HEADER!r}. Overwriting it "

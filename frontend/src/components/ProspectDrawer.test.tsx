@@ -13,7 +13,7 @@ describe('ProspectDrawer', () => {
       email: 'bh@oc.gov',
       specific_page: 'https://oc.gov/behavioral-health',
       competitor_links: 'samhsa.gov; findtreatment.gov',
-      competitor_links_found_on: 'https://county.gov/resources',
+      contact_found_on: 'https://county.gov/resources',
     })
     renderWithProviders(<ProspectDrawer prospect={p} onClose={vi.fn()} notify={vi.fn()} />)
     expect(screen.getByText('bh@oc.gov')).toBeInTheDocument()
@@ -27,7 +27,7 @@ describe('ProspectDrawer', () => {
     const p = makeProspect({
       specific_page: 'https://counseling.ucr.edu/',
       competitor_links: 'samhsa.gov',
-      competitor_links_found_on: 'https://counseling.ucr.edu/resources-support',
+      contact_found_on: 'https://counseling.ucr.edu/resources-support',
     })
     renderWithProviders(<ProspectDrawer prospect={p} onClose={vi.fn()} notify={vi.fn()} />)
     const link = screen.getByRole('link', { name: 'https://counseling.ucr.edu/resources-support' })
@@ -35,7 +35,7 @@ describe('ProspectDrawer', () => {
   })
 
   it('says nothing about provenance when the links are on the contact page itself', () => {
-    const p = makeProspect({ competitor_links: 'samhsa.gov', competitor_links_found_on: '' })
+    const p = makeProspect({ competitor_links: 'samhsa.gov', contact_found_on: '' })
     renderWithProviders(<ProspectDrawer prospect={p} onClose={vi.fn()} notify={vi.fn()} />)
     expect(screen.queryByText(/Found on/)).not.toBeInTheDocument()
   })

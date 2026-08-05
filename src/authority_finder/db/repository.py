@@ -108,7 +108,7 @@ class ProspectIn:
     confidence: TrustBand
     date_added: date
     # Blank is the common, meaningful value: "the links are on specific_page itself".
-    competitor_links_found_on: str = ""
+    contact_found_on: str = ""
     domain_rating: float | None = None
     run_id: int | None = None
     geo_id: int | None = None
@@ -131,7 +131,7 @@ async def upsert_prospect(session: AsyncSession, data: ProspectIn) -> int:
         geo_served=data.geo_served,
         population=data.population,
         competitor_links=data.competitor_links,
-        competitor_links_found_on=data.competitor_links_found_on,
+        contact_found_on=data.contact_found_on,
         domain_rating=data.domain_rating,
         source_tag=data.source_tag,
         confidence=data.confidence,
@@ -154,7 +154,7 @@ async def upsert_prospect(session: AsyncSession, data: ProspectIn) -> int:
             "organization_description": stmt.excluded.organization_description,
             "population": stmt.excluded.population,
             "competitor_links": stmt.excluded.competitor_links,
-            "competitor_links_found_on": stmt.excluded.competitor_links_found_on,
+            "contact_found_on": stmt.excluded.contact_found_on,
             # Pipeline-owned, so it refreshes on a re-run — unlike the outreach fields above.
             "domain_rating": stmt.excluded.domain_rating,
             "source_tag": stmt.excluded.source_tag,
