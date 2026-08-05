@@ -70,6 +70,11 @@ FEDERAL_DOMAINS: frozenset[str] = frozenset(
         "archives.gov",  # trumpwhitehouse.archives.gov, served to South Carolina
         "ntis.gov",  # a 1983 technical report, served to Brea, California
         "usbr.gov",  # Bureau of Reclamation, served to Port Hueneme, California
+        # S48 pre-send review: still shipping as local prospects.
+        "nrd.gov",  # DoD National Resource Directory, published across SIX geos
+        "cbp.gov",
+        "epa.gov",
+        "noaa.gov",
         # likely to rank for health / treatment / justice queries
         "acf.gov",
         "ahrq.gov",
