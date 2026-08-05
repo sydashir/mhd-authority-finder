@@ -143,8 +143,28 @@ _PLACEHOLDER_DOMAIN = frozenset(
         "schema.org",
         "w3.org",
         "sentry.wixpress.com",
+        # S48: unedited site-builder defaults that SHIPPED as an org's contact address.
+        "mysite.com",
+        "new.com",
+        "yoursitename.com",
+        "mydomain.com",
+        "yourcompany.com",
+        "site.com",
     }
 )
+
+
+def is_placeholder_email(email: str) -> bool:
+    """True when the address is a site-builder template default, never a real contact.
+
+    Matches on the registrable domain, not a substring, so a real organisation whose name
+    happens to contain one of these words (``info@mysitecounseling.org``) is untouched.
+    """
+    domain = email.rsplit("@", 1)[-1].strip().lower()
+    return domain in _PLACEHOLDER_DOMAIN or any(
+        domain.endswith(f".{placeholder}") for placeholder in _PLACEHOLDER_DOMAIN
+    )
+
 
 _SOURCE_BASE: dict[EmailSource, float] = {"mailto": 0.9, "contact_page": 0.7, "body_text": 0.5}
 _EMAIL_SOURCE_PRIORITY: dict[EmailSource, int] = {"mailto": 0, "contact_page": 1, "body_text": 2}

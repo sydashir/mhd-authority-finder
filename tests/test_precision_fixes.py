@@ -6,7 +6,7 @@ systemic rather than long-tail. These cover the two buckets that are cheap and u
 """
 
 from authority_finder.authority_filter.platforms import is_platform
-from authority_finder.contact_extractor.extract import is_national_hotline
+from authority_finder.contact_extractor.extract import is_national_hotline, is_placeholder_email
 from authority_finder.domains import is_federal
 
 
@@ -104,3 +104,37 @@ class TestNationalHotlines:
         """The guard must not start eating ordinary local numbers."""
         for number in ("+19518275531", "+18666153047", "+13037366000", "+12136894111"):
             assert not is_national_hotline(number), number
+
+
+class TestTemplatePlaceholderEmails:
+    """Unedited site-builder defaults that shipped in a paid deliverable (S48).
+
+    `mysite.com` and `new.com` are the Wix/Squarespace stand-ins a site owner is meant to
+    replace. Four of them reached the client as an organisation's contact address.
+    """
+
+    def test_the_shipped_placeholders_are_rejected(self) -> None:
+        for email in (
+            "contact@mysite.com",
+            "info@mysite.com",
+            "info@new.com",
+            "hello@yoursitename.com",
+            "info@mydomain.com",
+        ):
+            assert is_placeholder_email(email), email
+
+    def test_the_existing_placeholders_still_go(self) -> None:
+        for email in ("a@example.com", "b@yourdomain.com", "c@sentry.wixpress.com"):
+            assert is_placeholder_email(email), email
+
+    def test_real_organisation_addresses_survive(self) -> None:
+        """Zero false positives: these are real contacts from the delivered sheet."""
+        for email in (
+            "counseling@ucr.edu",
+            "info@nacdd.org",
+            "thearc@arcsc.org",
+            "dcfsintake@utah.gov",
+            "cmcgraw@nasddds.org",
+            "info@mysitecounseling.org",
+        ):
+            assert not is_placeholder_email(email), email
