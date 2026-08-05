@@ -14,7 +14,7 @@ import phonenumbers
 from phonenumbers import geocoder
 
 from authority_finder.contact_extractor.models import PhoneHit
-from authority_finder.page_detector.geography import ABBR_TO_SLUG
+from authority_finder.geo_monitor.states import ABBR_TO_SLUG
 
 _STATE_SLUGS = frozenset(ABBR_TO_SLUG.values())
 _ABBR_LEN = 2

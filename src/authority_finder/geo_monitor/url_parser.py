@@ -12,8 +12,7 @@ from datetime import datetime
 from urllib.parse import urlparse
 
 from authority_finder.geo_monitor.models import GeoLevel, GeoPage, SiteConfig
-from authority_finder.geo_monitor.states import US_STATE_SLUGS
-from authority_finder.page_detector.geography import ABBR_TO_SLUG
+from authority_finder.geo_monitor.states import ABBR_TO_SLUG, US_STATE_SLUGS
 
 _ABBR_LEN = 2
 

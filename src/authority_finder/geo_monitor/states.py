@@ -12,6 +12,63 @@ them. The list is intentionally hardcoded (US-only project scope per
 
 from __future__ import annotations
 
+# Postal abbreviation -> our slug. Lives here rather than in page_detector because BOTH the
+# scorer's geography rules and the CISA .gov registry need it, and a shared home is what keeps
+# those two from importing each other in a cycle (ADR-035).
+ABBR_TO_SLUG: dict[str, str] = {
+    "al": "alabama",
+    "ak": "alaska",
+    "az": "arizona",
+    "ar": "arkansas",
+    "ca": "california",
+    "co": "colorado",
+    "ct": "connecticut",
+    "de": "delaware",
+    "fl": "florida",
+    "ga": "georgia",
+    "hi": "hawaii",
+    "id": "idaho",
+    "il": "illinois",
+    "in": "indiana",
+    "ia": "iowa",
+    "ks": "kansas",
+    "ky": "kentucky",
+    "la": "louisiana",
+    "me": "maine",
+    "md": "maryland",
+    "ma": "massachusetts",
+    "mi": "michigan",
+    "mn": "minnesota",
+    "ms": "mississippi",
+    "mo": "missouri",
+    "mt": "montana",
+    "ne": "nebraska",
+    "nv": "nevada",
+    "nh": "new-hampshire",
+    "nj": "new-jersey",
+    "nm": "new-mexico",
+    "ny": "new-york",
+    "nc": "north-carolina",
+    "nd": "north-dakota",
+    "oh": "ohio",
+    "ok": "oklahoma",
+    "or": "oregon",
+    "pa": "pennsylvania",
+    "ri": "rhode-island",
+    "sc": "south-carolina",
+    "sd": "south-dakota",
+    "tn": "tennessee",
+    "tx": "texas",
+    "ut": "utah",
+    "vt": "vermont",
+    "va": "virginia",
+    "wa": "washington",
+    "wv": "west-virginia",
+    "wi": "wisconsin",
+    "wy": "wyoming",
+}
+
+
 US_STATE_SLUGS: frozenset[str] = frozenset(
     {
         "alabama",
