@@ -1641,3 +1641,49 @@ the source of truth, not just the thing you sent.**
 A second display-only bug from the same change: a `"0"` number format ROUNDED Domain Rating, so
 DR 1.9 displayed as 2 on 63 rows. Fixed by dropping the explicit pattern — the values are numeric
 either way, so sorting is correct and Sheets renders each one faithfully.
+
+---
+
+## 2026-08-06 — Session 50: Specific Page becomes the links page (ADR-036)
+
+The client rejected the S48 answer, correctly. We had kept the contact page in `Specific Page`
+and appended a 15th column naming the real page — defensible data, but from his seat nothing
+changed. **0 billed.**
+
+### Done
+
+- **`Specific Page` is now the page with the competitor links** where they differ. The contact
+  page moved to **`Contact Found On`** (renamed from `Competitor Links Found On`, which with the
+  swap would have been permanently blank). 99 rows swapped.
+- **Row 2 (ucr.edu)** now shows `…/resources-support-specialty-care-self-help-and-making-connections`.
+- Added `allow_header_change=True` to the writer — a rename is refused by default because it is
+  indistinguishable from a reorder when rows are read positionally; this is the deliberate
+  escape hatch, same shape as ADR-025's `allow_shrink`.
+
+### Verified in a real headless Chromium, not curl
+
+| Pass | Scope | Result |
+|---|---|---|
+| A | **all 265** competitor-linked rows | **265 verified**, 0 failed, 0 unconfirmed |
+| B | 350 of 1,974 non-competitor rows (±5 pts @ 95%) | 347 loaded (**99.1%**), 0 redirected to a homepage |
+| C | DNS for **all 2,045** distinct published hosts | 1 genuinely dead (`anaheim.gov`, 2 rows, removed) |
+
+Pass A first reported 3 unconfirmed. All three were transient Cloudflare origin errors
+(503 / 522 / 525), and all three are **true positives** on retry — `provo.edu` carries all four
+claimed domains. The verifier reloaded on a robot challenge but not on a 5xx; fixed.
+
+`anaheim.gov` is CISA-registered to the City of Anaheim but has **no DNS records** — the city
+runs on `anaheim.net`. Both rows removed. **2,239 → 2,237.**
+
+### Final state
+
+2,237 rows × 15 cols, tabs `[Prospects, How to read this]`, **DB↔Sheet differences 0**,
+hotlines/placeholder/federal/wrong-state all **0**, outreach 0 actioned, geo_id NULL 0.
+665 unit + 95 db/api/scheduler + 41 frontend tests; ruff, pyright, tsc, build all clean.
+
+### The lesson, for the third time in two sessions
+
+A failure to reach something is not evidence that it does not exist. It bit here three ways in
+one session: a 5xx read as "no links", a burst-rate-limited resolver read as "8 dead hosts"
+(7 were fine — `illinois.gov` resolves via Akamai), and earlier a WAF 403 read as a false
+positive. Retry, and check from a second vantage point, before deleting anything.
