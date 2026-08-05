@@ -1606,3 +1606,75 @@ plus `argentum.org`, `nacdd.org`, `ahcancal.org`, `abhw.org`, `smartrecovery.org
 same defect as the S25 "same org ×N geos" finding. It needs a rule distinguishing a national
 body from a state affiliate, which cannot be written from a domain alone, so it was measured
 rather than guessed at.
+
+## ADR-035
+
+**Enforce the S48 data-quality fixes in the PIPELINE, not on the sheet.**
+
+The S48 pre-send review found five classes of defect in the delivered sheet. Every one was
+cleaned by hand in the client's copy — which fixes today's file and guarantees the next run
+reproduces all of it. These are the same defects made structurally impossible.
+
+**1. Wrong-state `.gov` — the registry, finally wired.** `lacounty.gov` shipped under
+**Mississippi at high trust** with a working intake address. No string rule can read "LA County"
+as California, and `data/gov_domains.csv` — the CISA registry, vendored here since S45 — says so
+outright. ADR-033 measured registry-first *discovery*, found it trades `cdph.ca.gov` for
+`octreasurer.gov` and floods a city geo 3.2×, reverted it, and predicted the table's real value
+was wrong-state *derivation*. This is that use, and it is worth more than the discovery idea was:
+
+| Domain | Before | Now |
+|---|---|---|
+| `lacounty.gov` | not derivable | `california` |
+| `cabq.gov` | not derivable → demoted but SHIPPED | `new-mexico` → hard rejected |
+| `torranceca.gov` | `pennsylvania` trap, so refused | `california` |
+| `oc.gov` | not derivable | `california` |
+
+It returns `None` for federal bodies, so a candidate is never hard-rejected on a false premise,
+and the anti-guessing rule survives for domains the registry does not cover (`napa.gov`,
+`portwashington.gov` still assert nothing). Required moving `ABBR_TO_SLUG` to `geo_monitor/states.py`
+— `geography` owned it and `registry` imported it, so using the registry *from* geography was a cycle.
+
+**2. National crisis lines — curated list, plus a rule that needs no list.** The blocklist held
+three numbers, tuned on a 589-row dataset. Fifteen rows in a 2,279-row deliverable published a
+national line as the organisation's **own** phone, including `uconn.edu` at high trust carrying
+RAINN's sexual assault hotline; eight of the fifteen had no email, so the hotline was the only
+contact a rep would have called. **My own first audit of this reported ZERO**, because I only
+tested the three numbers already on the list. That is the failure mode of every curated list.
+
+So the list is now backed by a measurement. Mined from the delivered data, `+18009898137` sat on
+**seven organisations across seven states** — no curated list would ever have held it, and none
+needs to: one number is not the switchboard of seven organisations in seven states.
+`output/shared_phones.py` blanks any phone on 2+ websites in 2+ states. Both conditions are
+required: a national body legitimately serves many states from one number, and two agencies
+inside one state genuinely share a line (`dss.sd.gov` / `sdbehavioralhealth.gov`). A single-geo
+scheduled tick has nothing to compare, so the curated list still carries that case alone —
+a stated limit, not an oversight.
+
+**3. Federal agencies as local prospects.** `nrd.gov` shipped the same DoD/VA page to six
+different geos. Added with `cbp.gov`, `epa.gov`, `noaa.gov`, `gao.gov`, `usajobs.gov`, `nrc.gov`,
+`nps.gov`, `nnlm.gov`, `healthit.gov`, `arpa-h.gov`, `oversight.gov`, `reginfo.gov`, `usdoj.gov`.
+
+**4. Template placeholder emails.** `contact@mysite.com`, `info@new.com` and the rest of the
+site-builder defaults, matched on registrable domain so `info@mysitecounseling.org` survives.
+
+**5. Numeric columns.** Every cell went up as text, so Google stored `39287377` as a string and
+any sort was lexicographic: Newport Beach's 83,845 outranked California, DR 9 outranked DR 88,
+and 46% of the sheet sorted above California. Sorting is the first thing anyone does with a
+2,239-row file. Blank still means "not measured" — a `0` would be a claim.
+
+**6. The export target.** `EXPORT_SHEET_ID` fell back to `GOOGLE_SHEET_ID`, so every dashboard
+export added a tab to the workbook the **client** opens; two stale 622-row tabs were sitting
+beside the deliverable when it went out for review. It now refuses with a 503 naming the setting.
+A plain service account cannot create a standalone spreadsheet (403, ADR-016 holds — re-tested),
+so the scratch workbook has to be created and shared by a human.
+
+**Verification.** Every fixture in the new tests is a row that actually shipped.
+`tests/output/test_delivered_dataset_guards.py` replays every phone and address from the frozen
+2,279-row deliverable through both guards and asserts **zero survivors and zero false positives**
+— a list is only trustworthy if something replays the real corpus through it. The pipeline was
+then re-run over five cached geos at **0 billed**: 117 rows, and **zero** instances of all five
+classes.
+
+**Honest scope.** Sheet presentation (tab names, the legend, number *formatting*) is applied to
+the workbook and is not reproducible by the pipeline — a fresh workbook would need it again.
+The numeric *values*, and all five data guards, are in the pipeline.
