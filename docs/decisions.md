@@ -1678,3 +1678,36 @@ classes.
 **Honest scope.** Sheet presentation (tab names, the legend, number *formatting*) is applied to
 the workbook and is not reproducible by the pipeline — a fresh workbook would need it again.
 The numeric *values*, and all five data guards, are in the pipeline.
+
+## ADR-036
+
+**Specific Page is the page the client should OPEN.**
+
+The client reported a row whose `Competitor Links` did not appear on its `Specific Page`. ADR-032
+answered by keeping the contact page in `Specific Page` and appending a 15th column naming the
+page that really held the links. That was the wrong call, and the client said so: from his seat
+nothing changed. He clicks `Specific Page`, sees no competitor links, and reasonably concludes we
+ignored him. Being *defensible* is not the same as being *fixed* — the column he clicks has to be
+the page he needs.
+
+**Decision.** When the competitor links are on a different page than the one the contact came
+from, `Specific Page` becomes the **links page**. The contact page moves to `Contact Found On`,
+because the email and phone genuinely came from there and outreach still needs it — but it is
+the secondary fact, not the headline. Blank still means one page did both jobs.
+
+`Competitor Links Found On` is renamed rather than kept alongside: with the swap it would always
+be blank, and a permanently-empty column is worse than no column.
+
+**The header guard.** `is_safe_header_change` allows only appends, so it refuses a rename — which
+is correct, because a rename is indistinguishable from a reorder when rows are read positionally.
+This adds `allow_header_change=True`, the same shape as ADR-025's `allow_shrink`: refused by
+default, available when a human deliberately asks and Postgres is the source of truth.
+
+**Verification standard.** Every competitor-linked row was re-opened in a **real headless
+Chromium**, not curl, and the claimed domains checked against the rendered DOM's anchors. This is
+not pedantry: `.gov` sites 403 a bare client routinely, and a fetch failure is not evidence of
+absence. That exact mistake already cost us a true positive — `osceolacountyia.gov` was cleared as
+unverifiable after two failed fetches, then found genuinely linking to `samhsa.gov/mental-health/988`
+once a browser cleared the WAF on its second attempt. The verifier therefore RELOADS on a robot
+challenge before concluding anything, and any row whose claim cannot be confirmed on the page we
+publish has the claim cleared rather than shipped — the client checks by clicking.
