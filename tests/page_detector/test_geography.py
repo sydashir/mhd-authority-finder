@@ -23,7 +23,8 @@ from authority_finder.page_detector.geography import candidate_state
         ("memphis.edu", None),  # TN university
         ("cuanschutz.edu", None),  # CO campus
         ("dconc.gov", "north-carolina"),  # Durham County NC — a verified override (ADR-025)
-        ("oc.gov", None),  # Orange County CA — 'oc' is not a state abbr, falls to locality
+        # 'oc' is not a state abbr and used to fall through to text; the registry knows it.
+        ("oc.gov", "california"),  # County of Orange (ADR-035)
     ],
 )
 def test_s19_real_domains(domain: str, expected: str | None) -> None:
@@ -56,10 +57,20 @@ def test_edu_is_not_derivable() -> None:
     assert candidate_state("https://memphis.edu/") is None
 
 
-def test_bare_city_abbr_is_not_derived() -> None:
-    # napa.gov ends in 'pa' (Pennsylvania) but Napa is California — deriving it would misfire.
+def test_bare_city_abbr_is_never_guessed_from_the_string() -> None:
+    # napa.gov ends in 'pa' (Pennsylvania) but Napa is California. The string rules must still
+    # refuse to guess: the registry does not cover this domain, so nothing is asserted.
     assert candidate_state("https://napa.gov/") is None
-    assert candidate_state("https://torranceca.gov/") is None
+
+
+def test_the_registry_answers_where_the_string_rules_cannot() -> None:
+    """ADR-035: CISA is the registrar, so where it answers it beats any string heuristic.
+
+    Both of these used to return None — correctly, because the suffix is a trap — and the
+    cost was that a wrong-state row could not be rejected. Now they are known, not guessed.
+    """
+    assert candidate_state("https://torranceca.gov/") == "california"  # City of Torrance
+    assert candidate_state("https://cabq.gov/") == "new-mexico"  # City of Albuquerque
 
 
 def test_full_state_name_suffix_is_not_derived() -> None:
@@ -67,9 +78,9 @@ def test_full_state_name_suffix_is_not_derived() -> None:
     assert candidate_state("https://portwashington.gov/") is None
 
 
-def test_cryptic_acronym_is_not_derived() -> None:
-    # cabq.gov = Albuquerque NM — cryptic, not in the verified override → not derivable.
-    assert candidate_state("https://cabq.gov/") is None
+def test_a_cryptic_acronym_outside_the_registry_is_still_not_derived() -> None:
+    """The anti-guessing rule survives: no registry row, no assertion."""
+    assert candidate_state("https://portwashington.gov/") is None
 
 
 def test_verified_cryptic_gov_override_is_derived() -> None:

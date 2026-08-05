@@ -303,19 +303,22 @@ def test_domain_confirmed_survives_other_state_in_text() -> None:
     assert isinstance(page, DetectedPage)
 
 
-def test_cryptic_out_of_state_gov_demoted() -> None:
-    # cabq.gov is Albuquerque NM; 'cabq' can't be derived and the page has no California/Orange
-    # context, so it must be demoted (not shipped) for an Orange County geo.
+def test_cryptic_out_of_state_gov_is_now_hard_rejected() -> None:
+    """cabq.gov is the City of Albuquerque, NM, served to an Orange County CALIFORNIA geo.
+
+    It used to be demoted-but-SHIPPED, because 'cabq' encodes nothing a string rule can read.
+    The CISA registry knows it (ADR-035), so the contradiction is now proven and the candidate
+    is rejected outright rather than sold to the client as a low-confidence row.
+    """
     content = make_content(
         final_url="https://cabq.gov/behavioral-health/",
         title="Behavioral Health Services",
         text="Mental health and substance use programs. Crisis and recovery support. " + LONG_BODY,
         has_tel=True,
     )
-    page = score_page(content, geo=ORANGE_COUNTY_GEO)
-    assert isinstance(page, DetectedPage)
-    assert page.confidence == "low"
-    assert "geo_unconfirmed" in {s.name for s in page.signals}
+    verdict = score_page(content, geo=ORANGE_COUNTY_GEO)
+    assert isinstance(verdict, WrongState)
+    assert verdict.dominant_state == "new-mexico"
 
 
 def test_verified_wrong_geo_gov_hard_rejected() -> None:

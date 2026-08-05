@@ -35,18 +35,7 @@ ENTRY_POINTS: tuple[str, ...] = ("authority_finder.cli", "backend.app")
 
 # Modules that are legitimately not imported by the runtime, each with a stated reason.
 # Adding a name here is a deliberate claim that it is not meant to run in production.
-NOT_RUNTIME: dict[str, str] = {
-    # ADR-033: wiring this was measured and REVERTED. The registry can enumerate the .gov
-    # domains in a place but carries no topical signal (only 16 of 497 delivered domains have
-    # "health" in their registry org name), so registry-first traded cdph.ca.gov and
-    # cdss.ca.gov for octreasurer.gov and safecastrawberries.gov, and flooded Clearwater from
-    # 37 to 118 candidates. Kept, unwired, because the same table is the best available
-    # source of truth for which STATE a .gov belongs to — a wrong-state fix, not a discovery
-    # one. Delete it if that never gets built.
-    "authority_finder.discovery.registry": (
-        "ADR-033: measured, reverted, retained for wrong-state work"
-    ),
-}
+NOT_RUNTIME: dict[str, str] = {}
 
 
 def _module_name(path: Path, root: Path) -> str:
@@ -123,17 +112,17 @@ def test_every_module_is_reachable_from_an_entry_point() -> None:
     )
 
 
-def test_the_registry_is_exempted_on_purpose_not_by_accident() -> None:
-    """It IS unreachable, and that is now a measured decision rather than an oversight.
+def test_the_registry_is_wired_for_wrong_state_derivation() -> None:
+    """It is finally reachable — as a geography oracle, not as a discovery source.
 
-    Wiring it was built, validated on the cached geos, and reverted: registry-first lost
-    cdph.ca.gov and cdss.ca.gov while gaining octreasurer.gov, and took Clearwater from 37
-    to 118 candidates (ADR-033). If that reason ever stops holding, the module must be wired
-    or deleted — not left ambiguous, which is how it sat for a week claiming a cost saving.
+    ADR-033 measured registry-first DISCOVERY and reverted it (it lost cdph.ca.gov and gained
+    octreasurer.gov), but predicted the table's real value was telling us which STATE a .gov
+    belongs to. ADR-035 is that use: it is what stops lacounty.gov shipping under Mississippi.
     """
-    name = "authority_finder.discovery.registry"
-    assert name not in _reachable()
-    assert "ADR-033" in NOT_RUNTIME[name]
+    assert "authority_finder.discovery.registry" in _reachable()
+    assert "authority_finder.discovery.registry" in set(
+        _imports_of("authority_finder.page_detector.geography")
+    )
 
 
 @pytest.mark.parametrize("name", sorted(NOT_RUNTIME))

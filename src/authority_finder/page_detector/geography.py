@@ -19,59 +19,9 @@ import re
 from urllib.parse import urlparse
 
 from authority_finder.discovery.classify import registrable_domain
+from authority_finder.discovery.registry import state_for_gov_domain
+from authority_finder.geo_monitor.states import ABBR_TO_SLUG
 
-ABBR_TO_SLUG: dict[str, str] = {
-    "al": "alabama",
-    "ak": "alaska",
-    "az": "arizona",
-    "ar": "arkansas",
-    "ca": "california",
-    "co": "colorado",
-    "ct": "connecticut",
-    "de": "delaware",
-    "fl": "florida",
-    "ga": "georgia",
-    "hi": "hawaii",
-    "id": "idaho",
-    "il": "illinois",
-    "in": "indiana",
-    "ia": "iowa",
-    "ks": "kansas",
-    "ky": "kentucky",
-    "la": "louisiana",
-    "me": "maine",
-    "md": "maryland",
-    "ma": "massachusetts",
-    "mi": "michigan",
-    "mn": "minnesota",
-    "ms": "mississippi",
-    "mo": "missouri",
-    "mt": "montana",
-    "ne": "nebraska",
-    "nv": "nevada",
-    "nh": "new-hampshire",
-    "nj": "new-jersey",
-    "nm": "new-mexico",
-    "ny": "new-york",
-    "nc": "north-carolina",
-    "nd": "north-dakota",
-    "oh": "ohio",
-    "ok": "oklahoma",
-    "or": "oregon",
-    "pa": "pennsylvania",
-    "ri": "rhode-island",
-    "sc": "south-carolina",
-    "sd": "south-dakota",
-    "tn": "tennessee",
-    "tx": "texas",
-    "ut": "utah",
-    "vt": "vermont",
-    "va": "virginia",
-    "wa": "washington",
-    "wv": "west-virginia",
-    "wi": "wisconsin",
-    "wy": "wyoming",
-}
 # Full-name portals (texas.gov, maryland.gov, …) — EXACT registrable label only, never a suffix.
 _NAME_TO_SLUG: dict[str, str] = {slug.replace("-", ""): slug for slug in ABBR_TO_SLUG.values()}
 _NAME_TO_SLUG["newyork"] = "new-york"
@@ -118,10 +68,21 @@ def candidate_state(url: str) -> str | None:
         if tld == "edu":
             return None
         return _org_state(registrable_domain(url))
-    registrable = registrable_domain(url)
+    return _gov_domain_state(registrable_domain(url))
+
+
+def _gov_domain_state(registrable: str) -> str | None:
+    """State for a ``.gov`` registrable domain: hand-verified override, then CISA, then string.
+
+    CISA is the registrar for every US ``.gov``, so where it answers it is authoritative and
+    beats any guess made from the domain string (ADR-035). It returns ``None`` for federal
+    bodies, which correctly asserts nothing rather than hard-rejecting on a false premise.
+    This is what let ``lacounty.gov`` ship under Mississippi at high trust: no string rule can
+    read "LA County" as California, and the table saying so sat unread in the repo for a week.
+    """
     if registrable in _KNOWN_GOV_STATES:
         return _KNOWN_GOV_STATES[registrable]
-    return _gov_state(registrable.split(".")[0])
+    return state_for_gov_domain(registrable) or _gov_state(registrable.split(".", maxsplit=1)[0])
 
 
 # Two-letter codes that are safe to read as a bare domain SUFFIX. Most codes are common

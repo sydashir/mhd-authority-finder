@@ -27,7 +27,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import NamedTuple
 
-from authority_finder.page_detector.geography import ABBR_TO_SLUG
+from authority_finder.geo_monitor.states import ABBR_TO_SLUG
 
 REGISTRY_PATH = Path("data/gov_domains.csv")
 
@@ -111,3 +111,42 @@ def domains_for_geo(
             seen.add(row.domain)
             unique.append(row)
     return unique
+
+
+_FEDERAL_KINDS = frozenset(
+    {"Federal - Executive", "Federal - Legislative", "Federal - Judicial", "Federal"}
+)
+
+
+@lru_cache(maxsize=1)
+def _state_by_domain() -> dict[str, str]:
+    """``lacounty.gov`` -> ``california``, for every US .gov (ADR-035).
+
+    Federal rows are deliberately absent: a federal body has no state, and asserting one
+    would make the scorer HARD REJECT a candidate on a false premise.
+    """
+    out: dict[str, str] = {}
+    for row in load_registry():
+        if row.kind in _FEDERAL_KINDS:
+            continue
+        slug = ABBR_TO_SLUG.get(row.state.lower())
+        if slug:
+            out[row.domain] = slug
+    return out
+
+
+def state_for_gov_domain(domain: str) -> str | None:
+    """The registered state for a ``.gov`` domain, or ``None`` if unknown or federal.
+
+    Authoritative where it answers: CISA is the registrar. This is the use ADR-033 predicted
+    when it kept registry-first DISCOVERY out — the same table that could not tell us which
+    .gov is about behavioral health can tell us, exactly, which state one belongs to.
+    """
+    domain = domain.strip().lower().removeprefix("www.")
+    by_domain = _state_by_domain()
+    parts = domain.split(".")
+    for index in range(len(parts) - 1):
+        found = by_domain.get(".".join(parts[index:]))
+        if found:
+            return found
+    return None
