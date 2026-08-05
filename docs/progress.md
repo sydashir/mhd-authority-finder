@@ -1580,3 +1580,48 @@ predicting its real value was wrong-state derivation rather than discovery. That
 - No legend tab explaining Contact Trust vs Confidence, blank Domain Rating, `—`, or blank
   "Found On".
 - 118 duplicate mail-merge sends (one address on 11 rows) — dedupe on Email before merging.
+
+---
+
+## 2026-08-05 — Session 49: enforce the S48 fixes in the pipeline
+
+The S48 cleanups were applied to the client's sheet by hand, so the next run would have
+reproduced every one. This makes them structural (ADR-035). **0 billed.**
+
+### Enforced IN-PIPELINE (the next run cannot produce these)
+
+| Defect | Guard | Where |
+|---|---|---|
+| Wrong-state `.gov` | CISA registry as a state oracle | `page_detector/geography.py` → hard reject |
+| National crisis line as org phone | curated list (10) **+** shared-across-states rule | `contact_extractor/extract.py`, `output/shared_phones.py` |
+| Federal agency as local prospect | 14 more domains | `domains.py` |
+| Template placeholder email | registrable-domain match | `contact_extractor/extract.py` |
+| Population / DR unsortable | sent as real numbers | `output/sheets_writer.py` |
+| Export into the client's workbook | 503 unless `EXPORT_SHEET_ID` is separate | `backend/routers/export.py` |
+
+### Sheet-level only (NOT reproducible by the pipeline)
+
+Tab renamed to **Prospects**, the two stale `AuthorityScout 2026-07-13` tabs deleted (backed up
+to `scratch/audit/sheet_tabs_backup.json` first), a **How to read this** legend tab added, header
+frozen and bolded, number *formatting* applied. A fresh workbook would need these again.
+
+### Verified
+
+- **Re-ran the real pipeline over 5 cached geos, 0 billed**: 117 rows, and **0** hotlines,
+  **0** placeholder emails, **0** federal, **0** platform, **0** wrong-state.
+- `test_delivered_dataset_guards.py` replays every phone and address from the frozen 2,279-row
+  deliverable through the guards: **0 survivors, 0 false positives**.
+- **699 tests** (656 unit + 43 api); ruff, ruff format, strict pyright 0 errors.
+- Sheet re-exported: 2,239 rows × 15 cols, Population and Domain Rating verified **numeric**
+  via `UNFORMATTED_VALUE` (max 39,287,377 and 90), 20 blanks stay blank.
+
+### Gotcha
+
+`git checkout <file>` on an uncommitted change threw away the numeric-cells work and I had to
+redo it. Commit before reaching for checkout as an "undo".
+
+### Still needs a human
+
+`EXPORT_SHEET_ID` needs a scratch workbook created and shared with the service account — the SA
+cannot create one (403, re-tested). Until then the dashboard's export button returns 503, which
+is the safe failure.
