@@ -1542,3 +1542,41 @@ outreach-actioned 0. 99 rows name a different page; every one of them checked ou
 
 Two stale tabs (`AuthorityScout 2026-07-13 …`, 622 rows, 13 cols) still sit in the workbook next
 to Sheet1. A client opening the file sees three tabs. Awaiting the go-ahead to remove them.
+
+### Session 48 continued — adversarial pre-send review
+
+Ran a 48-agent review of the deliverable across 5 dimensions with adversarial verification
+(42 findings raised, 6 refuted, 32 held). Verdict: **do not send as it stood**. Fixed the
+must-fix set, 0 billed:
+
+| Fix | Rows |
+|---|---|
+| National crisis lines published as the org's own phone | **15 blanked** |
+| Federal agencies as local prospects (`nrd.gov` ×6, `cbp/epa/noaa/gao/usajobs/nrc/nps/nnlm`…) | **24 deleted** |
+| Out-of-state `.gov` proved wrong by the CISA registry | **16 deleted** |
+| Wix placeholder emails (`contact@mysite.com`, `info@new.com`) | **4 cleared** |
+| Unverifiable competitor-link claims | **2 cleared** |
+
+**2,279 → 2,239 rows.** The worst single row was `lacounty.gov` filed under **Mississippi at
+high trust**; the most damaging was `uconn.edu` at high trust publishing RAINN's sexual assault
+hotline, with 8 of the 15 hotline rows carrying no email at all, so the hotline was the only
+contact a rep would have called.
+
+**Two corrections to our own work.** (1) My first hotline check found 0 because it only held the
+three canonical numbers — the real tail is ten. (2) I cleared `osceolacountyia.gov` as
+unverifiable after two fetch failures; a verifier drove a real browser, cleared the WAF on the
+second attempt and found the samhsa.gov link genuinely on the page. Restored. **A fetch failure
+is not evidence of absence — drive a browser before deleting a claim** (CLAUDE.md already says
+this; I did not follow it).
+
+The wrong-state deletions used `discovery/registry.py` — the module ADR-033 kept unwired,
+predicting its real value was wrong-state derivation rather than discovery. That prediction held.
+
+### Still open before sending
+
+- Two stale `AuthorityScout 2026-07-13` tabs (622 rows, 13 cols) sit beside the deliverable and
+  the master tab is still named `Sheet1`. **Needs the go-ahead to delete/rename.**
+- Population and Domain Rating are written as text, so sorting them is meaningless.
+- No legend tab explaining Contact Trust vs Confidence, blank Domain Rating, `—`, or blank
+  "Found On".
+- 118 duplicate mail-merge sends (one address on 11 rows) — dedupe on Email before merging.
