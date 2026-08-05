@@ -45,6 +45,31 @@ def _last_column_letter(count: int) -> str:
 # Derived from the header, never hard-coded: a literal range silently truncates the read the
 # moment a column is added, which makes the header comparison permanently unequal and forces
 # every write down the full-rewrite path (found the hard way when "Domain Rating" became N).
+# The client-facing tab. Renamed from the default "Sheet1", which read as an internal artefact
+# in a file handed to a client (S48).
+DEFAULT_TAB = "Prospects"
+
+NUMERIC_COLUMNS = (OUTPUT_HEADER.index("Population"), OUTPUT_HEADER.index("Domain Rating"))
+
+
+def to_sheet_values(rows: list[OutputRow]) -> list[list[object]]:
+    """Row cells for the Sheets API, with the numeric columns as real numbers.
+
+    Everything used to go up as text, so Google stored 39,287,377 as a string and any sort
+    became lexicographic — Newport Beach's 83,845 outranked California, and DR 9 outranked
+    DR 88. Blank still means "not measured"; a 0 would be a claim (ADR-035).
+    """
+    out: list[list[object]] = []
+    for row in rows:
+        cells: list[object] = list(row.cells())
+        for index in NUMERIC_COLUMNS:
+            text = cells[index]
+            if isinstance(text, str) and text:
+                cells[index] = float(text) if "." in text else int(text)
+        out.append(cells)
+    return out
+
+
 _RANGE = f"A:{_last_column_letter(len(OUTPUT_HEADER))}"
 
 _log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -63,7 +88,9 @@ class SheetsWriteResult(BaseModel):
 class SheetsWriter:
     """Append-only, idempotent writer for one sheet tab."""
 
-    def __init__(self, *, credentials_path: Path, spreadsheet_id: str, tab: str = "Sheet1") -> None:
+    def __init__(
+        self, *, credentials_path: Path, spreadsheet_id: str, tab: str = DEFAULT_TAB
+    ) -> None:
         self._creds_path = credentials_path
         self._sheet_id = spreadsheet_id
         self._tab = tab
@@ -111,9 +138,9 @@ class SheetsWriter:
                 values_api.append(
                     spreadsheetId=self._sheet_id,
                     range=f"{self._tab}!{_RANGE}",
-                    valueInputOption="RAW",
+                    valueInputOption="USER_ENTERED",
                     insertDataOption="INSERT_ROWS",
-                    body={"values": [r.cells() for r in new_rows]},
+                    body={"values": to_sheet_values(new_rows)},
                 )
             )
         _log.info(
@@ -151,12 +178,12 @@ class SheetsWriter:
                 f"write has only {len(final)} — this would shrink/wipe the deliverable (the tab "
                 f"may have been edited). Pass allow_shrink=True to force an intentional correction."
             )
-        body_rows = [OUTPUT_HEADER, *(r.cells() for r in final)]
+        body_rows: list[list[object]] = [list(OUTPUT_HEADER), *to_sheet_values(final)]
         self._call(
             values_api.update(
                 spreadsheetId=self._sheet_id,
                 range=f"{self._tab}!A1",
-                valueInputOption="RAW",
+                valueInputOption="USER_ENTERED",
                 body={"values": body_rows},
             )
         )
@@ -196,7 +223,7 @@ class SheetsWriter:
             values_api.update(
                 spreadsheetId=self._sheet_id,
                 range=f"{self._tab}!A1",
-                valueInputOption="RAW",
+                valueInputOption="USER_ENTERED",
                 body={"values": [OUTPUT_HEADER]},
             )
         )

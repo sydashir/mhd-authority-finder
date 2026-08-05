@@ -56,8 +56,8 @@ class Settings(BaseSettings):
         description=(
             "Workbook the UI's 'Export to Google Sheet' writes a NEW tab into (EXPORT_SHEET_ID). "
             "A plain service account can't create standalone spreadsheets, so exports add a tab to "
-            "a workbook it can edit. Defaults to GOOGLE_SHEET_ID; the auto-write tab (Sheet1) is "
-            "never touched. Point this at a dedicated workbook to keep exports out of the master."
+            "a workbook it can edit. Defaults to GOOGLE_SHEET_ID; the auto-write tab is never "
+            "touched. Point this at a dedicated workbook to keep exports out of the client's file."
         ),
     )
 

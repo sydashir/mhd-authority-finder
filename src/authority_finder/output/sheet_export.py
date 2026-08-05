@@ -2,7 +2,7 @@
 
 Distinct from :class:`SheetsWriter` (which appends to the master auto-write tab):
 this adds a fresh, uniquely-named tab to a workbook the service account can edit
-and writes the filtered view there. The auto-write tab (``Sheet1``) is never
+and writes the filtered view there. The auto-write tab (``Prospects``) is never
 touched. A plain service account cannot create standalone spreadsheets (no Drive
 storage → 403), so a new tab in an existing workbook is the export surface; point
 ``EXPORT_SHEET_ID`` at a dedicated workbook to keep exports out of the master.
