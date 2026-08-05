@@ -38,8 +38,23 @@ _NATIONAL_HOTLINES = frozenset(
         "+18002738255",  # 988 Suicide & Crisis Lifeline (legacy 1-800-273-TALK)
         "+18006624357",  # SAMHSA National Helpline (1-800-662-HELP)
         "+18007997233",  # National Domestic Violence Hotline
+        # S48: all seven below were live in the delivered sheet as an organisation's own
+        # phone. The list was tuned on 589 rows; at 2,269 the tail had grown.
+        "+18006564673",  # RAINN National Sexual Assault Hotline (shipped at HIGH trust)
+        "+18009506264",  # NAMI HelpLine
+        "+18664887386",  # Trevor Project
+        "+18009855990",  # SAMHSA Disaster Distress Helpline
+        "+18002221222",  # Poison Control
+        "+18004874889",  # SAMHSA TTY
+        "+18007873224",  # National Domestic Violence Hotline TTY
     }
 )
+
+
+def is_national_hotline(phone: str) -> bool:
+    """True when this number is a national crisis line, never an organisation's own contact."""
+    return phone in _NATIONAL_HOTLINES
+
 
 # Offline PSL extractor (matches discovery.classify config) — rejects emails whose
 # "domain" has no real public suffix (handler@bind.call, x@secret.key, a@host.local).

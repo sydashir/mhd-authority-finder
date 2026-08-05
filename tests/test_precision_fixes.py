@@ -6,6 +6,7 @@ systemic rather than long-tail. These cover the two buckets that are cheap and u
 """
 
 from authority_finder.authority_filter.platforms import is_platform
+from authority_finder.contact_extractor.extract import is_national_hotline
 from authority_finder.domains import is_federal
 
 
@@ -30,6 +31,14 @@ class TestFederalLeaks:
     def test_bureau_of_reclamation_is_federal(self) -> None:
         # Shipped to Port Hueneme, California.
         assert is_federal("https://www.usbr.gov/environmental/")
+
+    def test_dod_national_resource_directory_is_federal(self) -> None:
+        """Found by the S48 pre-send review: published as a local prospect in SIX geos."""
+        assert is_federal("https://nrd.gov/")
+
+    def test_remaining_federal_agencies_are_federal(self) -> None:
+        for url in ("https://www.cbp.gov/", "https://www.epa.gov/", "https://www.noaa.gov/"):
+            assert is_federal(url), url
 
     def test_a_real_state_agency_is_not_federal(self) -> None:
         """The guard that matters: these additions must not catch state or county bodies."""
@@ -62,3 +71,36 @@ class TestPlatformLeaks:
             "sdccbh.org",
         ):
             assert not is_platform(domain), domain
+
+
+class TestNationalHotlines:
+    """S48 pre-send review: 15 delivered rows published a national crisis line as the
+    organisation's OWN phone. The blocklist held only three numbers, tuned on a 589-row
+    dataset; the deliverable is now 2,269 rows and the tail had grown.
+
+    The client is a behavioural-health organisation. A rep cold-pitching RAINN's sexual
+    assault line or the Trevor Project's LGBTQ youth line is the single most reputationally
+    damaging thing this file can do, and 8 of the 15 rows carried no email, so the hotline
+    was the only contact on the row.
+    """
+
+    def test_the_lines_that_shipped_are_blocked(self) -> None:
+        for number, who in (
+            ("+18006564673", "RAINN National Sexual Assault Hotline (shipped at HIGH trust)"),
+            ("+18009506264", "NAMI HelpLine"),
+            ("+18664887386", "Trevor Project"),
+            ("+18009855990", "SAMHSA Disaster Distress Helpline"),
+            ("+18002221222", "Poison Control"),
+            ("+18004874889", "SAMHSA TTY"),
+            ("+18007873224", "National Domestic Violence Hotline TTY"),
+        ):
+            assert is_national_hotline(number), who
+
+    def test_the_original_three_still_block(self) -> None:
+        for number in ("+18002738255", "+18006624357", "+18007997233"):
+            assert is_national_hotline(number)
+
+    def test_a_real_organisation_number_is_untouched(self) -> None:
+        """The guard must not start eating ordinary local numbers."""
+        for number in ("+19518275531", "+18666153047", "+13037366000", "+12136894111"):
+            assert not is_national_hotline(number), number
