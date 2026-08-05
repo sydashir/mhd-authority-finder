@@ -1506,3 +1506,39 @@ without `geo_id` **0**. Billed this session: **0**.
 - National-vs-state-affiliate rule (32% of remaining junk; `mhanational.org` spans 16 geos).
 - The 11% of rows naming the right org but a weak Specific Page.
 - P1 hosting.
+
+---
+
+## 2026-08-05 — Session 48: pre-send verification of the deliverable
+
+### Done
+
+Verified the client-facing sheet end to end before sending, with Playwright and a full re-fetch
+of every competitor-linked row. **0 billed.**
+
+- **Jake's reported row confirmed fixed, by eye.** `counseling.ucr.edu/` — 112 links, **0**
+  competitor hits (exactly what he saw). The page the sheet now names,
+  `/resources-support-specialty-care-self-help-and-making-connections` — 378 links, **3** hits:
+  `findtreatment.samhsa.gov`, `addictionresource.net/lethal-doses/alcohol/`, `samhsa.gov`.
+  Matches the row's `addictionresource.net; samhsa.gov` exactly.
+- **Re-fetched all 267 competitor-linked rows** against the live web:
+  - **98/98** rows using the new "Found On" column fully confirmed
+  - 164/166 blank rows confirmed (links genuinely on the Specific Page)
+  - 3 fetch failures, 2 unconfirmed
+- **Found a flaw in the S46 fix.** The backfill wrote provenance only where the re-check
+  corroborated and left the rest BLANK — but blank *asserts* "the links are on this page". So
+  `msmentalhealth.org` shipped a claim that had already failed re-verification.
+- **Cleared 3 unverifiable claims** (`msmentalhealth.org` never corroborated;
+  `arcsc.org` confirmed 2026-08-03 but the page changed since; `osceolacountyia.gov` fetch-failed
+  on both attempts). Competitor-linked rows 267 → 264. We have been caught once on exactly this,
+  so an unsubstantiated claim does not ship.
+
+### Verified
+
+Sheet 2,279 rows × 15 cols, header matches code, **row-level DB↔Sheet difference 0**,
+outreach-actioned 0. 99 rows name a different page; every one of them checked out.
+
+### Open
+
+Two stale tabs (`AuthorityScout 2026-07-13 …`, 622 rows, 13 cols) still sit in the workbook next
+to Sheet1. A client opening the file sees three tabs. Awaiting the go-ahead to remove them.
