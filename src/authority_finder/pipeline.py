@@ -29,6 +29,7 @@ from authority_finder.link_checker.models import LinkCheckResult
 from authority_finder.link_checker.orchestrator import check_links_for_candidate
 from authority_finder.output.blocked_writer import BlockedCandidate, collect_blocked
 from authority_finder.output.models import OutputRow, build_row
+from authority_finder.output.shared_phones import blank_shared_phones
 from authority_finder.page_detector.orchestrator import detect_for_geo
 from authority_finder.population.census import CensusClient
 
@@ -218,12 +219,19 @@ async def run_pipeline(
             except Exception as exc:  # a checkpoint failure must never lose the run
                 _log.error("pipeline.checkpoint_failed", geo=discovery.geo.url, error=str(exc))
 
+    # A number on different organisations in 2+ states is a shared referral line, not any
+    # one org's own contact. Runs across the whole run because that is the only place the
+    # evidence exists — a per-page extractor cannot see the repetition (ADR-035).
+    rows, shared_blanked = blank_shared_phones(rows)
+    if shared_blanked:
+        _log.info("pipeline.shared_phones_blanked", rows=shared_blanked)
+
     funnel = PipelineFunnel(
         geos=len(discovery_results),
         candidates=candidates,
         detected=detected,
         with_email=with_email,
-        with_phone=with_phone,
+        with_phone=with_phone - shared_blanked,
         rows=len(rows),
         population_found=population_found,
         rows_with_competitor_links=competitor_rows,
