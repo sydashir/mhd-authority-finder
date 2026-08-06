@@ -1687,3 +1687,57 @@ A failure to reach something is not evidence that it does not exist. It bit here
 one session: a 5xx read as "no links", a burst-rate-limited resolver read as "8 dead hosts"
 (7 were fine — `illinois.gov` resolves via Akamai), and earlier a WAF 403 read as a false
 positive. Retry, and check from a second vantage point, before deleting anything.
+
+---
+
+## 2026-08-06 — Session 51: Source Tag can say "Both" (ADR-037)
+
+Fixed the column instead of explaining it away. **0 billed.**
+
+### The problem
+
+The enum held `MHD`/`AH` only, so a prospect from a geography both directories publish claimed
+whichever run last touched it. Filtering `Source Tag = AH` returned **22 of 2,237** rows and read
+as "the AH half was never built". The opposite is true.
+
+### Done
+
+- `Both` added to the enum: Python, PG native enum (migration `c93a5f21e77b`), API, CSV, UI
+  (own badge + filter relabelled "Both sites / MHD only / AH only").
+- **`geo_monitor/membership.py`** builds `place -> {site ids}` from the live sitemaps (free) and
+  the pipeline builds it per run, so future runs tag correctly without extra wiring.
+- **Keyed on the PLACE, not the level.** MHD publishes Palos Verdes as a *city* under Los Angeles
+  County; AH publishes it at *county* level. A level-sensitive key called that a miss. Caught by
+  hand-checking four geographies against both sitemaps — moved 16 rows.
+- `source_tag_for` **raises** rather than defaulting, so an unattributable row is visible.
+- Backfilled all 2,237 rows from sitemap data. **0 undeterminable.**
+
+| | Before | After |
+|---|---|---|
+| Both | not expressible | **2,099** |
+| MHD only | 2,215 | 138 |
+| AH only | 22 | 0 |
+
+The 138 MHD-only rows are exactly the 17 sub-state geographies AH does not publish.
+
+### Verified by hand, in a browser
+
+AH's Palos Verdes page is live ("Palos Verdes Addiction Hotline"), AH's Minnesota page is live,
+and AH returns **404** for Irvine on both URL shapes — so Irvine is correctly MHD-only.
+
+### Final sheet state
+
+2,237 rows × 15 cols · tabs `[Prospects, How to read this]` · **DB↔Sheet differences 0** ·
+Source Tag `{Both: 2099, MHD: 138}` · hotlines/placeholder/federal/wrong-state **0/0/0/0** ·
+123 high trust · 1,385 email · 1,890 phone · 265 competitor-linked (99 with a separate contact
+page) · outreach 0 actioned · geo_id NULL 0 · row 2 Specific Page is the resources-support URL.
+676 unit + 98 db/api/scheduler + 41 frontend tests; ruff, strict pyright, tsc, build clean.
+
+### Gotcha
+
+The frontend suite failed 3-4 tests intermittently — identical code, back-to-back runs gave
+"6 passed" then "3 failed". Not a regression: this machine was at load average 81 (another
+Claude session, an iOS simulator), and RTL's 5s default timeout is marginal there. Passes at
+`--testTimeout=30000`. A bisect under those conditions produced a **false** culprit (`index.css`);
+always confirm a bisect by re-running the "good" side twice before believing it.
+`TESTCONTAINERS_RYUK_DISABLED=true` likewise clears the DB-suite port-mapping errors under load.
