@@ -27,12 +27,14 @@ def links_to_a_competitor(row: OutputRow) -> bool:
 
 def _sort_key(row: OutputRow) -> tuple[int, int, int, str]:
     pop_desc = -(row.population if row.population is not None else -1)
-    # Primary signal: an org that already lists a competing directory has DEMONSTRATED it
-    # will list one. That beats an inferred property like contact trust or Domain Rating,
-    # so those rows lead the sheet (S32, on top of ADR-011's detection).
+    # Contact Trust leads (ADR-038). It is the column a rep acts on first — it says whether
+    # the email is safe to send — so the sheet must read high, then medium, then low, all the
+    # way down. Ranking competitor-linked rows first (S32) put a MEDIUM row above a HIGH one
+    # and made the Trust column look unsorted; that signal now orders rows WITHIN a band,
+    # where it still surfaces the orgs that have demonstrably listed a directory before.
     return (
-        0 if links_to_a_competitor(row) else 1,
         _TRUST_RANK.get(row.contact_trust, 3),
+        0 if links_to_a_competitor(row) else 1,
         pop_desc,
         row.geo_served,
     )

@@ -1743,3 +1743,41 @@ The 138 MHD-only rows are exactly the 17 sub-state geographies AH does not publi
 browser: AH's Palos Verdes and Minnesota pages are live; AH returns **404** for Irvine on both URL
 shapes. `source_tag_for` **raises** on a row it cannot attribute rather than defaulting to MHD —
 an unattributable row must be visible, not quietly mislabelled. Zero rows were undeterminable.
+
+## ADR-038
+
+**Contact Trust sorts first; the competitor link orders rows within a band.**
+
+ADR-011/S32 put competitor-linked rows at the top of the deliverable, on the reasoning that an
+organisation which has already listed a competing directory has *demonstrated* it will list one,
+and that beats an inferred property like a contact grade. The reasoning is sound and the client
+still rejected the result, correctly.
+
+The problem is what it does to the page. With the link ranking first, the Contact Trust column
+reads `high, medium, low, high, medium, low …` — a medium-trust row with a link sits above a
+high-trust row without one. Opening the sheet, that looks unsorted. A sort order nobody can see
+is not a sort order.
+
+**Trust leads because it is the column a rep acts on first.** It answers "is this email safe to
+send?" — high means a department inbox on the organisation's own domain. The competitor link is
+a prioritisation signal *among comparable leads*, not a reason to hand someone a low-trust
+contact ahead of a high-trust one.
+
+New order: `contact_trust (high→medium→low)` → `competitor-linked first` → `population desc` →
+`geo`. The link signal is preserved exactly where it is useful: 123 high-trust rows now lead the
+sheet, and within that band the proven directory-listers come first.
+
+**Applied in BOTH implementations**, because two independent pieces of code decide this:
+`csv_writer._sort_key` (Python, the sheet) and `repository._order_by` (SQL, the dashboard). They
+had already been kept in step by hand. `tests/db/test_repository.py::test_db_order_matches_the_
+sheet_order_exactly` now drives the same rows through both and asserts identical output, so a
+future change to one that misses the other fails a test rather than shipping a dashboard that
+disagrees with the file the client is reading.
+
+**Dedupe follows the sort**, so one behaviour changed as a consequence: where the same
+(domain, geo) appears twice in different trust bands, the surviving row is now the higher-trust
+one rather than the linked one. That loses less — the competitor link is a property of the
+organisation and is unchanged either way, while the contact grade is what the rep acts on.
+
+Live result: high rows 2–124, medium 125–722, low 723–2238; the Trust column is monotonic top to
+bottom, and within every band the linked rows lead.

@@ -75,16 +75,17 @@ _SORTABLE: Mapping[str, Any] = {
 
 
 def _order_by(sort: str | None, sort_dir: str) -> list[Any]:
-    """The ORDER BY: an explicit sortable column, else the default ordering — orgs that
-    already link to a competing directory first, then trust high→low, then population desc,
-    then geo — so the dashboard opens on the leads most likely to say yes."""
+    """The ORDER BY: an explicit sortable column, else the default ordering — trust high→low
+    first, then orgs that already link to a competing directory, then population desc, then
+    geo. Must match csv_writer._sort_key exactly, or the dashboard and the sheet disagree
+    about what "the top of the list" means (ADR-038)."""
     if sort and sort in _SORTABLE:
         col = _SORTABLE[sort]
         primary = col.desc() if sort_dir == "desc" else col.asc()
         return [primary, Prospect.website.asc()]  # stable tiebreak
     return [
-        _LINKS_RANK.asc(),
         _TRUST_RANK.asc(),
+        _LINKS_RANK.asc(),
         Prospect.population.desc().nulls_last(),
         Prospect.geo_served.asc(),
     ]

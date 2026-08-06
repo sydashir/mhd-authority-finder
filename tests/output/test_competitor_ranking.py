@@ -1,7 +1,9 @@
 """An org that already lists a competing directory has PROVEN it will list one (ADR-011).
 
-That is a stronger buying signal than any contact-trust band or Domain Rating: it is
-demonstrated behaviour rather than an inferred property. So it sorts first.
+That is a strong buying signal — demonstrated behaviour rather than an inferred property — so
+it ranks rows WITHIN a contact-trust band. It no longer sorts ahead of trust: doing so put a
+medium-trust row above a high-trust one and made the Trust column read as unsorted, which the
+client reported (ADR-038). Trust says whether the email is safe to send; that has to lead.
 """
 
 from authority_finder.output.csv_writer import dedupe_and_sort
@@ -33,16 +35,16 @@ def _row(
     )
 
 
-class TestCompetitorLinkRanksFirst:
-    def test_a_linking_org_outranks_a_higher_trust_non_linking_org(self) -> None:
-        """This is the whole point: proven behaviour beats a better contact grade."""
+class TestCompetitorLinkRanksWithinATrustBand:
+    def test_trust_outranks_a_competitor_link(self) -> None:
+        """Superseded by ADR-038 — this pair used to come back the other way round."""
         rows = dedupe_and_sort(
             [
                 _row("high-trust-no-links.org", trust="high"),
                 _row("low-trust-but-links.org", trust="low", competitors="rehabs.com"),
             ]
         )
-        assert rows[0].website == "low-trust-but-links.org"
+        assert rows[0].website == "high-trust-no-links.org"
 
     def test_multiple_linking_orgs_keep_trust_order_among_themselves(self) -> None:
         rows = dedupe_and_sort(
@@ -54,11 +56,14 @@ class TestCompetitorLinkRanksFirst:
         assert [r.website for r in rows] == ["links-high.org", "links-low.org"]
 
     def test_the_em_dash_placeholder_is_not_treated_as_a_link(self) -> None:
-        """'—' is how 'no competitor links' is written; it must not rank as proof."""
+        """'—' is how 'no competitor links' is written; it must not rank as proof.
+
+        Compared within ONE band, so the assertion tests the link rule and not trust.
+        """
         rows = dedupe_and_sort(
             [
                 _row("no-links.org", trust="high", competitors="—"),
-                _row("links.org", trust="low", competitors="samhsa.gov"),
+                _row("links.org", trust="high", competitors="samhsa.gov"),
             ]
         )
         assert rows[0].website == "links.org"
@@ -67,7 +72,7 @@ class TestCompetitorLinkRanksFirst:
         rows = dedupe_and_sort(
             [
                 _row("empty.org", trust="high", competitors=""),
-                _row("links.org", trust="low", competitors="rehabs.com"),
+                _row("links.org", trust="high", competitors="rehabs.com"),
             ]
         )
         assert rows[0].website == "links.org"
@@ -82,7 +87,22 @@ class TestCompetitorLinkRanksFirst:
         )
         assert [r.website for r in rows] == ["big.org", "small.org", "medium-trust.org"]
 
-    def test_dedupe_keeps_the_linking_row_when_a_domain_appears_twice(self) -> None:
+    def test_dedupe_keeps_the_linking_row_within_the_same_trust_band(self) -> None:
+        rows = dedupe_and_sort(
+            [
+                _row("dup.org", trust="high", competitors="—"),
+                _row("dup.org", trust="high", competitors="rehabs.com"),
+            ]
+        )
+        assert len(rows) == 1
+        assert rows[0].competitor_links == "rehabs.com"
+
+    def test_dedupe_keeps_the_higher_trust_row_when_the_bands_differ(self) -> None:
+        """Dedupe follows the sort, so the surviving row is now the better CONTACT.
+
+        The link is a property of the org, which is unchanged either way; the contact grade
+        is what the rep acts on, so keeping the high-trust row loses less.
+        """
         rows = dedupe_and_sort(
             [
                 _row("dup.org", trust="high", competitors="—"),
@@ -90,4 +110,4 @@ class TestCompetitorLinkRanksFirst:
             ]
         )
         assert len(rows) == 1
-        assert rows[0].competitor_links == "rehabs.com"
+        assert rows[0].contact_trust == "high"

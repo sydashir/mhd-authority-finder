@@ -5,6 +5,7 @@ from datetime import date
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from authority_finder.db.ingest import prospect_to_output_row
 from authority_finder.db.models import GeoLevel, OutreachStatus, RunStatus, SourceTag, TrustBand
 from authority_finder.db.repository import (
     ProspectIn,
@@ -23,6 +24,7 @@ from authority_finder.db.repository import (
     upsert_geo,
     upsert_prospect,
 )
+from authority_finder.output.csv_writer import dedupe_and_sort
 
 
 def _prospect(
@@ -31,6 +33,8 @@ def _prospect(
     geo: str = "Orange County, California",
     trust: TrustBand = TrustBand.high,
     source: SourceTag = SourceTag.MHD,
+    links: str = "—",
+    population: int | None = 3165820,
     email: str = "bh@ochealthinfo.gov",
     geo_id: int | None = None,
 ) -> ProspectIn:
@@ -43,8 +47,8 @@ def _prospect(
         contact_trust=trust,
         organization_description="County behavioral health",
         geo_served=geo,
-        population=3165820,
-        competitor_links="—",
+        population=population,
+        competitor_links=links,
         source_tag=source,
         confidence=TrustBand.high,
         date_added=date(2026, 6, 26),
@@ -94,6 +98,38 @@ async def test_default_order_is_trust_first(session: AsyncSession) -> None:
     await session.commit()
     ordered = [p.contact_trust for p in await get_prospects(session)]
     assert ordered == [TrustBand.high, TrustBand.medium, TrustBand.low]
+
+
+async def test_db_order_matches_the_sheet_order_exactly(session: AsyncSession) -> None:
+    """The dashboard and the exported sheet must agree on "the top of the list" (ADR-038).
+
+    Two independent implementations decide this — repository._order_by (SQL) and
+    csv_writer._sort_key (Python). They have to stay identical, so this drives the SAME rows
+    through both and compares. The case that used to differ, and that the client noticed:
+    a medium-trust row WITH a competitor link must not outrank a high-trust row without one.
+    """
+    rows = [
+        ("med-linked.gov", TrustBand.medium, "samhsa.gov", 9_000_000, "Texas"),
+        ("high-plain.gov", TrustBand.high, "—", 1_000, "Wyoming"),
+        ("low-linked.gov", TrustBand.low, "samhsa.gov", 8_000_000, "Ohio"),
+        ("high-linked.gov", TrustBand.high, "samhsa.gov", 500, "Alaska"),
+        ("med-plain.gov", TrustBand.medium, "—", 7_000_000, "Nevada"),
+    ]
+    for site, trust, links, pop, geo in rows:
+        await upsert_prospect(
+            session, _prospect(website=site, geo=geo, trust=trust, links=links, population=pop)
+        )
+    await session.commit()
+
+    from_db = [p.website for p in await get_prospects(session)]
+    from_sheet = [
+        r.website
+        for r in dedupe_and_sort([prospect_to_output_row(p) for p in await get_prospects(session)])
+    ]
+    assert from_db == from_sheet, "dashboard and sheet disagree on ordering"
+    assert from_db[0] == "high-linked.gov"
+    assert from_db[1] == "high-plain.gov", "a high-trust row must outrank every medium row"
+    assert from_db.index("high-plain.gov") < from_db.index("med-linked.gov")
 
 
 async def test_run_rejection_reason_concurrency_and_budget(session: AsyncSession) -> None:
