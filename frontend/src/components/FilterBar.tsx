@@ -14,8 +14,9 @@ const TRUST_OPTS = [
   { value: 'low', label: 'Low' },
 ]
 const SOURCE_OPTS = [
-  { value: 'MHD', label: 'MHD' },
-  { value: 'AH', label: 'AH' },
+  { value: 'Both', label: 'Both sites' },
+  { value: 'MHD', label: 'MHD only' },
+  { value: 'AH', label: 'AH only' },
 ]
 const LEVEL_OPTS = [
   { value: 'state', label: 'State' },

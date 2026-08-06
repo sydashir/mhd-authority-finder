@@ -15,9 +15,19 @@ export function TrustBadge({ band }: { band: TrustBand }) {
   )
 }
 
+const SOURCE_CLASS: Record<SourceTag, string> = {
+  MHD: 'badge-mhd',
+  AH: 'badge-ah',
+  Both: 'badge-both',
+}
+
 export function SourceBadge({ source }: { source: SourceTag }) {
   return (
-    <span className={`badge font-semibold ${source === 'MHD' ? 'badge-mhd' : 'badge-ah'}`}>
+    <span className={`badge font-semibold ${SOURCE_CLASS[source]}`} title={
+      source === 'Both'
+        ? 'This geography is published by both directories, so the prospect serves both'
+        : `Published only by ${source}`
+    }>
       {source}
     </span>
   )

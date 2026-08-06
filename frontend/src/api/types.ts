@@ -2,7 +2,7 @@
 // Keep these in lockstep with the API contract (ADR-014/015).
 
 export type TrustBand = 'high' | 'medium' | 'low'
-export type SourceTag = 'MHD' | 'AH'
+export type SourceTag = 'MHD' | 'AH' | 'Both'
 export type GeoLevel = 'state' | 'county' | 'city'
 export type RunStatus = 'running' | 'success' | 'failed'
 export type OutreachStatus =

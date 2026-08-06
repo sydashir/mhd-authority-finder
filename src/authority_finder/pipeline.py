@@ -12,6 +12,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+import httpx
 import structlog
 from pydantic import BaseModel
 
@@ -24,17 +25,24 @@ from authority_finder.discovery.models import DiscoveryResult, GeoRef
 from authority_finder.discovery.serpapi_client import SerpApiClient
 from authority_finder.fetching import PageFetcher
 from authority_finder.fetching.models import FetchTier
+from authority_finder.geo_monitor.membership import (
+    SiteMembership,
+    build_membership,
+    key_for,
+)
 from authority_finder.geo_monitor.models import GeoPage
 from authority_finder.link_checker.models import LinkCheckResult
 from authority_finder.link_checker.orchestrator import check_links_for_candidate
 from authority_finder.output.blocked_writer import BlockedCandidate, collect_blocked
-from authority_finder.output.models import OutputRow, build_row, choose_pages
+from authority_finder.output.models import OutputRow, build_row, choose_pages, source_tag_for
 from authority_finder.output.shared_phones import blank_shared_phones
 from authority_finder.page_detector.orchestrator import detect_for_geo
 from authority_finder.population.census import CensusClient
 
 if TYPE_CHECKING:
     from authority_finder.page_detector.models import DetectionResult
+
+_SITEMAP_TIMEOUT = 60.0
 
 _log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -143,6 +151,19 @@ async def _merge_authority_candidates(
     return domain_ratings
 
 
+def _source_tag(membership: SiteMembership, geo: GeoRef) -> str:
+    """Source Tag from the sitemaps, falling back to the geo's own site if it is unlisted.
+
+    A page can be de-published between the run and this lookup; that is a reason to name the
+    site we found it on, not to abort the geo.
+    """
+    sites = membership.get(key_for(geo))
+    if not sites:
+        _log.warning("pipeline.place_not_in_sitemaps", geo=geo.url)
+        sites = {geo.site_id}
+    return source_tag_for(sites)
+
+
 async def run_pipeline(
     geos: list[GeoPage],
     *,
@@ -152,6 +173,7 @@ async def run_pipeline(
     now: datetime,
     ahrefs_client: AhrefsClient | None = None,
     on_geo_rows: Callable[[GeoRef, list[OutputRow]], None] | None = None,
+    membership: SiteMembership | None = None,
 ) -> tuple[list[OutputRow], PipelineFunnel]:
     """Run the full chain over geos; return assembled rows + a funnel summary.
 
@@ -169,6 +191,13 @@ async def run_pipeline(
         ahrefs_client=ahrefs_client,
         now=now,
     )
+
+    # Which directories publish each place — free (sitemaps, no search API). A prospect from a
+    # geography BOTH sites publish serves both, and the row has to say so (ADR-037). Built here
+    # rather than taken from a caller so every entry point gets it without extra wiring.
+    if membership is None:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=_SITEMAP_TIMEOUT) as client:
+            membership = await build_membership(client=client, now=now)
 
     rows: list[OutputRow] = []
     detections: list[DetectionResult] = []
@@ -208,6 +237,7 @@ async def run_pipeline(
                 domain_rating=domain_ratings.get(outcome.candidate.registrable_domain),
                 specific_page=specific_page,
                 contact_found_on=contact_found_on,
+                source_tag=_source_tag(membership, discovery.geo),
             )
             rows.append(row)
             geo_rows.append(row)

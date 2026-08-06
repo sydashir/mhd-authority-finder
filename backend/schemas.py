@@ -15,7 +15,8 @@ from authority_finder.db.models import GeoLevel, OutreachStatus, RunStatus, Sour
 
 class ProspectOut(BaseModel):
     """One outreach prospect — the deliverable row shape. Enums serialize to their
-    lowercase ``value`` (``TrustBand`` → ``"high"``); ``SourceTag`` keeps ``"MHD"``/``"AH"``."""
+    lowercase ``value`` (``TrustBand`` → ``"high"``); ``SourceTag`` keeps its own casing:
+    ``"MHD"`` / ``"AH"`` / ``"Both"``."""
 
     model_config = ConfigDict(from_attributes=True)
 

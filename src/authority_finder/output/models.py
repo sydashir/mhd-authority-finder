@@ -40,6 +40,27 @@ OUTPUT_HEADER: list[str] = [
 ]
 
 _SOURCE_TAGS = {"mhd": "MHD", "ah": "AH"}
+
+
+def source_tag_for(site_ids: set[str]) -> str:
+    """The Source Tag for a prospect whose geography is published by ``site_ids`` (ADR-037).
+
+    The tag records which directories the prospect SERVES, not which run last touched the row.
+    Most state-level prospects serve both, and the two-value enum forced them to claim one —
+    so filtering the sheet by AH returned 22 rows out of 2,237 and read as "AH was never built".
+
+    Raises rather than defaulting: an unattributable row must be visible, not quietly MHD.
+    """
+    if not site_ids:
+        raise ValueError("no site: cannot attribute a prospect to a directory")
+    unknown = site_ids - _SOURCE_TAGS.keys()
+    if unknown:
+        raise ValueError(f"unknown site id(s): {sorted(unknown)}")
+    if len(site_ids) > 1:
+        return "Both"
+    return _SOURCE_TAGS[next(iter(site_ids))]
+
+
 _MAX_DESCRIPTION = 240
 
 
@@ -127,6 +148,7 @@ def build_row(
     domain_rating: float | None = None,
     contact_found_on: str = "",
     specific_page: str = "",
+    source_tag: str = "",
 ) -> OutputRow:
     """Assemble one :class:`OutputRow` from the chained per-candidate outputs.
 
@@ -152,7 +174,7 @@ def build_row(
         ),
         population=population.value,
         competitor_links=competitor_links,
-        source_tag=_SOURCE_TAGS.get(geo.site_id, geo.site_id.upper()),
+        source_tag=source_tag or _SOURCE_TAGS.get(geo.site_id, geo.site_id.upper()),
         date_added=now.date().isoformat(),
         confidence=outcome.page_confidence,
         domain_rating=domain_rating,

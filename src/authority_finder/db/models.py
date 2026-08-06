@@ -44,6 +44,8 @@ class TrustBand(enum.Enum):
 class SourceTag(enum.Enum):
     MHD = "MHD"
     AH = "AH"
+    # A geography both directories publish yields prospects that serve both (ADR-037).
+    Both = "Both"
 
 
 class RunStatus(enum.Enum):

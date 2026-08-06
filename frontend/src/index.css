@@ -206,6 +206,13 @@
     background: var(--ah-bg);
     color: var(--ah-fg);
   }
+  /* Serves both directories — the majority case, so it reads as the neutral default
+     rather than competing with the two single-site colours. */
+  .badge-both {
+    background: var(--raised);
+    color: var(--fg-muted);
+    border: 1px solid var(--border);
+  }
   .badge-flag {
     background: var(--flag-bg);
     color: var(--flag-fg);
