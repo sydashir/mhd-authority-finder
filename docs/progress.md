@@ -1741,3 +1741,42 @@ Claude session, an iOS simulator), and RTL's 5s default timeout is marginal ther
 `--testTimeout=30000`. A bisect under those conditions produced a **false** culprit (`index.css`);
 always confirm a bisect by re-running the "good" side twice before believing it.
 `TESTCONTAINERS_RYUK_DISABLED=true` likewise clears the DB-suite port-mapping errors under load.
+
+---
+
+## 2026-08-06 — Session 52: trust-first sort order (ADR-038)
+
+The deliverable ranked competitor-linked rows first, so a medium-trust row with a link sat above
+a high-trust row without one and the Contact Trust column read high/medium/low/high/medium/low.
+The client read that as unsorted. **0 billed.**
+
+### Done
+
+- New order: **contact_trust (high→medium→low) → competitor-linked → population desc → geo.**
+- Applied in **both** implementations — `csv_writer._sort_key` (sheet) and
+  `repository._order_by` (dashboard) — and added
+  `test_db_order_matches_the_sheet_order_exactly`, which drives the same rows through both and
+  asserts identical output. They were previously kept in step by hand.
+- Updated the superseded S32 tests rather than deleting them: the link rule is still asserted,
+  now compared *within* a band.
+- Legend tab "ROW ORDER" row rewritten to describe the new ordering.
+
+### Verified
+
+| | |
+|---|---|
+| Sheet | 2,237 rows × 15 cols, tabs `[Prospects, How to read this]` |
+| DB ↔ Sheet | **0 cell differences** |
+| Outreach (ADR-022) | **0 actioned**, preserved |
+| Trust column monotonic | **true** (never goes back up) |
+| Band boundaries | high rows 2–124 · medium 125–722 · low 723–2238 |
+| Linked-first within every band | **true** |
+| `ucr.edu` | **still row 2**, Specific Page still the resources-support URL |
+
+685 unit + 99 db/api/scheduler tests; ruff, ruff format, strict pyright all clean.
+
+### Consequence worth knowing
+
+Dedupe follows the sort, so where one (domain, geo) appears in two trust bands the surviving row
+is now the higher-trust one rather than the linked one. That loses less: the competitor link is
+a property of the organisation either way, while the contact grade is what the rep acts on.
