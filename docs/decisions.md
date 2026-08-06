@@ -1711,3 +1711,35 @@ unverifiable after two failed fetches, then found genuinely linking to `samhsa.g
 once a browser cleared the WAF on its second attempt. The verifier therefore RELOADS on a robot
 challenge before concluding anything, and any row whose claim cannot be confirmed on the page we
 publish has the claim cleared rather than shipped — the client checks by clicking.
+
+## ADR-037
+
+**Source Tag can say "Both", because most rows serve both.**
+
+The enum held `MHD` and `AH` only. A prospect discovered for a geography that BOTH directories
+publish had to claim one, and in practice claimed whichever run last touched the row. So the
+client filtered `Source Tag = AH`, got **22 rows out of 2,237**, and reasonably concluded the AH
+half had never been built. The previous answer was to explain the column in the covering note.
+Telling a client to ignore a column in their own deliverable is not a fix.
+
+**Ground truth is the sitemaps.** A place published by both directories yields prospects that
+serve both. `geo_monitor/membership.py` builds `place -> {site ids}` from the live sitemaps —
+free, no search API, nothing billed — and the pipeline builds it per run so every entry point
+gets it without extra wiring.
+
+**Keyed on the PLACE, not the level.** The two sites classify the same place differently: MHD
+publishes Palos Verdes as a *city* under Los Angeles County, AH publishes it at *county* level.
+A key of `(level, state, county, city)` reads that as a miss and marks a both-sites place
+MHD-only. This was found by hand-checking four geographies against the two sitemaps — not by a
+test — and moved 16 rows. The hand-check was the point.
+
+| | Before | After |
+|---|---|---|
+| Both | — (not expressible) | **2,099** |
+| MHD only | 2,215 | 138 |
+| AH only | 22 | 0 |
+
+The 138 MHD-only rows are exactly the 17 sub-state geographies AH does not publish. Verified in a
+browser: AH's Palos Verdes and Minnesota pages are live; AH returns **404** for Irvine on both URL
+shapes. `source_tag_for` **raises** on a row it cannot attribute rather than defaulting to MHD —
+an unattributable row must be visible, not quietly mislabelled. Zero rows were undeterminable.
