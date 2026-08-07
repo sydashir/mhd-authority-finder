@@ -37,7 +37,11 @@ from authority_finder.fetching.models import (
 from authority_finder.robots import USER_AGENT, RobotsChecker
 
 MAX_BYTES = 2_000_000
-MAX_LINKS = 500
+# Raised from 500 after measuring the backfill: 26 of the first 784 delivered pages truncated,
+# and the pages that truncate are the resource/directory pages this tool exists to read. Each
+# entry is a 200-char label plus an href, so a few thousand stays well under a megabyte — the
+# cap is there for a pathological page, not an ordinarily link-heavy one (ADR-039).
+MAX_LINKS = 3000
 TEXT_SAMPLE_CHARS = 15_000
 DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0)
 

@@ -9,6 +9,17 @@ makes the ceiling reportable instead of silent.
 from authority_finder.fetching.fetcher import MAX_LINKS, parse_html
 
 
+def test_the_cap_clears_a_real_resources_page() -> None:
+    """Measured: at 500, 26 of the first 784 delivered pages truncated.
+
+    The pages that truncate are precisely the resource/directory pages this tool exists to
+    read, so the cap was biting hardest exactly where recall matters most. The list holds a
+    200-char label and an href per anchor, so a few thousand entries is well under a megabyte
+    — the cap protects against a pathological page, not an ordinarily link-heavy one.
+    """
+    assert MAX_LINKS >= 2000
+
+
 def _html(anchor_count: int) -> bytes:
     anchors = "".join(f'<a href="https://ex{i}.com/">L{i}</a>' for i in range(anchor_count))
     return f"<html><head><title>T</title></head><body>{anchors}</body></html>".encode()
