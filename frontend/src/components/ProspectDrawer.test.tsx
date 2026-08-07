@@ -34,6 +34,38 @@ describe('ProspectDrawer', () => {
     expect(link).toHaveAttribute('href', 'https://counseling.ucr.edu/resources-support')
   })
 
+  it('shows the wider link classes separately from the contractual competitor chips', () => {
+    // The client's reported miss: drugrehab.com is a real directory but not one of the
+    // brief's 16, so it must appear WITHOUT changing what Competitor Links means (ADR-039).
+    const p = makeProspect({
+      competitor_links: 'samhsa.gov',
+      addiction_directories: 'drugrehab.com; samhsa.gov',
+      mental_health_directories: 'psychologytoday.com',
+      support_groups: 'aa.org; na.org',
+      support_groups_found_on: 'https://counseling.ucr.edu/resources-support',
+    })
+    renderWithProviders(<ProspectDrawer prospect={p} onClose={vi.fn()} notify={vi.fn()} />)
+    expect(screen.getByText('drugrehab.com')).toBeInTheDocument()
+    expect(screen.getByText('psychologytoday.com')).toBeInTheDocument()
+    expect(screen.getByText('aa.org')).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'https://counseling.ucr.edu/resources-support' }),
+    ).toBeInTheDocument()
+  })
+
+  it('says none detected when no wider link class was found', () => {
+    const p = makeProspect({
+      addiction_directories: '\u2014',
+      mental_health_directories: '\u2014',
+      support_groups: '\u2014',
+      support_groups_found_on: '',
+    })
+    renderWithProviders(<ProspectDrawer prospect={p} onClose={vi.fn()} notify={vi.fn()} />)
+    expect(
+      screen.getByText('None detected outside the tracked competitor list.'),
+    ).toBeInTheDocument()
+  })
+
   it('says nothing about provenance when the links are on the contact page itself', () => {
     const p = makeProspect({ competitor_links: 'samhsa.gov', contact_found_on: '' })
     renderWithProviders(<ProspectDrawer prospect={p} onClose={vi.fn()} notify={vi.fn()} />)
