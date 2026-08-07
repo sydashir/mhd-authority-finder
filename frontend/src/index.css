@@ -217,6 +217,13 @@
     background: var(--flag-bg);
     color: var(--flag-fg);
   }
+  /* The wider link classes (ADR-039). Deliberately quieter than badge-flag: a competitor
+     backlink is the actionable signal, these are context. */
+  .badge-neutral {
+    background: var(--raised);
+    color: var(--fg-muted);
+    border: 1px solid var(--border);
+  }
   /* Outreach workflow states (ADR-022) — colored tints that read on dark + light. */
   .badge-oc-not_contacted {
     background: var(--raised);

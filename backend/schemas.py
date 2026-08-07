@@ -33,6 +33,13 @@ class ProspectOut(BaseModel):
     competitor_links: str
     contact_found_on: str = ""
     domain_rating: float | None = None
+    # Wider outbound-link classes (ADR-039). Separate from competitor_links, which stays the
+    # brief's contractual 16. outbound_domains is deliberately not exposed — it is the raw
+    # re-classification store, hundreds of domains per row, not something to render.
+    addiction_directories: str = ""
+    mental_health_directories: str = ""
+    support_groups: str = ""
+    support_groups_found_on: str = ""
     source_tag: SourceTag
     confidence: TrustBand
     date_added: date

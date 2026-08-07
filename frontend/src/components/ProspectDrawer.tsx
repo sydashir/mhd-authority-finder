@@ -213,6 +213,14 @@ function DrawerContent({
 }) {
   const competitors = competitorList(p.competitor_links)
   const contactFoundOn = p.contact_found_on
+  // Separate from the competitor list above on purpose: that column is the brief's
+  // contractual 16 and must keep meaning exactly that (ADR-039).
+  const otherClasses = [
+    { label: 'Addiction directories', domains: competitorList(p.addiction_directories) },
+    { label: 'Mental health directories', domains: competitorList(p.mental_health_directories) },
+    { label: 'Support groups', domains: competitorList(p.support_groups) },
+  ]
+  const supportGroupPages = competitorList(p.support_groups_found_on)
   return (
     <>
       <header className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
@@ -328,6 +336,53 @@ function DrawerContent({
                 </div>
               )}
             </>
+          )}
+        </Section>
+
+        <Section title="Other resource links">
+          {otherClasses.every(({ domains }) => domains.length === 0) ? (
+            <div className="rounded-lg border border-border bg-surface px-3 py-2.5 text-[13px] text-fg-subtle">
+              None detected outside the tracked competitor list.
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {otherClasses
+                .filter(({ domains }) => domains.length > 0)
+                .map(({ label, domains }) => (
+                  <div key={label}>
+                    <div className="mb-1 text-[11px] uppercase tracking-wide text-fg-subtle">
+                      {label}
+                    </div>
+                    <ul className="flex flex-wrap gap-1.5">
+                      {domains.map((domain) => (
+                        <li key={domain} className="badge badge-neutral">
+                          {domain}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              {/* The page holding the group links is often not the page in Specific Page. */}
+              {supportGroupPages.length > 0 && (
+                <div className="text-[12px] leading-relaxed text-fg-muted">
+                  Support groups found on{' '}
+                  {supportGroupPages.map((url, i) => (
+                    <span key={url}>
+                      {i > 0 && ', '}
+                      <a
+                        href={url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="break-all text-brand hover:underline"
+                      >
+                        {url}
+                      </a>
+                    </span>
+                  ))}
+                  .
+                </div>
+              )}
+            </div>
           )}
         </Section>
 

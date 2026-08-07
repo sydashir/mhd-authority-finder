@@ -29,6 +29,12 @@ export interface Prospect {
   contact_found_on: string
   /** Ahrefs DR, authority-sourced rows only. null for .gov/.edu — never scored (ADR-027). */
   domain_rating: number | null
+  /** Wider link classes (ADR-039); semicolon-joined, "—" when checked and none found.
+   *  competitor_links keeps its own contractual meaning: the brief's 16. */
+  addiction_directories: string
+  mental_health_directories: string
+  support_groups: string
+  support_groups_found_on: string
   source_tag: SourceTag
   confidence: TrustBand
   date_added: string

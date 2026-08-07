@@ -20,6 +20,10 @@ export const HEADER = [
   'Confidence',
   'Domain Rating',
   'Contact Found On',
+  'Addiction Directories',
+  'Mental Health Directories',
+  'Support Groups',
+  'Support Groups Found On',
 ]
 
 function cell(value: string | number | null): string {
@@ -44,6 +48,10 @@ function row(p: Prospect): string {
     p.confidence,
     p.domain_rating,
     p.contact_found_on,
+    p.addiction_directories,
+    p.mental_health_directories,
+    p.support_groups,
+    p.support_groups_found_on,
   ]
     .map(cell)
     .join(',')
