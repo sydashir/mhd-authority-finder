@@ -1845,3 +1845,37 @@ long tail, not here.
 - The mental-health bucket ships with two seeds. `goodtherapy.org`, `zencare.co` and
   `whatclinic.com` answer 403/202 to any automated client, so their identity was never
   confirmed. Thin and true beats padded and guessed.
+
+### ADR-039 addendum (Session 55) — closing the client's full org list
+
+The client named 26 orgs; S54 had seeded 19, holding back four that no automated browser can
+load and excluding two for cause. All are now resolved and the list is complete at **27/27**
+(his 26 counted as 27 distinct site entries, since Al-Anon and Cocaine Anonymous each appear
+as a national and a Los Angeles site).
+
+**Anchor-text verification.** `coda.org`, `oa.org`, `nicotine-anonymous.org` and `slaafws.org`
+sit behind Cloudflare bot-management that refuses a real automated Chromium outright — this is
+not a slow challenge, and waiting does not clear it. Rather than seed on assumption or drop
+them, they were verified from how institutions in our OWN corpus label them: two or more
+independent `.edu`/`.gov` pages linking the domain under the org's name (e.g. ucr.edu's
+"CODA (Codependents Anonymous)" and cityofpalmdaleca.gov's "Co-Dependents Anonymous").
+An institution asserting the identity is stronger evidence than a title read off the site
+itself, and it costs nothing because the pages are already in the corpus.
+
+**Regional chapters count.** The client explicitly named LA-local sites alongside national
+ones, so `REGIONAL_CHAPTERS` (lacoaa.org, alanonla.org, ca4la.org, laintergroup.com,
+socalda.org — each browser-verified) is unioned into `SUPPORT_GROUPS`. It stays a SEPARATE
+frozenset so a later decision to report locals apart from nationals needs no re-derivation.
+Note `laintergroup.com` is Gamblers Anonymous LA, not Cocaine Anonymous — the CA Los Angeles
+site is `ca4la.org`. Guessing from the name would have mis-filed it.
+
+**Two of his own links are broken, and we do not follow them.** His page links `alateen.org`
+for Al-Anon (dead) and `recovery-inc.org` for "Recovery, Inc." (an unrelated UK site). The
+seeds hold `al-anon.org` and `recoveryinternational.org` instead. This is the concrete payoff
+of the "verify, never harvest" rule: a harvesting approach would have adopted both.
+
+**Re-classification, not re-crawl.** Widening the list touched no network for the 2,237-row
+corpus — it was a pass over the stored `outbound_domains`, exactly what that column exists for.
+Provenance was the one thing the stored domains could not answer, and it was recovered
+*exactly* rather than approximated: a row whose crawl fetched one page had all its links on
+that page by construction, so only the 2 genuinely ambiguous two-page rows were re-fetched.

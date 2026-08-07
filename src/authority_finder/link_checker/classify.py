@@ -67,10 +67,17 @@ MENTAL_HEALTH_DIRECTORIES: frozenset[str] = frozenset(
     }
 )
 
-# The 19 national fellowships whose identity was confirmed from their own page content.
-# NOT here, on purpose: alateen.org (dead), recovery-inc.org (wrong org), and coda.org /
-# oa.org / nicotine-anonymous.org / slaafws.org (live but bot-blocked, never confirmed).
-SUPPORT_GROUPS: frozenset[str] = frozenset(
+# National fellowships, each confirmed from its own page content — except the four marked
+# "anchor-verified", which refuse EVERY automated browser (Cloudflare bot-management, not a
+# slow challenge; waiting does not clear it). Those were verified instead from how
+# institutions in our own corpus LABEL them: two or more independent .edu/.gov pages linking
+# the domain under the org's name. An institution asserting the identity is stronger evidence
+# than a page title read off the site itself.
+#
+# STILL not here, on purpose: alateen.org (dead — and the client's own page links it for
+# Al-Anon, which al-anon.org already covers) and recovery-inc.org (an unrelated UK site; the
+# real "Recovery, Inc." is recoveryinternational.org, seeded below).
+NATIONAL_FELLOWSHIPS: frozenset[str] = frozenset(
     {
         "aa.org",  # Alcoholics Anonymous
         "na.org",  # Narcotics Anonymous
@@ -91,8 +98,29 @@ SUPPORT_GROUPS: frozenset[str] = frozenset(
         "sca-recovery.org",  # Sexual Compulsives Anonymous
         "smartrecovery.org",  # SMART Recovery USA
         "womenforsobriety.org",  # Women for Sobriety
+        "coda.org",  # Co-Dependents Anonymous — anchor-verified (ucr.edu, cityofpalmdaleca.gov)
+        "oa.org",  # Overeaters Anonymous — anchor-verified (ucr.edu, riohondo.edu, palmdale)
+        "nicotine-anonymous.org",  # Nicotine Anonymous — anchor-verified (wvbhpc, maricopa.gov)
+        "slaafws.org",  # Sex and Love Addicts Anonymous — anchor-verified (ucr.edu, wvbhpc)
+        "recoveryinternational.org",  # "Recovery, Inc." under its current name
     }
 )
+
+# Local chapters of the fellowships above. The client named LA-local sites alongside the
+# national ones ("AA - Los Angeles County", "Alanonla (Los Angeles website)", "CA (Los Angeles
+# website)"), so a local chapter counts. Kept as its own set rather than merged, so a later
+# decision to report locals separately does not require re-deriving which is which.
+REGIONAL_CHAPTERS: frozenset[str] = frozenset(
+    {
+        "lacoaa.org",  # Los Angeles Central Office of Alcoholics Anonymous
+        "alanonla.org",  # Al-Anon Family Groups of Greater Los Angeles
+        "ca4la.org",  # Cocaine Anonymous Los Angeles
+        "laintergroup.com",  # Los Angeles Intergroup of Gamblers Anonymous
+        "socalda.org",  # Southern California Debtors Anonymous
+    }
+)
+
+SUPPORT_GROUPS: frozenset[str] = NATIONAL_FELLOWSHIPS | REGIONAL_CHAPTERS
 
 _BUCKETS: tuple[tuple[frozenset[str], LinkClass], ...] = (
     (SUPPORT_GROUPS, LinkClass.support_group),

@@ -18,6 +18,8 @@ from authority_finder.domains import COMPETITOR_DOMAINS
 from authority_finder.link_checker.classify import (
     ADDICTION_DIRECTORIES,
     MENTAL_HEALTH_DIRECTORIES,
+    NATIONAL_FELLOWSHIPS,
+    REGIONAL_CHAPTERS,
     SUPPORT_GROUPS,
     LinkClass,
     classify_domain,
@@ -57,11 +59,14 @@ class TestSupportGroups:
         assert "recovery-inc.org" not in SUPPORT_GROUPS
         assert classify_domain("recovery-inc.org") is LinkClass.unknown
 
-    def test_the_unverified_four_are_held_back(self) -> None:
-        """Live but bot-blocked, so never confirmed. Await a human check before seeding."""
+    def test_the_four_bot_blocked_orgs_were_seeded_only_after_verification(self) -> None:
+        """Held back for a session because no automated browser can load them.
+
+        They are seeded now, but only on evidence: see TestJakesFullList for the method.
+        The rule this preserves is 'verified before seeded', not 'never seed the hard ones'.
+        """
         for domain in ("coda.org", "oa.org", "nicotine-anonymous.org", "slaafws.org"):
-            assert domain not in SUPPORT_GROUPS, domain
-            assert classify_domain(domain) is LinkClass.unknown, domain
+            assert domain in SUPPORT_GROUPS, domain
 
 
 class TestExactMatchingOnly:
@@ -116,3 +121,50 @@ class TestSeedHygiene:
     def test_the_contractual_sixteen_are_all_present(self) -> None:
         """COMPETITOR_DOMAINS is the brief's contract; the addiction bucket must be a superset."""
         assert COMPETITOR_DOMAINS <= ADDICTION_DIRECTORIES
+
+
+class TestJakesFullList:
+    """The client named 26 orgs; S54 seeded 19. These close the gap (ADR-039 addendum).
+
+    Four of these refuse EVERY automated browser (Cloudflare bot-management, not a slow
+    challenge — waiting does not clear it). They were verified instead from how institutions
+    in our own corpus LABEL them: a university counselling page linking coda.org under
+    "CODA (Codependents Anonymous)", and a city .gov linking it under "Co-Dependents
+    Anonymous", is two independent institutions asserting the identity. That is stronger
+    evidence than a page title we would have read off the site itself.
+    """
+
+    def test_the_four_cloudflare_blocked_orgs_are_now_seeded(self) -> None:
+        for domain in ("coda.org", "oa.org", "nicotine-anonymous.org", "slaafws.org"):
+            assert classify_domain(domain) is LinkClass.support_group, domain
+
+    def test_recovery_inc_resolves_to_the_real_org(self) -> None:
+        """The client named "Recovery, Inc."; his own page links the WRONG domain for it."""
+        assert classify_domain("recoveryinternational.org") is LinkClass.support_group
+        assert classify_domain("recovery-inc.org") is LinkClass.unknown
+
+    def test_the_named_regional_chapters_are_seeded(self) -> None:
+        """The client explicitly named LA-local chapters, so locals count as support groups."""
+        for domain in (
+            "lacoaa.org",
+            "alanonla.org",
+            "ca4la.org",
+            "laintergroup.com",
+            "socalda.org",
+        ):
+            assert classify_domain(domain) is LinkClass.support_group, domain
+
+    def test_the_dead_domain_is_still_refused(self) -> None:
+        """His page links alateen.org for Al-Anon and that domain is dead; al-anon.org covers it."""
+        assert classify_domain("alateen.org") is LinkClass.unknown
+        assert classify_domain("al-anon.org") is LinkClass.support_group
+
+    def test_regionals_stay_separable_from_the_national_fellowships(self) -> None:
+        """Kept as distinct sets so a later decision can split them without re-deriving."""
+        assert REGIONAL_CHAPTERS <= SUPPORT_GROUPS
+        assert not REGIONAL_CHAPTERS & NATIONAL_FELLOWSHIPS
+        assert NATIONAL_FELLOWSHIPS | REGIONAL_CHAPTERS == SUPPORT_GROUPS
+
+    def test_the_area_agency_guard_still_holds_with_the_wider_list(self) -> None:
+        for domain in ("aaaphx.org", "aaact.org", "nekaaa.org", "lacoaa.com", "socalda.com"):
+            assert classify_domain(domain) is LinkClass.unknown, domain
