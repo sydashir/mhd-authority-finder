@@ -43,10 +43,19 @@ def _fields() -> list[str]:
 
 class TestHeaderMatchesModel:
     def test_every_field_has_a_header_column(self) -> None:
-        assert len(_fields()) == len(OUTPUT_HEADER), (
-            f"OutputRow has {len(_fields())} fields but OUTPUT_HEADER has "
+        """Except the handful deliberately held back from the sheet, which still reach the DB."""
+        published = [f for f in _fields() if f not in OutputRow.SHEET_EXCLUDED_FIELDS]
+        assert len(published) == len(OUTPUT_HEADER), (
+            f"OutputRow has {len(published)} publishable fields but OUTPUT_HEADER has "
             f"{len(OUTPUT_HEADER)} columns — a field would never reach the sheet"
         )
+
+    def test_an_excluded_field_must_still_reach_the_database(self) -> None:
+        """Opting out of the sheet is not a licence to go nowhere — the DB tests below cover
+        every field, excluded or not, so a hidden field cannot become a silent dead end."""
+        for field in OutputRow.SHEET_EXCLUDED_FIELDS:
+            assert field in _fields()
+            assert field not in _DERIVED
 
     def test_cells_emits_one_value_per_header_column(self) -> None:
         row = OutputRow(

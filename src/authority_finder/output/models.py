@@ -8,6 +8,7 @@ never fabricated.
 """
 
 from datetime import datetime
+from typing import ClassVar
 
 from pydantic import BaseModel
 
@@ -37,7 +38,18 @@ OUTPUT_HEADER: list[str] = [
     # Page is the page the client clicks, so it must be the page holding the competitor links
     # (ADR-036); this column keeps the contact page, which is still needed for outreach.
     "Contact Found On",
+    # The wider link classes (ADR-039). These are SEPARATE columns rather than a widening of
+    # Competitor Links, because that column is contractual — it means the brief's 16, and a
+    # delivered column must not change meaning under the client.
+    "Addiction Directories",
+    "Mental Health Directories",
+    "Support Groups",
+    "Support Groups Found On",
 ]
+
+# What a link-class cell says when the check ran and found nothing. Matches how
+# Competitor Links has always read, so the new columns are legible on sight.
+_NONE_FOUND = "—"
 
 _SOURCE_TAGS = {"mhd": "MHD", "ah": "AH"}
 
@@ -86,6 +98,22 @@ class OutputRow(BaseModel):
     # The page the email/phone came from, when Specific Page is a different page. Blank when
     # one page did both jobs, so a value only appears when it tells the reader something.
     contact_found_on: str = ""
+    # Semicolon-joined domains per link class (ADR-039). "—" when the check ran and found
+    # none, matching how Competitor Links already reads.
+    addiction_directories: str = _NONE_FOUND
+    mental_health_directories: str = _NONE_FOUND
+    support_groups: str = _NONE_FOUND
+    # Blank rather than "—": this is provenance, so an empty cell means "nothing to point at",
+    # while a dash would read as a finding of its own.
+    support_groups_found_on: str = ""
+    # EVERY outbound domain the checked pages linked to, semicolon-joined. Persisted but never
+    # published — hundreds of domains per row would be noise in the client's sheet. It exists
+    # so that widening a seed list later is a database pass rather than another crawl.
+    outbound_domains: str = ""
+
+    # Fields that are deliberately DB-only. Everything else must have a header column, which
+    # is what stops a captured field from silently going nowhere (see tests/output).
+    SHEET_EXCLUDED_FIELDS: ClassVar[frozenset[str]] = frozenset({"outbound_domains"})
 
     @property
     def dedupe_key(self) -> tuple[str, str]:
@@ -109,6 +137,10 @@ class OutputRow(BaseModel):
             self.confidence,
             "" if self.domain_rating is None else f"{self.domain_rating:g}",
             self.contact_found_on,
+            self.addiction_directories,
+            self.mental_health_directories,
+            self.support_groups,
+            self.support_groups_found_on,
         ]
 
 
@@ -149,6 +181,11 @@ def build_row(
     contact_found_on: str = "",
     specific_page: str = "",
     source_tag: str = "",
+    addiction_directories: str = _NONE_FOUND,
+    mental_health_directories: str = _NONE_FOUND,
+    support_groups: str = _NONE_FOUND,
+    support_groups_found_on: str = "",
+    outbound_domains: str = "",
 ) -> OutputRow:
     """Assemble one :class:`OutputRow` from the chained per-candidate outputs.
 
@@ -179,4 +216,9 @@ def build_row(
         confidence=outcome.page_confidence,
         domain_rating=domain_rating,
         contact_found_on=contact_found_on,
+        addiction_directories=addiction_directories,
+        mental_health_directories=mental_health_directories,
+        support_groups=support_groups,
+        support_groups_found_on=support_groups_found_on,
+        outbound_domains=outbound_domains,
     )

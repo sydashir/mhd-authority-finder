@@ -151,6 +151,21 @@ async def _merge_authority_candidates(
     return domain_ratings
 
 
+def _link_class_cells(result: LinkCheckResult) -> dict[str, str]:
+    """The four new sheet cells plus the DB-only raw domain list (ADR-039).
+
+    ``"—"`` for a class with no hits, matching how Competitor Links has always read; the
+    provenance cell stays blank instead, because a dash there would read as a finding.
+    """
+    return {
+        "addiction_directories": "; ".join(result.addiction_directories) or "—",
+        "mental_health_directories": "; ".join(result.mental_health_directories) or "—",
+        "support_groups": "; ".join(result.support_groups) or "—",
+        "support_groups_found_on": "; ".join(result.support_groups_found_on),
+        "outbound_domains": "; ".join(sorted({link.domain for link in result.outbound_links})),
+    }
+
+
 def _source_tag(membership: SiteMembership, geo: GeoRef) -> str:
     """Source Tag from the sitemaps, falling back to the geo's own site if it is unlisted.
 
@@ -238,6 +253,7 @@ async def run_pipeline(
                 specific_page=specific_page,
                 contact_found_on=contact_found_on,
                 source_tag=_source_tag(membership, discovery.geo),
+                **_link_class_cells(link_result),
             )
             rows.append(row)
             geo_rows.append(row)

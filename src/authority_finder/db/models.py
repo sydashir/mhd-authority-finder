@@ -142,6 +142,15 @@ class Prospect(Base):
     # Ahrefs DR for authority-sourced rows (ADR-027). NULL for .gov/.edu, which are never
     # scored by design — NULL means "not measured"; 0.0 would falsely claim no authority.
     domain_rating: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Wider outbound-link classes (ADR-039). Semicolon-joined domains; "—" when the check ran
+    # and found none. Separate from competitor_links, which stays the brief's contractual 16.
+    addiction_directories: Mapped[str] = mapped_column(Text, default="", server_default="")
+    mental_health_directories: Mapped[str] = mapped_column(Text, default="", server_default="")
+    support_groups: Mapped[str] = mapped_column(Text, default="", server_default="")
+    support_groups_found_on: Mapped[str] = mapped_column(Text, default="", server_default="")
+    # EVERY outbound domain the checked pages linked to. Not published to the sheet; held so a
+    # wider seed list can be applied later as a database pass instead of another crawl.
+    outbound_domains: Mapped[str] = mapped_column(Text, default="", server_default="")
     source_tag: Mapped[SourceTag] = mapped_column(_source_tag)
     confidence: Mapped[TrustBand] = mapped_column(_trust_band)
     date_added: Mapped[date] = mapped_column(Date)

@@ -111,6 +111,11 @@ class ProspectIn:
     # Blank is the common, meaningful value: "the links are on specific_page itself".
     contact_found_on: str = ""
     domain_rating: float | None = None
+    addiction_directories: str = ""
+    mental_health_directories: str = ""
+    support_groups: str = ""
+    support_groups_found_on: str = ""
+    outbound_domains: str = ""
     run_id: int | None = None
     geo_id: int | None = None
 
@@ -134,6 +139,11 @@ async def upsert_prospect(session: AsyncSession, data: ProspectIn) -> int:
         competitor_links=data.competitor_links,
         contact_found_on=data.contact_found_on,
         domain_rating=data.domain_rating,
+        addiction_directories=data.addiction_directories,
+        mental_health_directories=data.mental_health_directories,
+        support_groups=data.support_groups,
+        support_groups_found_on=data.support_groups_found_on,
+        outbound_domains=data.outbound_domains,
         source_tag=data.source_tag,
         confidence=data.confidence,
         date_added=data.date_added,
@@ -158,6 +168,11 @@ async def upsert_prospect(session: AsyncSession, data: ProspectIn) -> int:
             "contact_found_on": stmt.excluded.contact_found_on,
             # Pipeline-owned, so it refreshes on a re-run — unlike the outreach fields above.
             "domain_rating": stmt.excluded.domain_rating,
+            "addiction_directories": stmt.excluded.addiction_directories,
+            "mental_health_directories": stmt.excluded.mental_health_directories,
+            "support_groups": stmt.excluded.support_groups,
+            "support_groups_found_on": stmt.excluded.support_groups_found_on,
+            "outbound_domains": stmt.excluded.outbound_domains,
             "source_tag": stmt.excluded.source_tag,
             "confidence": stmt.excluded.confidence,
             "date_added": stmt.excluded.date_added,
