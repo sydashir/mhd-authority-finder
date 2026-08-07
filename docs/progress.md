@@ -1864,3 +1864,57 @@ wrong, the second is not AA's official domain.
 Sheet re-exported: 2,237 rows / 19 cols, header == OUTPUT_HEADER, trust-first order intact,
 Postgres == Sheet. 844 backend + 43 frontend tests; ruff/pyright/tsc/build/oxlint clean.
 Commits (sydashir): `5944869`.
+
+## Session 56 (2026-08-07) — Client's exact 26 + the learning layer (ADR-040)
+
+**Part 1 — the client's exact link spellings** (`d0cc5c7`). Two corrections to Session 55:
+`al-anon.alateen.org` is LIVE — the earlier "dead" verdict tested the apex over HTTPS, which
+refuses; his subdomain over HTTP redirects to Al-Anon Family Groups. Capture stores registrable
+domains, so `alateen.org` is what covers his link. `recovery-inc.org` is seeded on explicit
+instruction and is genuinely NOT the fellowship — it is a mental-health content site
+("Recovery INC Org Mental & Medical Health Care"). Both sit ALONGSIDE `al-anon.org` and
+`recoveryinternational.org`, neither replaced. All 26 classify; ucr.edu now catches **29**.
+
+**Part 2 — the learning layer** (`5f880e7`). `link_domains` table (migration `b46df262be6c`)
+caches a per-domain classification forever: status / bucket / confidence / provenance /
+page_count / anchor_texts / example_pages / reviewer. Populated from stored observations:
+**10,825 domains — 54 approved seeds, 10,771 candidates, 2,077 on 2+ pages.**
+
+**Two gates.** `is_promotable` = candidate + real bucket + confidence ≥0.8 + ≥2 pages.
+`effective_bucket` returns a bucket ONLY for human-approved. Auto-add nothing is structural,
+at one choke point. Rejection is sticky by construction.
+
+**The $1.17 lesson.** The first batch returned 270 responses of `stop_reason=max_tokens` with a
+single `thinking` block and ZERO text — extended thinking is on by default and ate the whole
+400-token budget. Fixed: thinking disabled, max_tokens 2500, `validate_key` now fails loudly on
+a no-text response naming block types + stop_reason, and the cost projection scales with
+domains rather than headroom (the old one would have aborted its own fix).
+
+**Scoped batch: $0.5675** for 2,077 domains (vs ~$3.69 for all 10,825 — single-page domains
+fail the promotion bar regardless, so classifying them buys nothing today). Results: unknown
+1,917 (avg conf 0.04 — it declines properly), mental-health 81, addiction 47, support group 29.
+**24 clear the bar**, anchor text collected for all 24.
+
+**Good finds the seeds would have missed:** `dbsalliance.org` (Depression & Bipolar Support
+Alliance, 12 pages), `familiesanonymous.org`, `adultchildren.org` (ACA), `refugerecovery.org`,
+`celebraterecovery.com`, `learn2cope.org`, `intherooms.com`, `heroinanonymous.org`,
+`betterhelp.com`, `zencare.co` (unverifiable by browser in S54), `inclusivetherapists.com`,
+`openpathcollective.org`, `rehab.com`, `recovery.org`, plus regional AA (`aaboston.org`,
+`aa-montana.org`, `nj-al-anon.org`). The queue ALSO surfaced treatment providers filed as
+directories (`hazeldenbettyford.org`, `gatewayfoundation.org`) and `alcoholicsanonymous.com`
+(not AA's official domain) — wrong, and exactly what the human gate is for.
+
+**Review queue** in the dashboard: `GET /domains/review|stats`, `PATCH /domains/{id}/review`;
+sidebar nav with a live pending badge; each card leads with anchor text and source pages, and
+shows the model's reasoning last, framed as a suggestion.
+
+**Re-classified ($0, from stored domains): 4 rows changed, 0 human-approved so far** — sheet
+buckets moved only from the Part 1 seed additions. 0 outreach and 0 competitor_links rows
+changed; 2,237/2,237 not_contacted. Sheet re-exported: 2,237 rows / 19 cols, header ==
+OUTPUT_HEADER, trust-first order intact, Postgres == Sheet. Addiction 271 / MH 24 / groups 43.
+
+`classify-domains` CLI added after the module-reachability guard correctly failed on
+`llm_classify` being script-only. 828 backend + 43 frontend tests; ruff/pyright/tsc/build clean.
+
+**Next:** work the 24-item review queue; classifying the remaining 8,694 single-page domains
+costs ~$3 if ever wanted.
