@@ -66,3 +66,7 @@ class PageContent(BaseModel):
     tel_links: list[str] = []
     has_web_form: bool = False
     fetch_tier: FetchTier = "httpx"
+    # True when the anchor list hit MAX_LINKS and later anchors were dropped. Without this the
+    # cap is an invisible recall ceiling: a page whose 501st link was the one we wanted looks
+    # exactly like a page that never had it (ADR-039).
+    links_truncated: bool = False

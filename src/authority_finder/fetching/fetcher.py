@@ -165,6 +165,7 @@ def parse_html(body: bytes, *, final_url: str, fetch_tier: FetchTier = "httpx") 
     text_sample = " ".join(doc.text_content().split())[:TEXT_SAMPLE_CHARS]
 
     links: list[PageLink] = []
+    links_truncated = False
     mailto: list[str] = []
     tel: list[str] = []
     for anchor in doc.findall(".//a[@href]"):
@@ -185,6 +186,8 @@ def parse_html(body: bytes, *, final_url: str, fetch_tier: FetchTier = "httpx") 
             continue
         if len(links) < MAX_LINKS:
             links.append(PageLink(text=" ".join(anchor.text_content().split())[:200], href=href))
+        else:
+            links_truncated = True
 
     return PageContent(
         final_url=final_url,
@@ -193,6 +196,7 @@ def parse_html(body: bytes, *, final_url: str, fetch_tier: FetchTier = "httpx") 
         meta_description=meta_description,
         text_sample=text_sample,
         links=links,
+        links_truncated=links_truncated,
         has_mailto=bool(mailto),
         has_tel=bool(tel),
         mailto_links=mailto,

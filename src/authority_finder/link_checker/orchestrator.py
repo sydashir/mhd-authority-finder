@@ -12,9 +12,10 @@ import structlog
 
 from authority_finder.discovery.classify import registrable_domain
 from authority_finder.discovery.models import CandidateSite
+from authority_finder.domains import COMPETITOR_DOMAINS
 from authority_finder.fetching import FetchError, PageContent, PageFetcher
-from authority_finder.link_checker.check import find_competitor_links
-from authority_finder.link_checker.models import CompetitorLink, LinkCheckResult
+from authority_finder.link_checker.check import find_outbound_links
+from authority_finder.link_checker.models import CompetitorLink, LinkCheckResult, OutboundLink
 from authority_finder.link_checker.resources import find_resources_link
 from authority_finder.robots import RobotsDisallowedError
 
@@ -46,7 +47,8 @@ async def check_links_for_candidate(
             candidate=candidate, checked_ok=False, note="detected page fetch failed"
         )
 
-    links: list[CompetitorLink] = find_competitor_links(page, candidate_domain=domain)
+    outbound: list[OutboundLink] = find_outbound_links(page, candidate_domain=domain)
+    truncated = page.links_truncated
     pages_checked = 1
     fetches = 0 if content is not None else 1
 
@@ -58,12 +60,28 @@ async def check_links_for_candidate(
         if hop is None or registrable_domain(hop.final_url) != domain:
             continue
         pages_checked += 1
-        links.extend(find_competitor_links(hop, candidate_domain=domain))
+        outbound.extend(find_outbound_links(hop, candidate_domain=domain))
+        truncated = truncated or hop.links_truncated
 
-    deduped = {(link.competitor_domain, link.link_url): link for link in links}
+    deduped_out = {(link.domain, link.link_url): link for link in outbound}
+    all_outbound = list(deduped_out.values())
+    competitors: list[CompetitorLink] = [
+        CompetitorLink(
+            competitor_domain=link.domain,
+            found_on_url=link.found_on_url,
+            anchor_text=link.anchor_text,
+            link_url=link.link_url,
+        )
+        for link in all_outbound
+        if link.domain in COMPETITOR_DOMAINS
+    ]
+    if truncated:
+        _log.warning("linkcheck.links_truncated", domain=domain, page=page.final_url)
     return LinkCheckResult(
         candidate=candidate,
         pages_checked=pages_checked,
-        links_found=list(deduped.values()),
+        links_found=competitors,
+        outbound_links=all_outbound,
+        links_truncated=truncated,
         checked_ok=True,
     )
