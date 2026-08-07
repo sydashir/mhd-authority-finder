@@ -783,6 +783,20 @@ def sync_guide() -> None:
     click.echo(f"wrote {writer.sync_guide()} legend rows for {len(OUTPUT_HEADER)} columns")
 
 
+@cli.command("sync-filter-views")
+def sync_filter_views() -> None:
+    """Create the saved MHD / AH filter views on the Prospects tab (ADR-042).
+
+    Idempotent — re-running replaces the views rather than stacking duplicates.
+    """
+    settings = get_settings()
+    writer = SheetsWriter(
+        credentials_path=settings.google_sheets_credentials_path,
+        spreadsheet_id=settings.google_sheet_id,
+    )
+    click.echo(f"filter views: {', '.join(writer.sync_filter_views())}")
+
+
 @cli.command("classify-domains")
 @click.option(
     "--max-cost",

@@ -2005,3 +2005,64 @@ column that no longer exists. It explains the subset relationship explicitly.
 - The superset invariant is verified across the whole dataset: 265 rows carry a competitor
   domain, **0 violate it**.
 - Competitor Links is unchanged on every row — the contractual column keeps its exact meaning.
+
+## ADR-042
+
+**Saved filter views instead of separate MHD and AH tabs**
+
+*Session 58 (2026-08-07). Closes the feasibility doc's separate-tabs promise (`brief.md:248`).*
+
+### Context
+
+The feasibility doc promised "separate tabs for MHD and AH". We shipped one tab with a Source
+Tag column, and the question was whether to honour the original structure now that the dataset
+is stable.
+
+Measured against the LIVE sitemaps rather than the stale monitor state:
+
+| | geographies | states | counties | cities |
+|---|---|---|---|---|
+| MHD | **6,299** | 55 | 2,315 | 3,929 |
+| AH | **56** | 50 | 6 | 0 |
+
+54 of AH's 56 geographies are also published by MHD. The two exceptions — `palos-verdes` and
+`port-hueneme` — are published by MHD as **cities** and by AH as **counties**: the same places
+under a different level label, not AH-exclusive coverage.
+
+That shows up directly in the delivered rows: **Both 2,099 / MHD 138 / AH 0.**
+
+### Decision
+
+Keep one tab. Add two saved filter views on Prospects instead.
+
+The promise assumed MHD and AH would surface *different* prospects. They do not — MHD's
+geography is 112x larger and effectively a superset — so a genuine AH tab would hold 2,099 rows
+that all already appear on the MHD tab, and the MHD tab would be byte-identical to today's
+deliverable. The split would nearly double the row count (2,237 -> 4,336) while adding no
+information whatsoever.
+
+It would also cost something real:
+
+* **A duplicate-outreach hazard.** 1,965 organisations would appear on two surfaces. Outreach
+  status lives in Postgres so it would *display* consistently, but two reps working two tabs
+  both see the same prospect as uncontacted with no lock between them. Double-emailing a
+  prospect burns exactly the link opportunity this tool exists to win.
+* **Double the guard surface.** ADR-025's shrink guard, the header guard and the dedupe key
+  space are all per-tab.
+
+### How the views are built
+
+Criteria are "hide the OTHER site's exclusive tag" rather than "show these two values". An
+allow-list would silently drop any tag value nobody thought to list; hiding means an AH-only
+row appearing tomorrow shows up in the AH view with no filter edit. The range is derived from
+`OUTPUT_HEADER`, never a literal width — a hard-coded column count truncates the view the
+moment a column is appended, the same defect that once broke `_RANGE`.
+
+Sync is delete-then-add: the Sheets API will happily create a second view with the same title,
+which would leave the client choosing between duplicates that silently diverge.
+
+### Revisit when
+
+AH begins publishing its own city/county pages — it currently publishes 0 cities and 6
+counties. The trigger is measurable from Source Tag on every run: **if AH-only rows exceed
+~10% of the dataset, the split earns its keep.** Today that figure is 0%.

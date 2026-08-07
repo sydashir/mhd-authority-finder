@@ -1954,3 +1954,33 @@ columns".
 Sheet re-exported: 2,237 rows × 19 cols, header == OUTPUT_HEADER, Postgres == Sheet,
 0 outreach and 0 competitor_links rows changed, 2,237/2,237 not_contacted.
 897 backend + 43 frontend tests; ruff/pyright/tsc/build clean.
+
+## Session 58 (2026-08-07) — Filter views, not separate tabs (ADR-042)
+
+**Assessed the feasibility doc's separate-MHD/AH-tabs promise against live sitemaps and
+recommended against splitting.** MHD publishes **6,299** geographies (55 states / 2,315
+counties / 3,929 cities); AH publishes **56** (50 states / 6 counties / 0 cities). 54 of AH's
+56 overlap; the 2 exceptions (`palos-verdes`, `port-hueneme`) are the same places MHD
+publishes as cities and AH as counties — a level-label artefact, not AH-exclusive coverage.
+
+Delivered rows: **Both 2,099 / MHD 138 / AH 0.** A split would give an MHD tab identical to
+today's deliverable plus an AH tab that is a strict subset of it — 2,237 → 4,336 rows for zero
+new information, putting **1,965 organisations on two surfaces** (a duplicate-outreach hazard,
+since two reps on two tabs both see the same prospect as uncontacted) and doubling the
+shrink/header/dedupe guard surface.
+
+**Shipped instead:** two saved filter views on Prospects — "MHD prospects" (2,237 rows) and
+"AH prospects" (2,099 rows). Criteria hide the OTHER site's exclusive tag rather than
+allow-listing values, so an AH-only row appearing later shows up with no filter edit. Range
+derived from OUTPUT_HEADER, never a literal width. Sync is delete-then-add (the API creates
+duplicate titles otherwise) — verified idempotent by running twice: still exactly 2 views.
+
+New `output/filter_views.py` + `SheetsWriter.sync_filter_views()` + `cli sync-filter-views`
+(wired to a CLI up front this time, rather than waiting for the reachability guard to fire).
+
+**Deliverable confirmed final:** 2,237 rows × 19 columns, header == OUTPUT_HEADER, legend
+19/19 columns documented with the subset note present, 2 filter views no duplicates, row 1 =
+ucr.edu (high trust, Competitor Links ⊆ Addiction Directories, 29 support groups).
+905 backend + 43 frontend tests; ruff/pyright clean.
+
+**Open:** the 24-item review queue; the 2 level-mismatched geographies; P1 hosting.

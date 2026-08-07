@@ -21,6 +21,7 @@ from googleapiclient import discovery
 from pydantic import BaseModel
 
 from authority_finder.output.csv_writer import dedupe_and_sort
+from authority_finder.output.filter_views import FILTER_VIEWS, build_filter_view_specs
 from authority_finder.output.guide import GUIDE_TAB, build_guide_rows
 from authority_finder.output.models import OUTPUT_HEADER, OutputRow
 
@@ -290,6 +291,39 @@ class SheetsWriter:
         ).execute()
         _log.info("sheets.guide_synced", rows=len(rows), columns=len(OUTPUT_HEADER))
         return len(rows)
+
+    def sync_filter_views(self) -> list[str]:
+        """Create the saved MHD/AH views on the Prospects tab. Returns the titles written.
+
+        Idempotent by delete-then-add: the Sheets API happily creates a SECOND view with the
+        same title, so re-running without removing the old ones would leave the client picking
+        between duplicates that silently diverge.
+        """
+        sheets: Any = self._service().spreadsheets()
+        meta = self._call(sheets.get(spreadsheetId=self._sheet_id))
+        target = next(
+            (s for s in meta["sheets"] if s["properties"]["title"] == self._tab),
+            None,
+        )
+        if target is None:
+            raise SheetsError(f"tab not found: {self._tab}")
+
+        tab_id = target["properties"]["sheetId"]
+        row_count = max(0, len(self._read(sheets.values())) - 1)
+        wanted = {view.title for view in FILTER_VIEWS}
+
+        requests: list[dict[str, Any]] = [
+            {"deleteFilterView": {"filterId": existing["filterViewId"]}}
+            for existing in target.get("filterViews", [])
+            if existing.get("title") in wanted
+        ]
+        requests += [
+            {"addFilterView": {"filter": spec}}
+            for spec in build_filter_view_specs(sheet_id=tab_id, row_count=row_count)
+        ]
+        self._call(sheets.batchUpdate(spreadsheetId=self._sheet_id, body={"requests": requests}))
+        _log.info("sheets.filter_views_synced", views=sorted(wanted), rows=row_count)
+        return sorted(wanted)
 
 
 def is_safe_header_change(existing_header: list[str], target: list[str]) -> bool:
