@@ -49,15 +49,21 @@ class TestSupportGroups:
         ):
             assert classify_domain(domain) is LinkClass.support_group, domain
 
-    def test_the_dead_domain_is_not_seeded(self) -> None:
-        """alateen.org refuses connections; the live Alateen content is under al-anon.org."""
-        assert "alateen.org" not in SUPPORT_GROUPS
-        assert classify_domain("alateen.org") is LinkClass.unknown
+    def test_the_clients_spellings_are_seeded_beside_the_canonical_ones(self) -> None:
+        """Both were once excluded; both are now seeded, and neither replaced its counterpart.
 
-    def test_the_wrong_org_is_not_seeded(self) -> None:
-        """recovery-inc.org is an unrelated UK site, NOT Recovery International."""
-        assert "recovery-inc.org" not in SUPPORT_GROUPS
-        assert classify_domain("recovery-inc.org") is LinkClass.unknown
+        alateen.org: the APEX refuses HTTPS (which read as "dead"), but the client's
+        al-anon.alateen.org over HTTP redirects to Al-Anon Family Groups.
+        recovery-inc.org: genuinely NOT the fellowship — it is a mental-health content site —
+        but the client asked for his link to classify, so it is seeded knowingly.
+        """
+        for domain in (
+            "alateen.org",
+            "al-anon.org",
+            "recovery-inc.org",
+            "recoveryinternational.org",
+        ):
+            assert domain in SUPPORT_GROUPS, domain
 
     def test_the_four_bot_blocked_orgs_were_seeded_only_after_verification(self) -> None:
         """Held back for a session because no automated browser can load them.
@@ -139,9 +145,10 @@ class TestJakesFullList:
             assert classify_domain(domain) is LinkClass.support_group, domain
 
     def test_recovery_inc_resolves_to_the_real_org(self) -> None:
-        """The client named "Recovery, Inc."; his own page links the WRONG domain for it."""
+        """The real org is recoveryinternational.org. His recovery-inc.org is a content site,
+        seeded anyway on his instruction so his link classifies — both are present."""
         assert classify_domain("recoveryinternational.org") is LinkClass.support_group
-        assert classify_domain("recovery-inc.org") is LinkClass.unknown
+        assert classify_domain("recovery-inc.org") is LinkClass.support_group
 
     def test_the_named_regional_chapters_are_seeded(self) -> None:
         """The client explicitly named LA-local chapters, so locals count as support groups."""
@@ -154,9 +161,9 @@ class TestJakesFullList:
         ):
             assert classify_domain(domain) is LinkClass.support_group, domain
 
-    def test_the_dead_domain_is_still_refused(self) -> None:
-        """His page links alateen.org for Al-Anon and that domain is dead; al-anon.org covers it."""
-        assert classify_domain("alateen.org") is LinkClass.unknown
+    def test_the_alateen_host_is_covered_both_ways(self) -> None:
+        """His link is the subdomain; ours is al-anon.org. Both classify."""
+        assert classify_domain("al-anon.alateen.org") is LinkClass.support_group
         assert classify_domain("al-anon.org") is LinkClass.support_group
 
     def test_regionals_stay_separable_from_the_national_fellowships(self) -> None:
@@ -168,3 +175,62 @@ class TestJakesFullList:
     def test_the_area_agency_guard_still_holds_with_the_wider_list(self) -> None:
         for domain in ("aaaphx.org", "aaact.org", "nekaaa.org", "lacoaa.com", "socalda.com"):
             assert classify_domain(domain) is LinkClass.unknown, domain
+
+
+JAKES_EXACT_26 = (
+    "aa.org",
+    "lacoaa.org",
+    "al-anon.alateen.org",  # a SUBDOMAIN, not the apex — see the test below
+    "alanonla.org",
+    "ca.org",
+    "ca4la.org",
+    "co-anon.org",
+    "coda.org",
+    "crystalmeth.org",
+    "debtorsanonymous.org",
+    "emotionsanonymous.org",
+    "gamblersanonymous.org",
+    "gam-anon.org",
+    "marijuana-anonymous.org",
+    "na.org",
+    "nar-anon.org",
+    "nicotine-anonymous.org",
+    "oa.org",
+    "recovering-couples.org",
+    "recovery-inc.org",
+    "sa.org",
+    "saa-recovery.org",
+    "sca-recovery.org",
+    "slaafws.org",
+    "smartrecovery.org",
+    "womenforsobriety.org",
+)
+
+
+class TestJakesExactLinks:
+    """Every link exactly as the client wrote it must classify (ADR-039 addendum 2)."""
+
+    def test_all_twenty_six_classify_as_support_groups(self) -> None:
+        for domain in JAKES_EXACT_26:
+            assert classify_domain(domain) is LinkClass.support_group, domain
+
+    def test_the_alateen_subdomain_matches_via_its_registrable_domain(self) -> None:
+        """His link is al-anon.alateen.org. The APEX refuses HTTPS, which is why an earlier
+        check called it dead — but the subdomain over HTTP redirects to Al-Anon Family Groups.
+        Capture stores registrable domains, so seeding alateen.org is what covers his link."""
+        assert classify_domain("al-anon.alateen.org") is LinkClass.support_group
+        assert classify_domain("alateen.org") is LinkClass.support_group
+
+    def test_our_corrections_are_kept_alongside_his(self) -> None:
+        """Both spellings live in the list; neither replaces the other."""
+        for pair in (
+            ("alateen.org", "al-anon.org"),
+            ("recovery-inc.org", "recoveryinternational.org"),
+        ):
+            for domain in pair:
+                assert classify_domain(domain) is LinkClass.support_group, domain
+
+    def test_subdomains_still_do_not_leak_across_registrable_boundaries(self) -> None:
+        """Subdomain matching must not become substring matching."""
+        assert classify_domain("alateen.org.evil.com") is LinkClass.unknown
+        assert classify_domain("notalateen.org") is LinkClass.unknown

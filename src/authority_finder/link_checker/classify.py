@@ -16,10 +16,12 @@ label, and `aaaphx.org` / `aaact.org` are Area Agencies on Aging — the client'
 prospects. A substring rule would misfire on 165 real rows.
 
 **Seeds are verified, not harvested.** Every domain below was fetched live and its identity
-confirmed from page content. Two that appear on the client's own resources page are deliberately
-ABSENT: `alateen.org` refuses connections outright, and `recovery-inc.org` is an unrelated UK
-content site rather than Recovery International (`recoveryinternational.org`). Learning domains
-from client pages would have adopted both.
+confirmed from page content — except four behind Cloudflare bot-management, which were verified
+from how institutions in our own corpus label them (see NATIONAL_FELLOWSHIPS). Where the
+client's own spelling differs from the canonical one, BOTH are seeded rather than one replacing
+the other: his `al-anon.alateen.org` and `recovery-inc.org` sit alongside `al-anon.org` and
+`recoveryinternational.org`, so his links classify exactly as he wrote them while ours stay
+correct.
 
 **Unknown is a real answer.** Crisis lines (`988lifeline.org`), general directories (`211.org`)
 and advocacy bodies (`nami.org`) are left unclassified. Whether they belong in a bucket is a
@@ -74,9 +76,16 @@ MENTAL_HEALTH_DIRECTORIES: frozenset[str] = frozenset(
 # the domain under the org's name. An institution asserting the identity is stronger evidence
 # than a page title read off the site itself.
 #
-# STILL not here, on purpose: alateen.org (dead — and the client's own page links it for
-# Al-Anon, which al-anon.org already covers) and recovery-inc.org (an unrelated UK site; the
-# real "Recovery, Inc." is recoveryinternational.org, seeded below).
+# The client's own two spellings are seeded ALONGSIDE our corrections, never instead of them,
+# because his sheet links must classify exactly as he wrote them:
+#   * alateen.org covers his `al-anon.alateen.org`. An earlier check called the domain dead —
+#     that was the APEX over HTTPS, which refuses. The subdomain over HTTP redirects to
+#     Al-Anon Family Groups, so it is live and correct. Capture stores registrable domains,
+#     so seeding the apex is what matches his link.
+#   * recovery-inc.org is what he links for "Recovery, Inc." It is in fact a generic
+#     mental-health CONTENT site ("Recovery INC Org Mental & Medical Health Care"), not the
+#     fellowship — the real one is recoveryinternational.org, also seeded. Kept on his
+#     explicit instruction; a hit here means the content site, not a support group.
 NATIONAL_FELLOWSHIPS: frozenset[str] = frozenset(
     {
         "aa.org",  # Alcoholics Anonymous
@@ -103,6 +112,8 @@ NATIONAL_FELLOWSHIPS: frozenset[str] = frozenset(
         "nicotine-anonymous.org",  # Nicotine Anonymous — anchor-verified (wvbhpc, maricopa.gov)
         "slaafws.org",  # Sex and Love Addicts Anonymous — anchor-verified (ucr.edu, wvbhpc)
         "recoveryinternational.org",  # "Recovery, Inc." under its current name
+        "alateen.org",  # covers the client's al-anon.alateen.org (redirects to al-anon.org)
+        "recovery-inc.org",  # the client's link for "Recovery, Inc." — see the note above
     }
 )
 
