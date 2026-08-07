@@ -1780,3 +1780,51 @@ The client read that as unsorted. **0 billed.**
 Dedupe follows the sort, so where one (domain, geo) appears in two trust bands the surviving row
 is now the higher-trust one rather than the linked one. That loses less: the competitor link is
 a property of the organisation either way, while the contact grade is what the rep acts on.
+
+## Session 54 (2026-08-07) — Link classification, Phase 1 (ADR-039)
+
+**The defect was structural, not a tuning miss.** `link_checker/check.py` filtered to
+`COMPETITOR_DOMAINS` *inside the capture loop*, so every outbound domain outside the brief's 16
+was discarded before persistence. The client's reported miss (`drugrehab.com`) could never have
+been answered from the database because the data never existed. Same class as ADR-032.
+
+**Built (0 billed).** `find_outbound_links` now captures every external link and
+`find_competitor_links` is a filter over it, so Competitor Links keeps its exact contractual
+meaning (the 16, unchanged, still at index 9). New `link_checker/classify.py` holds three
+exact-registrable-domain seed sets. Four append-only sheet columns (Addiction Directories /
+Mental Health Directories / Support Groups / Support Groups Found On) plus a DB-only
+`outbound_domains` holding every domain seen — so widening a seed list later is a database pass,
+not another crawl. Migration `c1cd0e7901b0` (5 additive NOT NULL text columns, '' default).
+
+**Seed discipline.** Exact registrable-domain only: 62 corpus domains contain "aa" and 103
+contain "na" in their label, and `aaaphx.org`/`aaact.org` are Area Agencies on Aging — the
+client's own prospects — so substring matching would have misfired on 165 real rows. Seeds were
+verified by fetching them. Deliberately NOT seeded: `alateen.org` (dead, and it is ON the
+client's page — harvesting would have adopted it), `recovery-inc.org` (wrong org), and
+`coda.org`/`oa.org`/`nicotine-anonymous.org`/`slaafws.org` (bot-blocked, awaiting a hand-check).
+Crisis lines, `211.org` and `nami.org` are left unclassified pending a client rubric.
+
+**Link cap was biting.** 26 of the first 784 pages hit `MAX_LINKS=500`, and truncating pages are
+precisely the resource pages this tool exists to read. Added `PageContent.links_truncated`
+(the ceiling was previously invisible) and raised the cap to 3000. A second pass over the 42
+truncated rows found 8 additional directory rows; exactly one page still exceeds 3000
+(`hca.wa.gov` substance-use-treatment).
+
+**Backfill.** Re-crawled all 2,237 delivered rows' pages ($0, plain HTTP + Playwright on 403):
+2,195 reachable (98.1%), 42 unreachable. Rows whose pages failed are SKIPPED, never blanked —
+a failure to reach a page is not evidence its links are absent. Result: **271 rows carry an
+addiction directory, 24 a mental-health directory, 42 a support group**; 10,825 distinct
+outbound domains captured. Written to Postgres with **0 outreach rows and 0 competitor_links
+rows changed**; re-exported to the master Sheet (2,237 rows, 15 → 19 cols) passing NEITHER the
+shrink nor the header escape hatch, because a pure extension needs neither. Trust-first order
+(ADR-038) intact.
+
+**The client's exact complaint passes.** `ucr.edu` now shows Competitor Links unchanged
+(`addictionresource.net; samhsa.gov`) alongside Addiction Directories including `drugrehab.com`,
+2 mental-health directories, and 18 support groups with the exact page naming them.
+
+838 backend + 43 frontend tests; ruff/pyright/tsc/build/oxlint clean.
+Commits (sydashir): `99bcb4a`/`275cd04`/`c2409ae`/`e7990e4`/`829e4ad`/`36061d3`/`8f7617d`.
+
+**Next:** hand-verify the 4 held-back support-group domains; decide the rubric for crisis lines
+/ 211 / NAMI; Phase 2 (long-tail classification) if wanted. P1 hosting still outstanding.
