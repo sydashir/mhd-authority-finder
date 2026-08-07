@@ -1828,3 +1828,39 @@ Commits (sydashir): `99bcb4a`/`275cd04`/`c2409ae`/`e7990e4`/`829e4ad`/`36061d3`/
 
 **Next:** hand-verify the 4 held-back support-group domains; decide the rubric for crisis lines
 / 211 / NAMI; Phase 2 (long-tail classification) if wanted. P1 hosting still outstanding.
+
+## Session 55 (2026-08-07) — Client's full support-group list closed (ADR-039 addendum)
+
+**27/27 of the client's named orgs now seeded** (his 26, counted as 27 site entries since
+Al-Anon and Cocaine Anonymous each appear as a national and an LA site). 0 billed, no re-crawl.
+
+**The four bot-blocked orgs.** `coda.org` / `oa.org` / `nicotine-anonymous.org` / `slaafws.org`
+refuse a real automated Chromium outright (Cloudflare bot-management — not a slow challenge;
+waiting does not clear it). Verified instead from institutional anchor text already in our
+corpus: coda.org x2 (ucr.edu "CODA (Codependents Anonymous)", cityofpalmdaleca.gov
+"Co-Dependents Anonymous"), oa.org x3, nicotine-anonymous.org x4, slaafws.org x2.
+
+**Browser-verified:** recoveryinternational.org ("Recovery International ... self-help mental
+health program") and all five regional chapters — lacoaa.org (LA Central Office of AA),
+alanonla.org (Al-Anon Greater LA), ca4la.org (Cocaine Anonymous LA), laintergroup.com
+(**Gamblers** Anonymous LA — NOT Cocaine Anonymous, which the name suggests), socalda.org.
+
+**Re-classification, not re-crawl.** Pass over stored `outbound_domains`: **8 rows changed**;
+support groups **42 → 43 rows**; addiction 271 and mental-health 24 unchanged. Provenance was
+recovered exactly — single-page rows have their links on that page by construction, so only the
+2 genuinely ambiguous two-page rows were re-fetched. 0 outreach rows and 0 competitor_links
+rows changed; 2,237/2,237 still not_contacted.
+
+**ucr.edu: 18 → 27 support-group domains**, and it is now row 1 of the sheet. Of the client's
+27 orgs, 25 are on that page and all 25 are caught. The 2 that are not are Al-Anon and
+Recovery Inc. — **because his own page links `alateen.org` (dead) and `recovery-inc.org`
+(wrong org)**, and we seed `al-anon.org` / `recoveryinternational.org` instead.
+
+**16 further regional-chapter candidates reported, none auto-added** (mostly state Al-Anon
+sites: ocalanon.org, nj-al-anon.org, alanonma.org, …). `recovery-inc.org` and
+`alcoholicsanonymous.com` appear in that scan and are NOT endorsements — the first is verified
+wrong, the second is not AA's official domain.
+
+Sheet re-exported: 2,237 rows / 19 cols, header == OUTPUT_HEADER, trust-first order intact,
+Postgres == Sheet. 844 backend + 43 frontend tests; ruff/pyright/tsc/build/oxlint clean.
+Commits (sydashir): `5944869`.
