@@ -77,17 +77,18 @@ COLUMN_GUIDE: dict[str, tuple[str, str]] = {
         "FULL LIST: every addiction/treatment directory this organisation links to — the 16 "
         "named in the brief AND every directory added since. This is the growing list; "
         "Competitor Links is the subset of it that matches the original 16.",
-        "never blank — '—' means none found",
+        "never blank. '—' = we checked and found none. 'not checked' = the page could not be "
+        "fetched on the last pass, so it was never read — NOT the same as none found",
     ),
     "Mental Health Directories": (
         "FULL LIST: every therapist-finder or mental-health provider directory linked from "
         "the page.",
-        "never blank — '—' means none found",
+        "never blank. '—' = checked, none found. 'not checked' = the page could not be fetched",
     ),
     "Support Groups": (
         "FULL LIST: every peer recovery fellowship or mutual-aid group linked from the page, "
         "national or local (AA, SMART Recovery, a county AA intergroup).",
-        "never blank — '—' means none found",
+        "never blank. '—' = checked, none found. 'not checked' = the page could not be fetched",
     ),
     "Support Groups Found On": (
         "The page those support-group links actually appear on, when that differs from "
@@ -110,6 +111,13 @@ _NOTES: list[tuple[str, str]] = [
         "The tool keeps every outbound domain it sees. New directories and groups are "
         "proposed for review in the dashboard and only appear in these columns once a human "
         "approves them — nothing is added automatically.",
+    ),
+    (
+        "'—' VERSUS 'not checked'",
+        "In the three category columns, '—' means we read the page and it linked to nothing "
+        "in that category. 'not checked' means the page could not be fetched on the last pass "
+        "(a firewall, a CAPTCHA, or the page moved), so nobody read it. 37 rows currently say "
+        "'not checked'. Treat those as unknown, not as empty.",
     ),
     (
         "ROW ORDER",

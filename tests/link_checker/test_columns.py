@@ -99,3 +99,46 @@ class TestRawDomains:
     def test_every_observed_domain_is_stored_deduped_and_sorted(self) -> None:
         cells = _columns(all_domains=["b.org", "a.org", "b.org"])
         assert cells["outbound_domains"] == "a.org; b.org"
+
+
+class TestNotChecked:
+    """A page we could not fetch is not a page with no links (ADR-041 addendum).
+
+    37 delivered rows had these columns genuinely EMPTY while the legend promised
+    "never blank". Writing "—" instead would have been worse: that cell means "checked and
+    found none", which is a claim about pages nobody ever read. The third state says what
+    actually happened.
+    """
+
+    def test_an_unchecked_row_says_so_in_every_category(self) -> None:
+        cells = _columns(checked=False)
+        for column in ("addiction_directories", "mental_health_directories", "support_groups"):
+            assert cells[column] == "not checked", column
+
+    def test_not_checked_is_distinct_from_none_found(self) -> None:
+        """The whole point: the client must be able to tell these two apart."""
+        assert (
+            _columns(checked=False)["addiction_directories"] != _columns()["addiction_directories"]
+        )
+        assert _columns()["addiction_directories"] == "—"
+
+    def test_no_category_cell_is_ever_blank(self) -> None:
+        """The legend promises it; this makes the promise structural."""
+        for cells in (_columns(), _columns(checked=False), _columns(competitor_domains=["x.gov"])):
+            for column in (
+                "addiction_directories",
+                "mental_health_directories",
+                "support_groups",
+            ):
+                assert cells[column].strip(), column
+
+    def test_surviving_competitor_evidence_still_wins_over_not_checked(self) -> None:
+        """If we hold a competitor domain from an earlier run, we DID check once — say so."""
+        cells = _columns(checked=False, competitor_domains=["samhsa.gov"])
+        assert cells["addiction_directories"] == "samhsa.gov"
+        # The classes we have no evidence for stay honest about not having been checked.
+        assert cells["support_groups"] == "not checked"
+
+    def test_provenance_stays_blank_when_unchecked(self) -> None:
+        """Provenance points at a page; there is nothing to point at."""
+        assert _columns(checked=False)["support_groups_found_on"] == ""

@@ -2016,3 +2016,23 @@ matching on both sides. ucr.edu still row 1, support groups 29 → **30**
 (`compassionatefriends.org` joined via approval).
 
 Domain state: 10,825 observed / 72 approved (54 seed + 18 human) / 6 rejected / 0 awaiting.
+
+## Session 60 (2026-08-08) — Pre-send audit fix: "not checked" (ADR-041 addendum)
+
+Live-sheet audit before hand-off found **37 rows with blank category columns** against a legend
+promising "never blank" — the rows whose page could not be fetched. `—` would have been a false
+claim (it means *checked, found none*), so the shared assembler gained a third state,
+`not checked`, behind a `checked` flag.
+
+**The subtle part:** an empty `outbound_domains` is ambiguous — 42 rows were unreachable, but
+38 more were fetched fine and simply had no external links. A first pass keyed on emptiness
+mislabelled those 38 and was caught by comparing against the crawl's own `ok` flag, which is
+the authoritative signal. Final: **37 / 42 / 42 "not checked", 0 blank cells**, domain counts
+unchanged at 279 / 28 / 55.
+
+Sheet re-exported and verified cell-state for cell-state against Postgres (domain / — /
+not checked counts match exactly on all three columns). Legend regenerated: 34 rows, 19/19
+columns, with an explicit "'—' VERSUS 'not checked'" note. 0 outreach and 0 competitor_links
+rows changed; 2,237/2,237 not_contacted. 957 backend tests (858 + 99 container-backed).
+
+Also: Docker Desktop had stopped mid-session; restarted, data intact.

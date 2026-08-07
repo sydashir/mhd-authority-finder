@@ -2066,3 +2066,23 @@ which would leave the client choosing between duplicates that silently diverge.
 AH begins publishing its own city/county pages — it currently publishes 0 cities and 6
 counties. The trigger is measurable from Source Tag on every run: **if AH-only rows exceed
 ~10% of the dataset, the split earns its keep.** Today that figure is 0%.
+
+### ADR-041 addendum — "not checked" is a third state
+
+A pre-send audit of the live sheet found **37 rows with the three category columns genuinely
+blank**, while the legend promised "never blank". They were the rows whose page could not be
+fetched on the last pass.
+
+Writing `—` would have been worse than leaving them blank: that cell means *checked, found
+none*, which is a claim about pages nobody read — the same "a failure to reach a page is not
+evidence of absence" rule that governs the backfill. So the category cells gained a third
+value, `not checked`, produced by the same shared `build_link_columns` via a `checked` flag.
+
+**An empty `outbound_domains` is NOT the signal.** It is ambiguous: 42 rows were unreachable,
+but a further **38 were fetched successfully and simply had no external links at all**.
+Deriving "not checked" from emptiness mislabelled those 38 and understated coverage on pages
+we genuinely read. The authoritative signal is the crawl's own per-row `ok` flag.
+
+Result: 37 rows say `not checked` under Addiction Directories (42 unreachable, less the 5 whose
+surviving competitor evidence proves the page was read at least once), 42 under the other two,
+and **0 blank cells anywhere**. The legend now contrasts the two values explicitly.

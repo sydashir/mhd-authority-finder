@@ -23,8 +23,13 @@ from collections.abc import Mapping, Sequence
 
 from authority_finder.link_checker.classify import LinkClass
 
-# What a category cell says when the check ran and found nothing.
+# What a category cell says when the check RAN and found nothing.
 NONE_FOUND = "—"
+# What it says when the page could not be fetched, so the check never ran at all. A distinct
+# value because "—" is a claim — checked, found none — and we cannot make that claim about a
+# page nobody read. 37 delivered rows sat genuinely blank here while the legend promised
+# "never blank"; blank looks like a bug even when the underlying data is honest.
+NOT_CHECKED = "not checked"
 
 # Which category each of the brief's competitor domains belongs to. They are all addiction
 # directories; this names the relationship rather than leaving it implicit.
@@ -41,11 +46,16 @@ def build_link_columns(
     bucketed: Mapping[LinkClass, Sequence[str]],
     support_group_pages: Sequence[str],
     all_domains: Sequence[str],
+    checked: bool = True,
 ) -> dict[str, str]:
     """The link-related cells for one prospect row.
 
     ``bucketed`` maps a class to the domains classified into it. ``competitor_domains`` is
     merged into its category so the flag is always visible in the fuller list.
+
+    ``checked=False`` means the page could not be fetched. Categories then read "not checked"
+    rather than "—", EXCEPT where surviving evidence from an earlier run says otherwise: a
+    competitor domain we still hold proves the page was read once, so its category names it.
     """
     categories = {
         LinkClass.addiction_directory: [
@@ -55,11 +65,18 @@ def build_link_columns(
         LinkClass.mental_health_directory: bucketed.get(LinkClass.mental_health_directory, ()),
         LinkClass.support_group: bucketed.get(LinkClass.support_group, ()),
     }
+
+    def category(kind: LinkClass) -> str:
+        domains = categories[kind]
+        if domains:
+            return _cell(domains)
+        return NONE_FOUND if checked else NOT_CHECKED
+
     return {
         "competitor_links": _cell(competitor_domains),
-        "addiction_directories": _cell(categories[LinkClass.addiction_directory]),
-        "mental_health_directories": _cell(categories[LinkClass.mental_health_directory]),
-        "support_groups": _cell(categories[LinkClass.support_group]),
+        "addiction_directories": category(LinkClass.addiction_directory),
+        "mental_health_directories": category(LinkClass.mental_health_directory),
+        "support_groups": category(LinkClass.support_group),
         # Provenance, not a finding — blank when there is nothing to point at.
         "support_groups_found_on": "; ".join(sorted(set(support_group_pages))),
         "outbound_domains": "; ".join(sorted(set(all_domains))),
