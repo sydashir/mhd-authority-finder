@@ -1984,3 +1984,35 @@ ucr.edu (high trust, Competitor Links ⊆ Addiction Directories, 29 support grou
 905 backend + 43 frontend tests; ruff/pyright clean.
 
 **Open:** the 24-item review queue; the 2 level-mismatched geographies; P1 hosting.
+
+## Session 59 (2026-08-08) — Review queue worked; the learning layer reaches the client
+
+**First human pass over the review queue, done through the real API** (not a DB script) — which
+also served as the endpoint's first live test: session minted, `GET /domains/review`,
+`PATCH /domains/{id}/review`, all recorded `provenance=human, reviewed_by=admin`.
+
+**24 candidates → 18 approved, 6 rejected, queue empty.** Rejections were all the same class:
+businesses selling the service rather than organisations listing it —
+`hazeldenbettyford.org`, `gatewayfoundation.org`, `therecoveryvillage.com` (treatment
+providers), `betterhelp.com` (commercial therapy marketplace), plus `alcoholicsanonymous.com`
+(not AA's official domain; `aa.org` is) and `intherooms.com` (social network, and its only
+anchor text was the word "Website" — the weakest evidence in the batch). **Sticky rejection
+verified: none returned to the queue.**
+
+**Re-classified — the first run where human approvals reach the deliverable.** 49 rows updated,
+10 re-fetched for exact support-group provenance. Buckets:
+
+| column | before | after |
+|---|---|---|
+| Addiction Directories | 276 | **279** |
+| Mental Health Directories | 24 | **28** |
+| Support Groups | 43 | **55** |
+
+Competitor Links unchanged at 265 (the contractual 16). Superset invariant re-verified: **0
+violations**. 0 outreach and 0 competitor_links rows changed; 2,237/2,237 not_contacted.
+
+**Postgres = Sheet**: 2,237 rows × 19 cols, header == OUTPUT_HEADER, every bucket count
+matching on both sides. ucr.edu still row 1, support groups 29 → **30**
+(`compassionatefriends.org` joined via approval).
+
+Domain state: 10,825 observed / 72 approved (54 seed + 18 human) / 6 rejected / 0 awaiting.
