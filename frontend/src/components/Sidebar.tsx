@@ -1,24 +1,36 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { History, LogOut, Moon, Settings, Sun, Target, type LucideIcon } from 'lucide-react'
+import {
+  History,
+  ListChecks,
+  LogOut,
+  Moon,
+  Settings,
+  Sun,
+  Target,
+  type LucideIcon,
+} from 'lucide-react'
 import { postLogout } from '../api/client'
-import { useHealth } from '../api/hooks'
+import { useDomainStats, useHealth } from '../api/hooks'
 import type { AuthUser } from '../api/types'
 import type { Theme } from '../lib/theme'
 import { Logo } from './Logo'
 
-export type View = 'prospects' | 'runs'
+export type View = 'prospects' | 'runs' | 'review'
 
 function NavItem({
   icon: Icon,
   label,
   active = false,
   soon = false,
+  badge,
   onClick,
 }: {
   icon: LucideIcon
   label: string
   active?: boolean
   soon?: boolean
+  /** Count of items needing attention. Omitted or 0 renders nothing — a zero badge is noise. */
+  badge?: number
   onClick?: () => void
 }) {
   const base =
@@ -38,6 +50,11 @@ function NavItem({
       )}
       <Icon size={16} strokeWidth={active ? 2.2 : 1.8} />
       <span className="flex-1 text-left">{label}</span>
+      {badge !== undefined && badge > 0 && (
+        <span className="ml-auto rounded-full bg-brand/15 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-brand">
+          {badge > 99 ? '99+' : badge}
+        </span>
+      )}
       {soon && (
         <span className="rounded bg-raised px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-fg-subtle">
           Soon
@@ -73,6 +90,9 @@ export function Sidebar({
 }) {
   const { data, isError, isLoading } = useHealth()
   const connected = !isError && data?.database === 'ok'
+  // Surfaces the queue without making the reviewer go looking for it.
+  const domainStats = useDomainStats()
+  const pendingReviews = domainStats.data?.awaiting_review
   const queryClient = useQueryClient()
 
   async function onLogout() {
@@ -107,6 +127,13 @@ export function Sidebar({
           label="Runs"
           active={active === 'runs'}
           onClick={() => onNavigate('runs')}
+        />
+        <NavItem
+          icon={ListChecks}
+          label="Review"
+          badge={pendingReviews}
+          active={active === 'review'}
+          onClick={() => onNavigate('review')}
         />
         <NavItem icon={Settings} label="Settings" soon />
       </nav>

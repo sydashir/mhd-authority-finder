@@ -31,6 +31,13 @@ class Settings(BaseSettings):
         default=SecretStr(""),
         description="SerpAPI key for per-geo search discovery.",
     )
+    anthropic_api_key: SecretStr = Field(
+        default=SecretStr(""),
+        description=(
+            "Anthropic API key for per-domain link classification (ADR-040). "
+            "Absent = the learning layer is simply skipped; seeds still work."
+        ),
+    )
     ahrefs_api_key: SecretStr = Field(
         default=SecretStr(""),
         description="Ahrefs API key for Domain Rating lookups (Phase 2).",

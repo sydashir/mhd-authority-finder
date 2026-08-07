@@ -1879,3 +1879,74 @@ corpus — it was a pass over the stored `outbound_domains`, exactly what that c
 Provenance was the one thing the stored domains could not answer, and it was recovered
 *exactly* rather than approximated: a row whose crawl fetched one page had all its links on
 that page by construction, so only the 2 genuinely ambiguous two-page rows were re-fetched.
+
+## ADR-040
+
+**A learning layer that proposes and never disposes**
+
+*Session 56 (2026-08-07). Extends ADR-039.*
+
+### Context
+
+Seed lists close the cases we can name. They cannot find what nobody thought to list, and the
+delivered corpus holds 10,825 distinct outbound domains. The question is how to mine that tail
+without letting a machine's guess reach a client deliverable.
+
+### Decision
+
+**Classification is keyed per DOMAIN and cached forever.** A domain's identity does not change
+between the pages that link it, so `drugrehab.com` is classified once. Per-page classification
+would cost multiples on the same corpus and could return different answers for the same domain
+— the inconsistency being worse than the cost.
+
+**Two gates, not one.** `is_promotable` decides what a human is ASKED about (candidate + real
+bucket + confidence ≥ 0.8 + seen on ≥ 2 independent pages). `effective_bucket` decides what
+reaches the CLIENT, and returns a bucket only for a human-approved domain. An LLM answer never
+qualifies on its own, however confident. **Auto-add nothing** is enforced structurally, at one
+choke point, not by convention.
+
+**Rejection is sticky by construction.** A rejected domain fails the promotion gate forever, so
+re-classification cannot resurrect it and the queue cannot become a treadmill.
+
+**"unknown" is a first-class answer.** The prompt says so and the parser preserves it. On this
+corpus 1,917 of 2,077 classified domains came back unknown at avg confidence 0.04 — a
+classifier that cannot decline would have filed crisis lines as directories.
+
+**The parser is a security boundary.** It drops domains we never observed (a model cannot
+introduce one), coerces invented buckets to unknown, clamps confidence, and returns nothing
+rather than a guess on malformed output.
+
+### Cost discipline, and what it cost to learn
+
+The first batch spent **$1.17 for zero usable output**. Every one of 270 responses came back
+`stop_reason=max_tokens` with a single `thinking` block and no text: extended thinking is on by
+default for this model and `max_tokens=400` was consumed before the answer began. Three changes
+followed, all pinned by tests:
+
+1. `thinking` explicitly disabled — classification against a fixed rubric does not need it.
+2. `max_tokens` raised to 2,500; measured output is ~41 tokens per domain.
+3. `validate_key` now fails loudly when a response contains **no text blocks**, naming the
+   block types and stop_reason. The old check only caught a bad credential.
+
+The cost projection was also wrong in a way that mattered: it assumed every request emitted its
+full output budget, so raising `max_tokens` inflated the projection past the cap and would have
+aborted the very fix it was meant to allow. It now scales with domains, not with headroom.
+
+**Scope.** Only domains on ≥ 2 pages are classified — a single-page domain fails the promotion
+bar regardless of its bucket, so classifying the other 8,694 buys nothing today. That decision
+took the second batch to **$0.5675** for 2,077 domains, against ~$3.69 to do all of them.
+
+### Consequences
+
+- 24 domains cleared the bar on the first pass, including `dbsalliance.org` (Depression and
+  Bipolar Support Alliance, seen on 12 pages), `familiesanonymous.org`, `adultchildren.org`
+  and `zencare.co` — the last being a directory an earlier session could not verify because it
+  refuses automated browsers.
+- The queue also surfaced treatment PROVIDERS classified as directories
+  (`hazeldenbettyford.org`, `gatewayfoundation.org`) and `alcoholicsanonymous.com`, which is
+  not AA's official domain. These are wrong, they are supposed to be caught by a human, and
+  they are the argument for the review gate rather than against the classifier.
+- Anchor text is collected only for domains facing review — it is the reviewer's strongest
+  evidence, and fetching it for 10,825 domains to display 24 would be waste.
+- `link_checker.llm_classify` was initially reachable only from a script. The module
+  reachability guard failed, correctly — it is now a real `classify-domains` CLI command.

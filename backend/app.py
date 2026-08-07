@@ -17,7 +17,7 @@ from backend.auth import get_current_user
 from backend.deps import get_session
 from backend.jobs import sweep_orphan_runs
 from backend.monitoring import init_monitoring
-from backend.routers import auth, export, health, prospects, runs, stats
+from backend.routers import auth, domains, export, health, prospects, runs, stats
 
 __all__ = ["app", "create_app", "get_session"]
 
@@ -55,6 +55,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(prospects.router, dependencies=guarded)
     app.include_router(runs.router, dependencies=guarded)
     app.include_router(export.router, dependencies=guarded)
+    app.include_router(domains.router, dependencies=guarded)
     return app
 
 

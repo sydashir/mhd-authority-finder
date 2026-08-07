@@ -18,13 +18,18 @@ from typing import Any, cast
 
 import click
 import httpx
+from anthropic import AsyncAnthropic
 from sqlalchemy.exc import SQLAlchemyError
 
 from authority_finder.config import Settings, get_settings
 from authority_finder.contact_extractor.models import ExtractionResult
 from authority_finder.contact_extractor.orchestrator import extract_for_geo
 from authority_finder.db.ingest import persist_pipeline_run
-from authority_finder.db.repository import run_rejection_reason
+from authority_finder.db.repository import (
+    get_unclassified_domains,
+    record_domain_verdicts,
+    run_rejection_reason,
+)
 from authority_finder.db.session import make_engine, make_session_factory
 from authority_finder.discovery.discover import discover_many
 from authority_finder.discovery.models import DiscoveryResult
@@ -37,6 +42,13 @@ from authority_finder.geo_monitor.sitemap_fetcher import SitemapFetcher
 from authority_finder.geo_monitor.sites import SITES
 from authority_finder.geo_monitor.state import load_state
 from authority_finder.geo_monitor.url_parser import parse_geo_url
+from authority_finder.link_checker.llm_classify import (
+    DOMAINS_PER_REQUEST,
+    LlmUnavailableError,
+    classify_domains_batch,
+    estimate_cost,
+    validate_key,
+)
 from authority_finder.logging import configure as configure_logging
 from authority_finder.monitoring import init_sentry
 from authority_finder.output.blocked_writer import write_blocked
@@ -753,6 +765,62 @@ def create_user(username: str, password: str) -> None:
         raise click.ClickException("username cannot be blank")
     click.echo("\nAdd this to AUTH_USERS in your .env (comma-separate multiple users):\n")
     click.echo(f"{name}:{hash_password(password)}\n")
+
+
+@cli.command("classify-domains")
+@click.option(
+    "--max-cost",
+    default=3.0,
+    show_default=True,
+    help="Hard USD ceiling. The run aborts before submitting if the projection exceeds it.",
+)
+@click.option("--limit", default=0, help="Classify at most N domains (0 = every eligible one).")
+def classify_domains(max_cost: float, limit: int) -> None:
+    """Classify observed outbound domains with Claude, cached in Postgres (ADR-040).
+
+    Only domains seen on 2+ pages are classified: a single-page domain can never clear the
+    promotion bar, so paying to classify it buys nothing. Results land as CANDIDATES — nothing
+    reaches the client's sheet until a human approves it in the dashboard.
+    """
+    asyncio.run(_classify_domains(max_cost=max_cost, limit=limit))
+
+
+async def _classify_domains(*, max_cost: float, limit: int) -> None:
+    settings = get_settings()
+    key = settings.anthropic_api_key.get_secret_value()
+    if not key:
+        raise click.ClickException("ANTHROPIC_API_KEY is not set; the learning layer is optional")
+
+    engine = make_engine(settings.database_url)
+    factory = make_session_factory(engine)
+    try:
+        async with factory() as session:
+            pending = await get_unclassified_domains(session, limit=limit or None)
+        if not pending:
+            click.echo("nothing to classify")
+            return
+
+        projected = estimate_cost(len(pending), per_request=DOMAINS_PER_REQUEST)
+        click.echo(f"{len(pending)} domains; projected ceiling ${projected:.2f} (cap ${max_cost})")
+        if projected > max_cost:
+            raise click.ClickException(
+                f"projection ${projected:.2f} exceeds --max-cost ${max_cost}; nothing submitted"
+            )
+
+        client = AsyncAnthropic(api_key=key)
+        # Never commit to a batch on an unproven credential (the Session 4 lesson, ADR-040).
+        try:
+            await validate_key(client)
+        except LlmUnavailableError as exc:
+            raise click.ClickException(str(exc)) from exc
+
+        verdicts, spent = await classify_domains_batch(client, pending)
+        async with factory() as session:
+            written = await record_domain_verdicts(session, verdicts)
+            await session.commit()
+        click.echo(f"classified {written} domains; actual cost ${spent:.4f}")
+    finally:
+        await engine.dispose()
 
 
 if __name__ == "__main__":

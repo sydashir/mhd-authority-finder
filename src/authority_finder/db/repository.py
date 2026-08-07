@@ -17,8 +17,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import func
 
 from authority_finder.db.models import (
+    DomainProvenance,
+    DomainStatus,
     Geo,
     GeoLevel,
+    LinkDomain,
     OutreachStatus,
     Prospect,
     Run,
@@ -26,6 +29,9 @@ from authority_finder.db.models import (
     SourceTag,
     TrustBand,
 )
+from authority_finder.link_checker.classify import LinkClass
+from authority_finder.link_checker.llm_classify import DomainVerdict
+from authority_finder.link_checker.promotion import MIN_CONFIDENCE, MIN_PAGES
 
 # Trust/confidence sort by VALUE, not the enum's alphabetical order (which would put "low"
 # before "medium"). 0 = best, so ascending on the rank = best-first (ADR-025).
@@ -454,3 +460,134 @@ async def get_geos(
     if level is not None:
         stmt = stmt.where(Geo.level == level)
     return (await session.scalars(stmt.order_by(Geo.url))).all()
+
+
+# The buckets a reviewer can actually be asked about — "unknown" is a valid classification
+# but never a question, or the queue fills with the 90%+ of domains that are not ours.
+_REVIEWABLE_BUCKETS = (
+    LinkClass.addiction_directory.value,
+    LinkClass.mental_health_directory.value,
+    LinkClass.support_group.value,
+)
+
+
+async def get_review_queue(
+    session: AsyncSession, *, limit: int = 100, offset: int = 0
+) -> tuple[list[LinkDomain], int]:
+    """Candidate domains that clear the promotion bar, most-evidenced first (ADR-040).
+
+    Ordering by page_count descending puts the domains with the most corroboration at the
+    top, so a reviewer who works the queue for ten minutes spends them on the strongest
+    evidence rather than on whatever sorted first alphabetically.
+    """
+    conditions = [
+        LinkDomain.status == DomainStatus.candidate,
+        LinkDomain.bucket.in_(_REVIEWABLE_BUCKETS),
+        LinkDomain.confidence >= MIN_CONFIDENCE,
+        LinkDomain.page_count >= MIN_PAGES,
+    ]
+    total = (
+        await session.execute(select(func.count()).select_from(LinkDomain).where(*conditions))
+    ).scalar_one()
+    rows = (
+        (
+            await session.execute(
+                select(LinkDomain)
+                .where(*conditions)
+                .order_by(LinkDomain.page_count.desc(), LinkDomain.domain)
+                .limit(limit)
+                .offset(offset)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return list(rows), total
+
+
+async def review_domain(
+    session: AsyncSession, domain_id: int, *, approve: bool, reviewer: str, bucket: str | None
+) -> LinkDomain | None:
+    """Accept or reject one candidate. The reviewer's decision is final and sticky.
+
+    ``provenance`` flips to ``human`` on either outcome: once a person has ruled, a later
+    re-classification must not quietly overwrite them with a model's opinion.
+    """
+    row = (
+        await session.execute(select(LinkDomain).where(LinkDomain.id == domain_id))
+    ).scalar_one_or_none()
+    if row is None:
+        return None
+    row.status = DomainStatus.approved if approve else DomainStatus.rejected
+    row.provenance = DomainProvenance.human
+    row.reviewed_by = reviewer
+    row.reviewed_at = datetime.now(UTC)
+    if approve and bucket in _REVIEWABLE_BUCKETS:
+        row.bucket = bucket
+    return row
+
+
+async def get_domain_stats(session: AsyncSession) -> dict[str, int]:
+    """Counts for the review-queue header."""
+    rows = (await session.execute(select(LinkDomain))).scalars().all()
+    reviewable = [
+        r
+        for r in rows
+        if r.status is DomainStatus.candidate
+        and r.bucket in _REVIEWABLE_BUCKETS
+        and (r.confidence or 0) >= MIN_CONFIDENCE
+        and r.page_count >= MIN_PAGES
+    ]
+    return {
+        "observed": len(rows),
+        "approved": sum(1 for r in rows if r.status is DomainStatus.approved),
+        "rejected": sum(1 for r in rows if r.status is DomainStatus.rejected),
+        "awaiting_review": len(reviewable),
+        "classified": sum(1 for r in rows if r.bucket is not None),
+    }
+
+
+async def get_unclassified_domains(session: AsyncSession, *, limit: int | None = None) -> list[str]:
+    """Observed domains that still need a bucket and could ever be promoted (ADR-040).
+
+    Filtered to page_count >= MIN_PAGES on purpose: a single-page domain fails the promotion
+    bar no matter what the classifier says, so paying to classify it buys nothing today. If a
+    later run sees it again it becomes eligible and gets picked up then.
+    """
+    stmt = (
+        select(LinkDomain.domain)
+        .where(
+            LinkDomain.bucket.is_(None),
+            LinkDomain.status == DomainStatus.candidate,
+            LinkDomain.page_count >= MIN_PAGES,
+        )
+        .order_by(LinkDomain.page_count.desc(), LinkDomain.domain)
+    )
+    if limit:
+        stmt = stmt.limit(limit)
+    return list((await session.execute(stmt)).scalars().all())
+
+
+async def record_domain_verdicts(session: AsyncSession, verdicts: Sequence[DomainVerdict]) -> int:
+    """Cache classifications onto their domains. Returns rows written.
+
+    A human decision always wins: a row that is no longer a candidate, or whose bucket came
+    from a seed list, is skipped rather than overwritten.
+    """
+    by_domain = {v.domain: v for v in verdicts}
+    rows = (
+        (await session.execute(select(LinkDomain).where(LinkDomain.domain.in_(by_domain))))
+        .scalars()
+        .all()
+    )
+    written = 0
+    for row in rows:
+        if row.status is not DomainStatus.candidate or row.provenance is DomainProvenance.seed:
+            continue
+        verdict = by_domain[row.domain]
+        row.bucket = verdict.bucket
+        row.confidence = verdict.confidence
+        row.reasoning = verdict.reasoning
+        row.provenance = DomainProvenance.llm
+        written += 1
+    return written

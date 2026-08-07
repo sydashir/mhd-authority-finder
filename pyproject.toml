@@ -7,6 +7,7 @@ readme = "README.md"
 authors = [{ name = "Syed Ashir" }]
 dependencies = [
     "alembic>=1.13,<2",
+    "anthropic>=0.120.2",
     "apscheduler>=3.11,<4.0",
     "click==8.4.1",
     "fastapi==0.138.2",

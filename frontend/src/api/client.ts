@@ -3,8 +3,10 @@
 
 import type {
   AuthUser,
+  DomainStats,
   GeoLevel,
   Health,
+  LinkDomain,
   OutreachStatus,
   PageOf,
   Prospect,
@@ -127,6 +129,15 @@ export interface ExportResult {
 /** Export the current filtered view to a FRESH Google Sheet (never the master). */
 export const exportSheet = (filters: ProspectFilters) =>
   apiPost<ExportResult>('/export/sheet', filters)
+
+export const getReviewQueue = (params: { limit?: number; offset?: number } = {}) =>
+  apiGet<PageOf<LinkDomain>>('/domains/review', { ...params })
+
+export const getDomainStats = () => apiGet<DomainStats>('/domains/stats')
+
+/** Accept or reject a proposed domain. Approval is the ONLY way one reaches the client sheet. */
+export const patchDomainReview = (id: number, body: { approve: boolean; bucket?: string | null }) =>
+  apiPatch<LinkDomain>(`/domains/${id}/review`, body)
 
 export const getRuns = (params: { limit?: number; offset?: number } = {}) =>
   apiGet<PageOf<Run>>('/runs', { ...params })

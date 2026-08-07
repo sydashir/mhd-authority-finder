@@ -29,6 +29,10 @@ export function makeProspect(over: Partial<Prospect> = {}): Prospect {
     mental_health_directories: '—',
     support_groups: '—',
     support_groups_found_on: '',
+    addiction_directories: '—',
+    mental_health_directories: '—',
+    support_groups: '—',
+    support_groups_found_on: '',
     contact_found_on: '',
     domain_rating: null,
     source_tag: 'MHD',
@@ -91,6 +95,19 @@ export const handlers = [
   http.get(`${API}/auth/me`, () => HttpResponse.json(authUser)),
   http.post(`${API}/auth/logout`, () => HttpResponse.json({ ok: true })),
   http.get(`${API}/stats`, () => HttpResponse.json(stats)),
+  // The sidebar shows a pending-review badge, so EVERY authenticated screen hits these.
+  http.get(`${API}/domains/stats`, () =>
+    HttpResponse.json({
+      observed: 10825,
+      approved: 54,
+      rejected: 0,
+      awaiting_review: 24,
+      classified: 2074,
+    }),
+  ),
+  http.get(`${API}/domains/review`, () =>
+    HttpResponse.json({ items: [], total: 0, limit: 25, offset: 0 }),
+  ),
   http.get(`${API}/prospects`, ({ request }) => {
     const url = new URL(request.url)
     let items = DEFAULT_PROSPECTS

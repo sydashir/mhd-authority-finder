@@ -10,7 +10,15 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from authority_finder.db.models import GeoLevel, OutreachStatus, RunStatus, SourceTag, TrustBand
+from authority_finder.db.models import (
+    DomainProvenance,
+    DomainStatus,
+    GeoLevel,
+    OutreachStatus,
+    RunStatus,
+    SourceTag,
+    TrustBand,
+)
 
 
 class ProspectOut(BaseModel):
@@ -145,3 +153,37 @@ class ExportOut(BaseModel):
     url: str
     spreadsheet_id: str
     row_count: int
+
+
+class LinkDomainOut(BaseModel):
+    """One observed domain awaiting (or past) review (ADR-040)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    domain: str
+    status: DomainStatus
+    bucket: str | None
+    provenance: DomainProvenance
+    confidence: float | None
+    reasoning: str
+    page_count: int
+    anchor_texts: str
+    example_pages: str
+    reviewed_by: str | None
+    reviewed_at: datetime | None
+
+
+class DomainReview(BaseModel):
+    """A reviewer's verdict. ``bucket`` may correct the proposed one on approval."""
+
+    approve: bool
+    bucket: str | None = None
+
+
+class DomainStatsOut(BaseModel):
+    observed: int
+    approved: int
+    rejected: int
+    awaiting_review: int
+    classified: int

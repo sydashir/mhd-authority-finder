@@ -95,3 +95,31 @@ export interface Stats {
   outreach: Record<OutreachStatus, number>
   last_run: Run | null
 }
+
+export type DomainStatus = 'candidate' | 'approved' | 'rejected'
+export type DomainProvenance = 'seed' | 'llm' | 'human'
+
+/** One observed outbound domain awaiting review (ADR-040).
+ *  A candidate NEVER reaches the client sheet — only an approved one does. */
+export interface LinkDomain {
+  id: number
+  domain: string
+  status: DomainStatus
+  bucket: string | null
+  provenance: DomainProvenance
+  confidence: number | null
+  reasoning: string
+  anchor_texts: string
+  example_pages: string
+  page_count: number
+  reviewed_by: string | null
+  reviewed_at: string | null
+}
+
+export interface DomainStats {
+  observed: number
+  approved: number
+  rejected: number
+  awaiting_review: number
+  classified: number
+}

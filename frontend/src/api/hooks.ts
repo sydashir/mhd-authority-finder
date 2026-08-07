@@ -4,11 +4,14 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import {
+  getDomainStats,
   getHealth,
   getMe,
   getProspects,
+  getReviewQueue,
   getRuns,
   getStats,
+  patchDomainReview,
   patchOutreach,
   triggerRun,
   type ProspectFilters,
@@ -72,6 +75,33 @@ export function useSetOutreach() {
       // The row's pill + the dashboard's outreach counts both reflect the change.
       void queryClient.invalidateQueries({ queryKey: ['prospects'] })
       void queryClient.invalidateQueries({ queryKey: ['stats'] })
+    },
+  })
+}
+
+
+export function useReviewQueue(params: { limit?: number; offset?: number } = {}) {
+  return useQuery({
+    queryKey: ['domains', 'review', params],
+    queryFn: () => getReviewQueue(params),
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function useDomainStats() {
+  return useQuery({ queryKey: ['domains', 'stats'], queryFn: getDomainStats })
+}
+
+export function useReviewDomain() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (vars: { id: number; approve: boolean; bucket?: string | null }) =>
+      patchDomainReview(vars.id, { approve: vars.approve, bucket: vars.bucket }),
+    onSuccess: () => {
+      // The queue shrinks and the header counts move; an approval also changes what a
+      // future re-classification would put in the sheet, so prospects are refreshed too.
+      void queryClient.invalidateQueries({ queryKey: ['domains'] })
+      void queryClient.invalidateQueries({ queryKey: ['prospects'] })
     },
   })
 }

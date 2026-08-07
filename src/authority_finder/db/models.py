@@ -75,12 +75,35 @@ class OutreachStatus(enum.Enum):
     bounced = "bounced"  # the contact bounced / is invalid
 
 
+class DomainStatus(enum.Enum):
+    """Review state of an observed outbound domain (ADR-040).
+
+    `candidate` is the default and NEVER reaches the client sheet. Only a human moves a
+    domain to `approved`. `rejected` is sticky: a re-classification must not resurrect a
+    domain a human already turned down, or the review queue becomes an endless treadmill.
+    """
+
+    candidate = "candidate"
+    approved = "approved"
+    rejected = "rejected"
+
+
+class DomainProvenance(enum.Enum):
+    """Where a domain's current bucket came from — seed beats llm, human beats both."""
+
+    seed = "seed"  # hand-verified, in the frozensets
+    llm = "llm"  # proposed by the cached per-domain classification
+    human = "human"  # a reviewer decided it in the dashboard
+
+
 # One Enum instance per PG type, reused across columns → one CREATE TYPE each.
 _trust_band = Enum(TrustBand, name="trust_band")
 _source_tag = Enum(SourceTag, name="source_tag")
 _run_status = Enum(RunStatus, name="run_status")
 _geo_level = Enum(GeoLevel, name="geo_level")
 _outreach_status = Enum(OutreachStatus, name="outreach_status")
+_domain_status = Enum(DomainStatus, name="domain_status")
+_domain_provenance = Enum(DomainProvenance, name="domain_provenance")
 
 
 class Run(Base):
@@ -176,3 +199,47 @@ class Prospect(Base):
 
     run: Mapped[Run | None] = relationship(back_populates="prospects")
     geo: Mapped[Geo | None] = relationship(back_populates="prospects")
+
+
+class LinkDomain(Base):
+    """One observed outbound domain and what we believe about it (ADR-040).
+
+    The learning layer's memory. Classification is keyed HERE, per domain, not per page: a
+    domain's identity does not change between the pages that link it, so classifying
+    `drugrehab.com` once and caching it forever is both cheaper and more consistent than
+    asking about it 6 times because 6 pages linked it.
+
+    Nothing in this table reaches the client's sheet unless ``status`` is ``approved``, and
+    only a human sets that. The whole point is that the tool proposes and a person disposes.
+    """
+
+    __tablename__ = "link_domains"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    domain: Mapped[str] = mapped_column(String(253), unique=True, index=True)
+    status: Mapped[DomainStatus] = mapped_column(
+        _domain_status, default=DomainStatus.candidate, server_default="candidate"
+    )
+    # The bucket this domain belongs to, or NULL for "not one of ours". NULL is a real answer
+    # and must stay available — forcing every domain into a bucket is how a crisis line ends
+    # up filed as an addiction directory.
+    bucket: Mapped[str | None] = mapped_column(String(32))
+    provenance: Mapped[DomainProvenance] = mapped_column(
+        _domain_provenance, default=DomainProvenance.llm, server_default="llm"
+    )
+    # 0.0-1.0 from the classifier. Only a confident answer is eligible for promotion.
+    confidence: Mapped[float | None] = mapped_column(Float)
+    reasoning: Mapped[str] = mapped_column(Text, default="", server_default="")
+    # How many distinct prospect pages link this domain. The promotion bar needs 2+, because
+    # a single page linking something is as likely to be an accident as a signal.
+    page_count: Mapped[int] = mapped_column(default=0, server_default="0")
+    # Newline-separated anchor texts observed in the wild — the reviewer's main evidence.
+    anchor_texts: Mapped[str] = mapped_column(Text, default="", server_default="")
+    # Newline-separated page URLs the domain was seen on, capped for display.
+    example_pages: Mapped[str] = mapped_column(Text, default="", server_default="")
+    reviewed_by: Mapped[str | None] = mapped_column(String(320))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

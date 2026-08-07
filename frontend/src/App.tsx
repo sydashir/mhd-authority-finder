@@ -3,6 +3,7 @@ import { useMe } from './api/hooks'
 import { Landing } from './components/landing/Landing'
 import { Logo } from './components/Logo'
 import { ProspectsScreen } from './components/ProspectsScreen'
+import { ReviewScreen } from './components/ReviewScreen'
 import { RunsScreen } from './components/RunsScreen'
 import { Sidebar, type View } from './components/Sidebar'
 import { Toast, type ToastData } from './components/Toast'
@@ -38,10 +39,12 @@ function App() {
         onToggleTheme={toggle}
         user={me.data}
       />
-      {view === 'prospects' ? (
-        <ProspectsScreen notify={setToast} />
-      ) : (
-        <RunsScreen notify={setToast} />
+      {view === 'prospects' && <ProspectsScreen notify={setToast} />}
+      {view === 'runs' && <RunsScreen notify={setToast} />}
+      {view === 'review' && (
+        <main className="flex-1 overflow-auto px-6 py-5">
+          <ReviewScreen notify={setToast} />
+        </main>
       )}
       <Toast toast={toast} onClose={() => setToast(null)} />
     </div>
