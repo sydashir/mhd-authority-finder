@@ -1950,3 +1950,58 @@ took the second batch to **$0.5675** for 2,077 domains, against ~$3.69 to do all
   evidence, and fetching it for 10,825 domains to display 24 would be waste.
 - `link_checker.llm_classify` was initially reachable only from a script. The module
   reachability guard failed, correctly — it is now a real `classify-domains` CLI command.
+
+## ADR-041
+
+**A category column is the full list; Competitor Links is a subset flag over it**
+
+*Session 57 (2026-08-07). Corrects the presentation established in ADR-039.*
+
+### Context
+
+The client read `Competitor Links: samhsa.gov; addictionresource.net` beside
+`Addiction Directories: drugrehab.com; alcoholrehabguide.org` and concluded the tool kept two
+unrelated universes of addiction directories, split for no reason he could see. He had asked
+for "a full list of domains to look for" that grows — not a frozen 16 plus a separate bucket.
+
+He was reading a real problem, though not quite the one he described. `ADDICTION_DIRECTORIES`
+is built as `COMPETITOR_DOMAINS | _VERIFIED_ADDITIONS`, so on any live crawl the category
+already contained the flag. But that superset held **by accident**, not by construction, and
+re-classification broke it: rebuilding categories from stored `outbound_domains` left **5 rows**
+whose re-crawl had failed with a competitor domain in the flag column and `—` in its category.
+`osceolacountyia.gov` told the client it linked to no directory in one column while naming
+samhsa.gov in the next.
+
+### Decision
+
+**Each category column carries everything in that category** — the brief's 16, every directory
+verified since, and anything a human later approves from the review queue. This is the growing
+list the client asked for.
+
+**Competitor Links stays exactly the named 16**, so the brief's original question ("do they
+already link to one of OUR competitors?") remains answerable. It is a subset flag over
+Addiction Directories, not a fourth category.
+
+**The relationship is enforced structurally.** A single shared `build_link_columns` unions the
+competitor domains into their category, and both the pipeline and the re-classification path
+call it. Two independent assemblers is what let them drift; there is now one.
+
+**A row whose crawl failed keeps its evidence.** When stored domains are empty but competitor
+links survive from an earlier run, the category is built from the competitor evidence rather
+than blanked. Failing to reach a page is not evidence its links are absent — the same rule that
+governs the backfill.
+
+### The legend is generated, not maintained
+
+The "How to read this" tab was written by a one-off script and then hand-edited, so it had
+fallen four columns behind the sheet: it documented 15 of 19, and said nothing about the very
+columns causing the confusion. It is now derived from `OUTPUT_HEADER` by
+`output/guide.py`, with tests that fail if any column lacks an entry or any entry names a
+column that no longer exists. It explains the subset relationship explicitly.
+
+### Consequences
+
+- Addiction Directories rows 271 → **276**; the 5 contradictory rows are consistent.
+- The superset invariant is verified across the whole dataset: 265 rows carry a competitor
+  domain, **0 violate it**.
+- Competitor Links is unchanged on every row — the contractual column keeps its exact meaning.

@@ -1,66 +1,64 @@
-"""The pipeline's mapping from a LinkCheckResult to the four new cells (ADR-039).
+"""The pipeline must assemble link cells through the SHARED builder (ADR-041).
 
-This is the join the field-path guard cannot see: the guard proves the columns EXIST all the
-way to the database, this proves the pipeline actually puts the right values in them. The
-domain_rating bug lived in exactly that gap — accepted as a parameter, never assigned.
+`build_link_columns` is unit-tested in tests/link_checker/test_columns.py. What that cannot
+see is whether the pipeline actually calls it — and the reason this matters is a measured
+defect: the pipeline and the re-classification path each built these cells their own way, so
+5 rows ended up with a competitor domain in the flag column and nothing in its category.
+
+These tests pin the join, not the arithmetic.
 """
 
-from datetime import UTC, datetime
+import inspect
 
-from pydantic import HttpUrl
-
-from authority_finder.discovery.models import CandidateSite, GeoRef
-from authority_finder.link_checker.models import LinkCheckResult, OutboundLink
-from authority_finder.pipeline import _link_class_cells  # pyright: ignore[reportPrivateUsage]
-
-GEO = GeoRef(site_id="mhd", url="https://x/serving/california/", level="state", state="california")
+from authority_finder import pipeline
+from authority_finder.link_checker.columns import build_link_columns
+from authority_finder.output.models import OutputRow
 
 
-def _result(*domains: str, page: str = "https://ucr.edu/resources") -> LinkCheckResult:
-    return LinkCheckResult(
-        candidate=CandidateSite(
-            registrable_domain="ucr.edu",
-            url=HttpUrl("https://ucr.edu/"),
-            title="UC Riverside",
-            domain_class="edu",
-            geo=GEO,
-            source_queries=["q"],
-            discovered_at=datetime.now(UTC),
-        ),
-        outbound_links=[
-            OutboundLink(domain=d, found_on_url=page, anchor_text=d, link_url=f"https://{d}/")
-            for d in domains
-        ],
-    )
+class TestThePipelineUsesTheSharedBuilder:
+    def test_it_imports_and_calls_build_link_columns(self) -> None:
+        source = inspect.getsource(pipeline)
+        assert "build_link_columns" in source, "the pipeline must not hand-roll these cells"
 
+    def test_it_does_not_hand_assemble_the_competitor_cell(self) -> None:
+        """The old line was `"; ".join(link_result.competitor_domains) or "—"`.
 
-def test_each_class_lands_in_its_own_cell() -> None:
-    cells = _link_class_cells(_result("drugrehab.com", "psychologytoday.com", "aa.org"))
-    assert cells["addiction_directories"] == "drugrehab.com"
-    assert cells["mental_health_directories"] == "psychologytoday.com"
-    assert cells["support_groups"] == "aa.org"
+        Keeping it would let the flag be written without its category ever being unioned.
+        """
+        source = inspect.getsource(pipeline.run_pipeline)
+        assert "join(link_result.competitor_domains)" not in source
 
+    def test_the_builder_feeds_every_link_field_on_the_row(self) -> None:
+        """Every key the builder emits must be a real OutputRow field, or it is dropped."""
+        produced = build_link_columns(
+            competitor_domains=[], bucketed={}, support_group_pages=[], all_domains=[]
+        )
+        for key in produced:
+            assert key in OutputRow.model_fields, f"{key!r} is not an OutputRow field"
 
-def test_an_empty_class_reads_as_a_dash_and_provenance_stays_blank() -> None:
-    cells = _link_class_cells(_result("weather.gov"))
-    assert cells["addiction_directories"] == "—"
-    assert cells["mental_health_directories"] == "—"
-    assert cells["support_groups"] == "—"
-    assert cells["support_groups_found_on"] == ""
-
-
-def test_support_group_provenance_names_the_page() -> None:
-    cells = _link_class_cells(_result("aa.org", page="https://ucr.edu/self-help"))
-    assert cells["support_groups_found_on"] == "https://ucr.edu/self-help"
-
-
-def test_every_outbound_domain_is_kept_including_the_unclassified() -> None:
-    """The raw store is what makes a later seed widening a database pass, not a re-crawl."""
-    cells = _link_class_cells(_result("aa.org", "nami.org", "weather.gov"))
-    assert cells["outbound_domains"] == "aa.org; nami.org; weather.gov"
-
-
-def test_domains_are_deduped_and_sorted() -> None:
-    cells = _link_class_cells(_result("na.org", "aa.org", "na.org"))
-    assert cells["support_groups"] == "aa.org; na.org"
-    assert cells["outbound_domains"] == "aa.org; na.org"
+    def test_the_row_carries_a_cell_for_each_link_field(self) -> None:
+        """Guards the reverse: a builder key silently missing from the deliverable."""
+        produced = build_link_columns(
+            competitor_domains=["samhsa.gov"],
+            bucketed={},
+            support_group_pages=[],
+            all_domains=["samhsa.gov"],
+        )
+        row = OutputRow(
+            website="x.edu",
+            specific_page="https://x.edu/",
+            email="",
+            phone="",
+            contact_source="",
+            contact_trust="low",
+            organization_description="",
+            geo_served="California",
+            population=None,
+            source_tag="MHD",
+            date_added="2026-08-07",
+            confidence="low",
+            **produced,
+        )
+        assert row.competitor_links == "samhsa.gov"
+        # The whole point of ADR-041: the flag is visible in its category too.
+        assert row.addiction_directories == "samhsa.gov"

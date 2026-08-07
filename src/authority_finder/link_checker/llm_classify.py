@@ -23,7 +23,7 @@ does not matter for something cached forever.
 import asyncio
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 from anthropic import AsyncAnthropic
@@ -42,6 +42,9 @@ THINKING: dict[str, str] = {"type": "disabled"}
 # Sonnet 5 list price per million tokens, halved for the Batch API.
 _INPUT_PER_MTOK = 3.0 / 2
 _OUTPUT_PER_MTOK = 15.0 / 2
+
+if TYPE_CHECKING:
+    from anthropic.types.message_create_params import MessageCreateParamsNonStreaming
 
 _log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -131,13 +134,14 @@ def parse_verdicts(text: str, *, expected: list[str]) -> list[DomainVerdict]:
     wanted = set(expected)
     seen: set[str] = set()
     out: list[DomainVerdict] = []
-    for item in raw:  # pyright: ignore[reportUnknownVariableType]
-        if not isinstance(item, dict):
+    for element in raw:  # pyright: ignore[reportUnknownVariableType]
+        if not isinstance(element, dict):
             continue
-        domain = str(item.get("domain", "")).strip().lower()  # pyright: ignore[reportUnknownArgumentType]
+        item: dict[str, object] = {str(k): v for k, v in element.items()}  # pyright: ignore[reportUnknownArgumentType, reportUnknownVariableType]
+        domain = str(item.get("domain", "")).strip().lower()
         if domain not in wanted or domain in seen:
             continue
-        bucket = str(item.get("bucket", "unknown")).strip()  # pyright: ignore[reportUnknownArgumentType]
+        bucket = str(item.get("bucket", "unknown")).strip()
         if bucket not in {
             "addiction_directory",
             "mental_health_directory",
@@ -146,7 +150,7 @@ def parse_verdicts(text: str, *, expected: list[str]) -> list[DomainVerdict]:
         }:
             bucket = "unknown"
         try:
-            confidence = float(item.get("confidence", 0.0))  # pyright: ignore[reportUnknownArgumentType]
+            confidence = float(item.get("confidence", 0.0))  # pyright: ignore[reportArgumentType]
         except (TypeError, ValueError):
             confidence = 0.0
         seen.add(domain)
@@ -155,7 +159,7 @@ def parse_verdicts(text: str, *, expected: list[str]) -> list[DomainVerdict]:
                 domain=domain,
                 bucket=bucket,
                 confidence=max(0.0, min(1.0, confidence)),
-                reasoning=str(item.get("reasoning", ""))[:300],  # pyright: ignore[reportUnknownArgumentType]
+                reasoning=str(item.get("reasoning", ""))[:300],
             )
         )
     return out
@@ -217,13 +221,16 @@ async def classify_domains_batch(
         requests=[
             Request(
                 custom_id=f"chunk-{i}",
-                params={
-                    "model": MODEL,
-                    "max_tokens": MAX_TOKENS,
-                    "system": SYSTEM_PROMPT,
-                    "thinking": THINKING,
-                    "messages": [{"role": "user", "content": "\n".join(chunk)}],
-                },
+                params=cast(
+                    "MessageCreateParamsNonStreaming",
+                    {
+                        "model": MODEL,
+                        "max_tokens": MAX_TOKENS,
+                        "system": SYSTEM_PROMPT,
+                        "thinking": THINKING,
+                        "messages": [{"role": "user", "content": "\n".join(chunk)}],
+                    },
+                ),
             )
             for i, chunk in enumerate(chunks)
         ]

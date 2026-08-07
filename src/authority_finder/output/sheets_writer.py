@@ -21,6 +21,7 @@ from googleapiclient import discovery
 from pydantic import BaseModel
 
 from authority_finder.output.csv_writer import dedupe_and_sort
+from authority_finder.output.guide import GUIDE_TAB, build_guide_rows
 from authority_finder.output.models import OUTPUT_HEADER, OutputRow
 
 # The google client ships no type stubs; alias the modules through Any so the
@@ -270,6 +271,25 @@ class SheetsWriter:
         if status == HTTPStatus.TOO_MANY_REQUESTS:
             return SheetsError("429 — Sheets API quota exceeded; retry with backoff")
         return SheetsError(f"Sheets API call failed: {exc}")
+
+    def sync_guide(self) -> int:
+        """Rewrite the "How to read this" tab from OUTPUT_HEADER. Returns rows written.
+
+        Lives beside the writer on purpose: the legend describes the columns this class emits,
+        so the two move together. The previous legend was maintained by hand and fell four
+        columns behind the sheet it described (ADR-041).
+        """
+        rows = build_guide_rows()
+        values = self._service().spreadsheets().values()
+        values.clear(spreadsheetId=self._sheet_id, range=f"'{GUIDE_TAB}'!A1:Z200").execute()
+        values.update(
+            spreadsheetId=self._sheet_id,
+            range=f"'{GUIDE_TAB}'!A1",
+            valueInputOption="RAW",
+            body={"values": rows},
+        ).execute()
+        _log.info("sheets.guide_synced", rows=len(rows), columns=len(OUTPUT_HEADER))
+        return len(rows)
 
 
 def is_safe_header_change(existing_header: list[str], target: list[str]) -> bool:

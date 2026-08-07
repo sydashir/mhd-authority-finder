@@ -53,6 +53,7 @@ from authority_finder.logging import configure as configure_logging
 from authority_finder.monitoring import init_sentry
 from authority_finder.output.blocked_writer import write_blocked
 from authority_finder.output.csv_writer import write_csv
+from authority_finder.output.models import OUTPUT_HEADER
 from authority_finder.output.sheets_writer import SheetsWriter
 from authority_finder.page_detector.models import DetectionResult
 from authority_finder.page_detector.orchestrator import detect_for_geo
@@ -765,6 +766,21 @@ def create_user(username: str, password: str) -> None:
         raise click.ClickException("username cannot be blank")
     click.echo("\nAdd this to AUTH_USERS in your .env (comma-separate multiple users):\n")
     click.echo(f"{name}:{hash_password(password)}\n")
+
+
+@cli.command("sync-guide")
+def sync_guide() -> None:
+    """Rewrite the master Sheet's "How to read this" tab from OUTPUT_HEADER (ADR-041).
+
+    Safe to re-run. Run it after any column change — the legend is generated, so it cannot
+    drift behind the sheet the way the hand-maintained one did.
+    """
+    settings = get_settings()
+    writer = SheetsWriter(
+        credentials_path=settings.google_sheets_credentials_path,
+        spreadsheet_id=settings.google_sheet_id,
+    )
+    click.echo(f"wrote {writer.sync_guide()} legend rows for {len(OUTPUT_HEADER)} columns")
 
 
 @cli.command("classify-domains")

@@ -31,6 +31,8 @@ from authority_finder.geo_monitor.membership import (
     key_for,
 )
 from authority_finder.geo_monitor.models import GeoPage
+from authority_finder.link_checker.classify import LinkClass
+from authority_finder.link_checker.columns import build_link_columns
 from authority_finder.link_checker.models import LinkCheckResult
 from authority_finder.link_checker.orchestrator import check_links_for_candidate
 from authority_finder.output.blocked_writer import BlockedCandidate, collect_blocked
@@ -151,21 +153,6 @@ async def _merge_authority_candidates(
     return domain_ratings
 
 
-def _link_class_cells(result: LinkCheckResult) -> dict[str, str]:
-    """The four new sheet cells plus the DB-only raw domain list (ADR-039).
-
-    ``"—"`` for a class with no hits, matching how Competitor Links has always read; the
-    provenance cell stays blank instead, because a dash there would read as a finding.
-    """
-    return {
-        "addiction_directories": "; ".join(result.addiction_directories) or "—",
-        "mental_health_directories": "; ".join(result.mental_health_directories) or "—",
-        "support_groups": "; ".join(result.support_groups) or "—",
-        "support_groups_found_on": "; ".join(result.support_groups_found_on),
-        "outbound_domains": "; ".join(sorted({link.domain for link in result.outbound_links})),
-    }
-
-
 def _source_tag(membership: SiteMembership, geo: GeoRef) -> str:
     """Source Tag from the sitemaps, falling back to the geo's own site if it is unlisted.
 
@@ -236,7 +223,16 @@ async def run_pipeline(
         with_phone += extraction.with_phone
         geo_rows: list[OutputRow] = []
         for outcome, link_result in zip(extraction.outcomes, link_results, strict=True):
-            cell = "; ".join(link_result.competitor_domains) or "—"
+            link_cells = build_link_columns(
+                competitor_domains=link_result.competitor_domains,
+                bucketed={
+                    LinkClass.addiction_directory: link_result.addiction_directories,
+                    LinkClass.mental_health_directory: link_result.mental_health_directories,
+                    LinkClass.support_group: link_result.support_groups,
+                },
+                support_group_pages=link_result.support_groups_found_on,
+                all_domains=[link.domain for link in link_result.outbound_links],
+            )
             # Specific Page must be the page the client should OPEN. When the competitor
             # links live on the resources hop rather than the contact page, that hop is the
             # page he needs, and the contact page moves to its own column (ADR-036).
@@ -248,12 +244,11 @@ async def run_pipeline(
                 outcome,
                 population=population,
                 now=now,
-                competitor_links=cell,
                 domain_rating=domain_ratings.get(outcome.candidate.registrable_domain),
                 specific_page=specific_page,
                 contact_found_on=contact_found_on,
                 source_tag=_source_tag(membership, discovery.geo),
-                **_link_class_cells(link_result),
+                **link_cells,
             )
             rows.append(row)
             geo_rows.append(row)

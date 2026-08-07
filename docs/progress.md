@@ -1918,3 +1918,39 @@ OUTPUT_HEADER, trust-first order intact, Postgres == Sheet. Addiction 271 / MH 2
 
 **Next:** work the 24-item review queue; classifying the remaining 8,694 single-page domains
 costs ~$3 if ever wanted.
+
+## Session 57 (2026-08-07) — Category columns are the full list (ADR-041)
+
+**The client's complaint was right, and pointed at a real defect.** He read
+`Competitor Links: samhsa.gov` beside `Addiction Directories: drugrehab.com` as two unrelated
+universes. `ADDICTION_DIRECTORIES` was already `COMPETITOR_DOMAINS | additions`, so on a live
+crawl the category DID contain the flag — but that held **by accident**, not construction.
+Re-classification from stored domains broke it: **5 rows** whose S54 re-crawl failed kept their
+competitor evidence while the category went blank. `osceolacountyia.gov` said it linked to no
+directory in one column while naming samhsa.gov in the next.
+
+**Fix — one shared assembler.** New `link_checker/columns.py::build_link_columns` unions the
+competitor domains INTO their category, and both the pipeline and the re-classification path
+call it. Two independent assemblers is what let them drift; there is now one. A row with no
+stored domains but surviving competitor evidence keeps its category rather than being blanked
+(same rule as the backfill: failing to reach a page is not evidence its links are absent).
+
+**Result:** Addiction Directories **271 → 276**. Superset invariant verified across the whole
+dataset — 265 rows carry a competitor domain, **0 violate it** (was 5). Competitor Links
+unchanged on every row; the contractual column keeps its exact meaning as a subset flag.
+
+**The legend is now generated.** The "How to read this" tab had been written by a one-off
+script then hand-maintained, and had fallen four columns behind — documenting 15 of 19, saying
+nothing about the columns causing the confusion. New `output/guide.py` derives it from
+`OUTPUT_HEADER`; tests fail if any column lacks an entry or any entry names a column that no
+longer exists. It explains the subset relationship explicitly ("A domain in Competitor Links
+will ALWAYS also appear in Addiction Directories") and that the lists grow only via human
+approval. Now **19/19 documented**, 32 rows.
+
+**Reachability guard fired again** (8th instance) on `output/guide.py` being script-only →
+`SheetsWriter.sync_guide()` + `cli sync-guide`. Verified live: "wrote 32 legend rows for 19
+columns".
+
+Sheet re-exported: 2,237 rows × 19 cols, header == OUTPUT_HEADER, Postgres == Sheet,
+0 outreach and 0 competitor_links rows changed, 2,237/2,237 not_contacted.
+897 backend + 43 frontend tests; ruff/pyright/tsc/build clean.
