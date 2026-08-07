@@ -1781,3 +1781,67 @@ organisation and is unchanged either way, while the contact grade is what the re
 
 Live result: high rows 2–124, medium 125–722, low 723–2238; the Trust column is monotonic top to
 bottom, and within every band the linked rows lead.
+
+## ADR-039
+
+**Capture every outbound link; classify against verified seed lists; leave the contractual
+column alone**
+
+*Session 54 (2026-08-07). Supersedes nothing; extends ADR-011.*
+
+### Context
+
+The client asked why a resource page full of directory links reported only one of them. The
+cause was structural rather than a tuning miss: `find_competitor_links` matched against
+`COMPETITOR_DOMAINS` **inside the capture loop**, so every outbound domain outside the brief's
+16 was discarded before anything was persisted. `drugrehab.com` is not one of the 16, so no
+amount of re-querying the database could answer the question — the data never existed. This is
+the same class of defect as ADR-032: information the crawler held and threw away.
+
+### Decision
+
+**1. Capture is unfiltered.** `find_outbound_links` keeps every external link; the competitor
+check became a filter over that result. Every distinct outbound domain is persisted per
+prospect in `outbound_domains`. Widening a seed list is now a database pass, not another crawl.
+
+**2. Matching is exact registrable-domain, never substring.** Measured on the delivered corpus,
+62 domains contain "aa" and 103 contain "na" in their label. `aaaphx.org` and `aaact.org` are
+Area Agencies on Aging — the client's own target prospects. A substring rule would have
+misfired on 165 real rows.
+
+**3. Seeds are verified live, not harvested from client pages.** Two domains appearing on the
+client's own resources page are deliberately absent: `alateen.org` refuses connections, and
+`recovery-inc.org` is an unrelated UK content site rather than Recovery International. A
+harvesting approach would have adopted both. Four further candidates (`coda.org`, `oa.org`,
+`nicotine-anonymous.org`, `slaafws.org`) are live but bot-blocked, so they are held back
+pending a human check rather than seeded on assumption.
+
+**4. Unknown is a real answer.** Crisis lines (`988lifeline.org`), general directories
+(`211.org`) and advocacy bodies (`nami.org`) are left unclassified. Whether they belong in a
+bucket is a specification question for the client, and a guess there would be indistinguishable
+from a finding.
+
+**5. Competitor Links does not change meaning.** It is a delivered, contractual column: the
+brief's 16 and nothing else. The wider classes get four NEW append-only columns
+(Addiction Directories / Mental Health Directories / Support Groups / Support Groups Found On)
+rather than a silent widening of a column the client has already read and acted on.
+
+**6. A list, not a classifier — for now.** 91.6% of observed domains are singletons and the
+recognisable entities are a small, stable set. A seed list is byte-reproducible and cannot
+drift between runs; a model cannot offer either property. The learner earns its place on the
+long tail, not here.
+
+### Consequences
+
+- `MAX_LINKS` truncation is now recorded (`PageContent.links_truncated`). It was previously an
+  invisible recall ceiling: a page whose 501st link was the one we wanted looked identical to a
+  page that never had it.
+- `outbound_domains` is persisted but never published — hundreds of domains per row would be
+  noise in the client's sheet. The field-path guard was extended to permit a DB-only field while
+  still requiring it to reach the database, so opting out of the sheet cannot become a dead end.
+- The backfill re-crawls only pages already named in the deliverable. A row whose pages fail to
+  fetch keeps its existing values rather than being blanked: a failure to reach a page is not
+  evidence its links are absent (the lesson from the `osceolacountyia.gov` WAF incident).
+- The mental-health bucket ships with two seeds. `goodtherapy.org`, `zencare.co` and
+  `whatclinic.com` answer 403/202 to any automated client, so their identity was never
+  confirmed. Thin and true beats padded and guessed.
