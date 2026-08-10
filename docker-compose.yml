@@ -27,6 +27,16 @@ services:
       retries: 10
 
   scheduler:
+    # DISABLED 2026-08-10. The client re-laid out the master Sheet (inserted a column, which
+    # shifted Geo Served off the index the writer reads positionally, and added two formula
+    # columns). Until the writer is name-based and writes to its own tab, an automatic run
+    # either fails after Postgres has already advanced — leaving DB and Sheet diverged — or,
+    # on a large enough run, rewrites the tab and silently breaks his formulas.
+    #
+    # The profile is the disarm: `docker compose up -d` will NOT start this service. It takes
+    # an explicit `docker compose --profile scheduler up -d` to bring it back, so nothing
+    # fires by accident. Remove this profiles block to re-enable.
+    profiles: ["scheduler"]
     build: .
     image: mhd-authority-finder:latest
     restart: unless-stopped
